@@ -3740,3 +3740,23 @@ The requested native ReadyPackets mobile application foundation has been impleme
 ---
 
 *This session record is being committed to the ReadyPackets GitHub repository in accordance with the standing project instruction.*
+
+## 2026-08-22 — SharePoint folder creation structure designer
+
+**User request:** Add a method in the administrator panel to modify the SharePoint folder creation structure.
+
+**Implementation:**
+
+- Added an administrator-only **SharePoint folder creation structure** editor under **Admin → Integrations → Phase Kickoff** for Phase I, Phase II, In Production, and Delivered.
+- The editor exposes each phase’s effective relative folder-path template, supports add/remove/edit actions, shows the configured SharePoint base/customer/order preview, saves custom templates, and restores ReadyPackets’ documented defaults.
+- The established base folder remains configurable in the SharePoint settings panel. ReadyPackets continues to own the managed customer/order path below that base: `{base}/customers/{customerId}/orders/{orderNumber}`. This prevents configuration from bypassing opaque customer/order organization or creating duplicate customer identity roots.
+- Added `normalizeSharePointFolderTemplate` server validation: maximum 32 entries, normalized separators, no empty/traversal paths, supported SharePoint folder characters only, and case-insensitive duplicate rejection. Validation is enforced server-side before persistence.
+- Added protected `integrations.phaseKickoffFolderTemplates` query so the administration panel receives effective default/custom structures without Graph credentials or order/customer-specific data.
+- Existing SharePoint folders are not renamed, moved, or deleted. Modified templates are applied idempotently when future phase-folder jobs create missing folders. Workflow-stage document/audio destinations remain independently configurable in Order Workflows.
+
+**Validation and deployment:**
+
+- Focused tests passed: 8/8 across SharePoint root-path and folder-template validation cases.
+- TypeScript check and production server/client builds passed.
+- Deployed server/client release to production `myportal.readypackets.com` with checksum verification and rollback copies at `/opt/readypackets/rollback-20260822175857-sharepoint-folder-structure` plus the previous client asset directory.
+- Production service is active; public health returned `{"status":"ok"}` and readiness returned `{"status":"ready"}`.

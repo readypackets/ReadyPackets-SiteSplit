@@ -1,0 +1,18 @@
+flowchart LR
+  R[Approved release requirements] --> UX[Accessible native UX\nSwiftUI / Compose]
+  UX --> IOS[iOS build\nXcode Cloud or managed macOS CI]
+  UX --> AND[Android build\nGradle managed CI]
+  IOS --> IT[Unit, UI, accessibility, security tests]
+  AND --> AT[Unit, UI, accessibility, security tests]
+  IT --> IB[Signed iOS archive]
+  AT --> AB[Signed Android App Bundle]
+  IB --> TF[TestFlight internal then external testing]
+  AB --> PC[Play Console internal then closed testing]
+  TF --> RVC[Release candidate review]
+  PC --> RVC
+  RVC --> META[Store metadata, privacy/data safety, deletion path, support URL, screenshots]
+  META --> APPLE[App Store Connect submission]
+  META --> GOOGLE[Google Play production rollout]
+  APPLE --> MON[Crash, security, API, and business monitoring]
+  GOOGLE --> MON
+  MON --> R

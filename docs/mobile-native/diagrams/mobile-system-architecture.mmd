@@ -1,0 +1,51 @@
+flowchart TB
+  People[Customers, staff, and authorized administrators]
+
+  subgraph Mobile[Native mobile applications]
+    direction LR
+    IOS[iOS\nSwiftUI + Swift Concurrency] --> IOSSEC[Keychain + LocalAuthentication]
+    AND[Android\nKotlin + Jetpack Compose] --> ANDSEC[Android Keystore + BiometricPrompt]
+  end
+
+  subgraph Edge[Self-hosted ReadyPackets edge]
+    direction LR
+    CF[Cloudflare\nDNS proxy, WAF, DDoS controls] --> NGINX[nginx\nTLS, CSP, rate limits]
+  end
+
+  subgraph Backend[ReadyPackets self-hosted backend]
+    direction TB
+    API[Mobile API /api/mobile/v1\nOAuth 2.1 + PKCE token service] --> BFF[Mobile BFF modules\nDTOs, pagination, idempotency]
+    BFF --> JOBS[Background workers\nnotifications, webhooks, sync]
+    BFF --> AUDIT[Security and activity logging]
+    WEB[Existing web tRPC API\nCookie + CSRF sessions]
+  end
+
+  subgraph Data[ReadyPackets controlled data]
+    direction LR
+    MYSQL[(MySQL 8\nusers, orders, workflows, logs)]
+    STORE[Local or S3-compatible storage\ndocuments, audio, invoices]
+    CONFIG[Encrypted environment/configuration\nkeys remain server-only]
+  end
+
+  subgraph Providers[Constrained external providers]
+    direction LR
+    APNS[Apple Push Notification service]
+    FCM[Firebase Cloud Messaging]
+    ENTRA[Microsoft Entra ID\nSAML through system browser]
+    STRIPE[Stripe\npayment state only]
+    SHAREPOINT[Microsoft Graph / SharePoint]
+  end
+
+  People --> IOS
+  People --> AND
+  IOS -->|HTTPS + OAuth token| CF
+  AND -->|HTTPS + OAuth token| CF
+  NGINX --> API
+  BFF --> MYSQL
+  BFF --> STORE
+  API --> CONFIG
+  JOBS --> APNS
+  JOBS --> FCM
+  BFF --> STRIPE
+  BFF --> SHAREPOINT
+  API -. SSO authorization .-> ENTRA

@@ -1,0 +1,31 @@
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant M as Native App
+  participant B as System Browser
+  participant A as ReadyPackets Authorization Server
+  participant I as Entra ID (optional)
+  participant API as ReadyPackets Mobile API
+  participant D as Session & Device Store
+
+  U->>M: Select Sign in
+  M->>M: Generate PKCE verifier, challenge, state, nonce
+  M->>B: Start authorization request
+  B->>A: GET /authorize (PKCE challenge, redirect URI)
+  alt Local ReadyPackets account
+    A->>U: Present hosted sign-in and MFA
+  else Entra SAML account
+    A->>I: Redirect to enterprise SSO
+    I->>A: Validated SAML assertion
+    A->>U: Apply ReadyPackets MFA policy where required
+  end
+  A->>B: Redirect to claimed app link with authorization code and state
+  B->>M: Return to verified universal/app link
+  M->>A: POST /token (code + PKCE verifier)
+  A->>D: Create device-bound refresh-token family and session record
+  A-->>M: Short-lived access token + rotated refresh token
+  M->>M: Store refresh token in Keychain or Keystore and keep access token in memory
+  M->>API: HTTPS request + Bearer access token + idempotency key where required
+  API->>D: Validate token, device, MFA state, role, and revocation status
+  API-->>M: Authorized, versioned response DTO
+  Note over M,API: Refresh rotation detects reuse and revokes the token family

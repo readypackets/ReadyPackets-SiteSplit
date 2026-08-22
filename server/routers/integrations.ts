@@ -19,7 +19,7 @@ import { adminProcedure, staffProcedure, router } from "../trpc/trpc.js";
 import { TRPCError } from "@trpc/server";
 import { encryptField, decryptField } from "../security/crypto.js";
 import { env } from "../config/env.js";
-import { browseSharePointFolders, discoverSharePointConfig, normalizeSharePointRootFolderPath, runPhaseKickoff, resetGraphTokenCache, testSharePointConnection } from "../services/sharepoint.js";
+import { browseSharePointFolders, DEFAULT_FOLDER_TEMPLATES, discoverSharePointConfig, normalizeSharePointFolderTemplate, normalizeSharePointRootFolderPath, runPhaseKickoff, resetGraphTokenCache, testSharePointConnection } from "../services/sharepoint.js";
 import { disconnectDelegatedSharePointIdentity, getDelegatedSharePointStatus, startDelegatedSharePointAuthorization } from "../services/sharepointDelegatedAuth.js";
 import { getSetting, setSetting } from "../services/settings.js";
 import { recordActivity } from "../observability/audit.js";
@@ -256,6 +256,31 @@ export const integrationsRouter = router({
       .orderBy(phaseKickoffConfigs.phase);
   }),
 
+  /**
+   * Returns the effective phase-relative folder structure without exposing Graph
+   * credentials or allowing a client to infer a specific customer/order path.
+   */
+  phaseKickoffFolderTemplates: adminProcedure.query(async () => {
+    const configured = await db
+      .select({ phase: phaseKickoffConfigs.phase, folderTemplate: phaseKickoffConfigs.folderTemplate })
+      .from(phaseKickoffConfigs);
+    const byPhase = new Map(configured.map((row) => [row.phase, row.folderTemplate]));
+    return Object.entries(DEFAULT_FOLDER_TEMPLATES).map(([phase, defaultTemplate]) => {
+      const configuredTemplate = byPhase.get(phase);
+      let folderTemplate = defaultTemplate;
+      let source: "default" | "custom" | "invalid" = "default";
+      if (Array.isArray(configuredTemplate)) {
+        try {
+          folderTemplate = normalizeSharePointFolderTemplate(configuredTemplate.map(String));
+          source = "custom";
+        } catch {
+          source = "invalid";
+        }
+      }
+      return { phase, folderTemplate, source };
+    });
+  }),
+
   upsertPhaseKickoffConfig: adminProcedure
     .input(
       z.object({
@@ -279,9 +304,22 @@ export const integrationsRouter = router({
         .from(phaseKickoffConfigs)
         .where(eq(phaseKickoffConfigs.phase, input.phase))
         .limit(1);
+      let folderTemplate: string[] | null;
+      try {
+        folderTemplate = input.folderTemplate === undefined
+          ? (existing?.folderTemplate as string[] | null | undefined) ?? null
+          : input.folderTemplate === null
+            ? null
+            : normalizeSharePointFolderTemplate(input.folderTemplate);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : "The SharePoint folder template is invalid.",
+        });
+      }
       const data = {
         createFolders: input.createFolders,
-        folderTemplate: input.folderTemplate === undefined ? existing?.folderTemplate ?? null : input.folderTemplate,
+        folderTemplate,
         attachPlaceholders: input.attachPlaceholders,
         notifyCustomer: input.notifyCustomer,
         notifyWebhooks: input.notifyWebhooks,
@@ -297,7 +335,7 @@ export const integrationsRouter = router({
         const result = await db.insert(phaseKickoffConfigs).values({ ...data, phase: input.phase });
         id = Number((result as unknown as { insertId?: number }).insertId ?? 0) || undefined;
       }
-      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "integration.phase_kickoff_updated", entityType: "phase_kickoff_config", entityId: id, summary: `Administrator updated Phase Kickoff configuration for ${input.phase}`, changes: { createFolders: data.createFolders, attachPlaceholders: data.attachPlaceholders, notifyCustomer: data.notifyCustomer, notifyWebhooks: data.notifyWebhooks, completionPercent: data.completionPercent, enabled: data.enabled }, ipAddress: ctx.clientIp });
+      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "integration.phase_kickoff_updated", entityType: "phase_kickoff_config", entityId: id, summary: `Administrator updated Phase Kickoff configuration for ${input.phase}`, changes: { createFolders: data.createFolders, folderTemplateCount: data.folderTemplate?.length ?? 0, attachPlaceholders: data.attachPlaceholders, notifyCustomer: data.notifyCustomer, notifyWebhooks: data.notifyWebhooks, completionPercent: data.completionPercent, enabled: data.enabled }, ipAddress: ctx.clientIp });
       return { ok: true as const, id: id ?? null };
     }),
 

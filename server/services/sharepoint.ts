@@ -627,12 +627,31 @@ function workflowStageKeyForPhase(phase: string): string {
   return phase === "phase_1" ? "phase_1_intake" : phase === "phase_2" ? "phase_2_synthesis" : phase;
 }
 
-function normalizeSharePointRelativePath(value: string): string {
+export function normalizeSharePointRelativePath(value: string): string {
   const normalized = value.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  if (!normalized || normalized.length > 240 || normalized.includes("..")) throw new Error("The SharePoint stage destination must be a relative folder path without dot segments.");
+  if (!normalized || normalized.length > 240 || normalized.includes("..")) throw new Error("The SharePoint folder path must be relative and cannot contain dot segments.");
   const segments = normalized.split("/");
-  if (segments.some((segment) => !segment || !/^[A-Za-z0-9 _().-]{1,96}$/.test(segment))) throw new Error("The SharePoint stage destination contains unsupported folder characters.");
+  if (segments.some((segment) => !segment || !/^[A-Za-z0-9 _().-]{1,96}$/.test(segment))) throw new Error("The SharePoint folder path contains unsupported characters.");
   return segments.join("/");
+}
+
+/**
+ * Folder templates are phase-relative paths below the managed customer/order
+ * hierarchy. They deliberately do not permit absolute paths, traversal, or
+ * interpolation tokens so an administrator cannot escape the configured
+ * SharePoint base folder or create a second customer/order identity scheme.
+ */
+export function normalizeSharePointFolderTemplate(value: readonly string[]): string[] {
+  if (value.length === 0) throw new Error("Add at least one relative folder path, or restore the default template.");
+  if (value.length > 32) throw new Error("A phase folder template may contain at most 32 paths.");
+  const normalized = value.map((path) => normalizeSharePointRelativePath(path));
+  const seen = new Set<string>();
+  for (const path of normalized) {
+    const key = path.toLowerCase();
+    if (seen.has(key)) throw new Error(`The SharePoint folder template contains the duplicate path: ${path}`);
+    seen.add(key);
+  }
+  return normalized;
 }
 
 function resolveSharePointFileKind(file: { detectedMime?: string | null; extension?: string | null }): SharePointFileKind {
@@ -730,7 +749,7 @@ export async function processPendingFileSyncs(): Promise<void> {
  * Default folder templates for each phase.
  * Operators can override these via the admin panel (phaseKickoffConfigs.folderTemplate).
  */
-const DEFAULT_FOLDER_TEMPLATES: Record<string, string[]> = {
+export const DEFAULT_FOLDER_TEMPLATES: Record<string, string[]> = {
   phase_1_intake: ["Phase I/audio", "Phase I/Docs", "Phase I/Final_Merge", "Phase I/Results"],
   phase_2_synthesis: ["Phase II/Audio", "Phase II/Docs", "Phase II/Final_Merge", "Phase II/Results"],
   in_production: ["Phase III/Branches", "Phase III/Context", "Phase III/Final_Internal", "Phase III/Run_Logs"],

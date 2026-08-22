@@ -298,8 +298,16 @@ function DeliveryLogTab() {
 
 function PhaseKickoffTab() {
   const { data, refetch } = trpc.integrations.phaseKickoffConfigs.useQuery();
+  const templates = trpc.integrations.phaseKickoffFolderTemplates.useQuery();
+  const graph = trpc.integrations.graphConfig.useQuery();
   const upsert = trpc.integrations.upsertPhaseKickoffConfig.useMutation({ onSuccess: () => refetch() });
   const toast = useToast();
+  const [folderDrafts, setFolderDrafts] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    if (!templates.data) return;
+    setFolderDrafts(Object.fromEntries(templates.data.map((template) => [template.phase, [...template.folderTemplate]])));
+  }, [templates.data]);
 
   const phases = [
     { key: "phase_1_intake", label: "Phase I — Intake" },
@@ -341,6 +349,44 @@ function PhaseKickoffTab() {
       toast.success("Auto-completion % saved.");
     } catch (e: any) {
       toast.error(e.message ?? "Failed to update.");
+    }
+  }
+
+  function phasePayload(phase: string) {
+    const existing = data?.find(c => c.phase === phase);
+    return {
+      phase,
+      createFolders: existing?.createFolders ?? true,
+      attachPlaceholders: existing?.attachPlaceholders ?? false,
+      notifyCustomer: existing?.notifyCustomer ?? true,
+      notifyWebhooks: existing?.notifyWebhooks ?? false,
+      completionPercent: (existing as any)?.completionPercent ?? 0,
+      enabled: existing?.enabled ?? true,
+    };
+  }
+
+  async function saveFolderTemplate(phase: string) {
+    const paths = (folderDrafts[phase] ?? []).map((path) => path.trim()).filter(Boolean);
+    if (!paths.length) {
+      toast.error("Add at least one folder path or restore the default structure.");
+      return;
+    }
+    try {
+      await upsert.mutateAsync({ ...phasePayload(phase), folderTemplate: paths });
+      await Promise.all([refetch(), templates.refetch()]);
+      toast.success("SharePoint folder structure saved.");
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to save the SharePoint folder structure.");
+    }
+  }
+
+  async function restoreDefaultFolderTemplate(phase: string) {
+    try {
+      await upsert.mutateAsync({ ...phasePayload(phase), folderTemplate: null });
+      await Promise.all([refetch(), templates.refetch()]);
+      toast.success("Default SharePoint folder structure restored.");
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to restore the default structure.");
     }
   }
 
@@ -390,6 +436,30 @@ function PhaseKickoffTab() {
                 className="w-20 rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
               <span className="text-gray-400 text-xs">% (0 = do not auto-set)</span>
+            </div>
+            <div className="mt-5 border-t border-gray-100 pt-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="font-medium text-brand-navy">SharePoint folder creation structure</h4>
+                  <p className="mt-1 text-xs text-gray-600">These paths are created beneath <span className="font-mono">{graph.data?.rootFolderPath ?? "ReadyPackets/Orders"}/customers/{"{customerId}"}/orders/{"{orderNumber}"}</span>. Use relative paths only; ReadyPackets keeps the customer and order identity folders managed and collision-safe.</p>
+                </div>
+                <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{templates.data?.find((template) => template.phase === key)?.source === "custom" ? "Custom" : "Default"}</span>
+              </div>
+              <div className="mt-3 space-y-2">
+                {(folderDrafts[key] ?? templates.data?.find((template) => template.phase === key)?.folderTemplate ?? []).map((path, index) => (
+                  <div key={`${key}-${index}`} className="flex items-center gap-2">
+                    <Input value={path} aria-label={`${label} folder path ${index + 1}`} onChange={(event) => setFolderDrafts((current) => { const paths = current[key] ?? templates.data?.find((template) => template.phase === key)?.folderTemplate ?? []; return { ...current, [key]: paths.map((item, itemIndex) => itemIndex === index ? event.target.value : item) }; })} placeholder="Phase I/Docs" />
+                    <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setFolderDrafts((current) => { const paths = current[key] ?? templates.data?.find((template) => template.phase === key)?.folderTemplate ?? []; return { ...current, [key]: paths.filter((_, itemIndex) => itemIndex !== index) }; })}>Remove</Button>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={() => setFolderDrafts((current) => ({ ...current, [key]: [...(current[key] ?? templates.data?.find((template) => template.phase === key)?.folderTemplate ?? []), ""] }))}>Add folder</Button>
+                <Button size="sm" busy={upsert.isPending} onClick={() => void saveFolderTemplate(key)}>Save structure</Button>
+                <Button size="sm" variant="ghost" busy={upsert.isPending} onClick={() => void restoreDefaultFolderTemplate(key)}>Restore default</Button>
+              </div>
+              <p className="mt-3 rounded bg-slate-50 px-3 py-2 font-mono text-xs text-slate-600">Preview: {graph.data?.rootFolderPath ?? "ReadyPackets/Orders"}/customers/{"{customerId}"}/orders/{"{orderNumber}"}/{(folderDrafts[key] ?? templates.data?.find((template) => template.phase === key)?.folderTemplate ?? ["Phase/Folder"])[0] || "Phase/Folder"}</p>
+              <p className="mt-2 text-xs text-gray-500">Changes create missing folders idempotently on future phase kickoffs. They do not rename, move, or delete existing SharePoint folders. Document and audio routing can still be overridden per workflow stage in Order Workflows.</p>
             </div>
           </Card>
         );
