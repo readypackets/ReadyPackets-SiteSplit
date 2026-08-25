@@ -1,0 +1,272 @@
+openapi: 3.1.0
+info:
+  title: ReadyPackets Mobile API
+  version: 1.0.0-draft
+  description: |
+    Self-hosted REST boundary for the native ReadyPackets iOS and Android applications.
+    Browser tRPC and cookie/CSRF contracts are not part of this API.
+servers:
+  - url: https://{host}/api/mobile/v1
+    variables:
+      host:
+        default: portal.example.com
+security:
+  - bearerAuth: []
+paths:
+  /authorize:
+    get:
+      security: []
+      summary: Browser-hosted OAuth 2.1 authorization endpoint
+      parameters:
+        - $ref: '#/components/parameters/ClientId'
+        - $ref: '#/components/parameters/RedirectUri'
+        - $ref: '#/components/parameters/State'
+        - name: code_challenge
+          in: query
+          required: true
+          schema: { type: string, minLength: 43, maxLength: 128 }
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema: { type: string, enum: [S256] }
+        - name: device_id
+          in: query
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 96 }
+        - name: platform
+          in: query
+          required: true
+          schema: { type: string, enum: [ios, android] }
+        - name: app_version
+          in: query
+          required: true
+          schema: { type: string, maxLength: 32 }
+      responses:
+        '302': { description: Redirects to the registered universal or Android App Link with code and state. }
+        '400': { $ref: '#/components/responses/Problem' }
+  /token:
+    post:
+      security: []
+      summary: Exchange an authorization code or rotate a refresh token
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              oneOf:
+                - type: object
+                  required: [grant_type, client_id, code, code_verifier, redirect_uri]
+                  properties:
+                    grant_type: { const: authorization_code }
+                    client_id: { type: string }
+                    code: { type: string }
+                    code_verifier: { type: string }
+                    redirect_uri: { type: string, format: uri }
+                - type: object
+                  required: [grant_type, client_id, refresh_token]
+                  properties:
+                    grant_type: { const: refresh_token }
+                    client_id: { type: string }
+                    refresh_token: { type: string }
+      responses:
+        '200':
+          description: Short-lived access token and rotated refresh token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenSet' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /revoke:
+    post:
+      security: []
+      summary: Revoke a refresh-token family
+  /me:
+    get:
+      summary: Authenticated profile and server-authorized capabilities
+      responses:
+        '200':
+          description: Minimal mobile profile DTO
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+  /dashboard:
+    get:
+      summary: Role-aware dashboard summary
+      responses:
+        '200':
+          description: Task-oriented dashboard
+  /catalog:
+    get:
+      summary: Listed packet catalog for native order selection
+      description: Returns only active, customer-visible packets. Pricing and availability remain Portal-authoritative and can change before order creation.
+      responses:
+        '200':
+          description: Packet groups and listed packet choices
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CatalogPage' }
+  /orders:
+    get:
+      summary: Cursor-paginated orders permitted to the bearer subject
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+    post:
+      summary: Create a customer order from listed packet SKUs
+      description: Requires `mobile:write`. The server resolves products, pricing, tier constraints, payment status, audit data, and workflow; clients must not provide price, payment status, or internal product identifiers.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrderRequest' }
+      responses:
+        '201':
+          description: Order accepted with server-authoritative next action
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateOrderReply' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /orders/{publicOrderId}:
+    get:
+      summary: Order detail after server-side object authorization
+      parameters:
+        - name: publicOrderId
+          in: path
+          required: true
+          schema: { type: string, maxLength: 48 }
+  /me/devices:
+    get:
+      summary: Registered native application installations
+  /devices:
+    post:
+      summary: Register or update an installation metadata record
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /me/data-deletion-request:
+    post:
+      summary: Request server-managed account deletion
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+components:
+  parameters:
+    ClientId:
+      name: client_id
+      in: query
+      required: true
+      schema: { type: string, const: readypackets-native }
+    RedirectUri:
+      name: redirect_uri
+      in: query
+      required: true
+      schema: { type: string, format: uri }
+    State:
+      name: state
+      in: query
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 256 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 128 }
+  responses:
+    Problem:
+      description: RFC 9457-compatible problem response with a correlation identifier.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    TokenSet:
+      type: object
+      required: [access_token, token_type, expires_in, refresh_token]
+      properties:
+        access_token: { type: string }
+        token_type: { const: Bearer }
+        expires_in: { type: integer, minimum: 60 }
+        refresh_token: { type: string }
+        scope: { type: string }
+    Me:
+      type: object
+      required: [id, displayName, role, capabilities]
+      properties:
+        id: { type: string, description: Opaque public customer reference where available. }
+        displayName: { type: string }
+        role: { type: string, enum: [customer, staff, admin] }
+        capabilities: { type: array, items: { type: string } }
+    CatalogPacket:
+      type: object
+      required: [sku, name, tier, customPricing, deliveryEstimate]
+      properties:
+        sku: { type: string, maxLength: 64 }
+        name: { type: string }
+        tier: { type: string }
+        priceCents: { type: [integer, 'null'], minimum: 0, description: Null means the packet requires a custom quote. }
+        customPricing: { type: boolean }
+        deliveryEstimate: { type: string }
+        outcome: { type: [string, 'null'] }
+        description: { type: [string, 'null'] }
+    CatalogGroup:
+      type: object
+      required: [slug, number, name, category, packets]
+      properties:
+        slug: { type: string }
+        number: { type: integer }
+        name: { type: string }
+        category: { type: string }
+        summary: { type: [string, 'null'] }
+        packets: { type: array, items: { $ref: '#/components/schemas/CatalogPacket' } }
+    CatalogPage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CatalogGroup' } }
+    OrderSelection:
+      type: object
+      required: [sku]
+      properties:
+        sku: { type: string, minLength: 1, maxLength: 64 }
+        quantity: { type: integer, minimum: 1, maximum: 25, default: 1 }
+    CreateOrderRequest:
+      type: object
+      required: [selections]
+      properties:
+        projectName: { type: string, maxLength: 160 }
+        selections: { type: array, minItems: 1, maxItems: 12, items: { $ref: '#/components/schemas/OrderSelection' } }
+    CreateOrderReply:
+      type: object
+      required: [order, nextAction, message]
+      properties:
+        order:
+          type: object
+          required: [publicOrderId, status, paymentStatus, totalCents, requiresCustomQuote]
+          properties:
+            publicOrderId: { type: string }
+            projectName: { type: [string, 'null'] }
+            status: { type: string }
+            paymentStatus: { type: string }
+            totalCents: { type: integer, minimum: 0 }
+            requiresCustomQuote: { type: boolean }
+        nextAction: { type: string, enum: [complete_payment_in_portal, await_quote] }
+        message: { type: string }
+    Problem:
+      type: object
+      required: [type, title, status, code, correlationId]
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        correlationId: { type: string }
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

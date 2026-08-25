@@ -7,7 +7,7 @@ const text = (path: string) => readFile(`${root}/${path}`, "utf8");
 describe("native mobile contract safeguards", () => {
   it("publishes an OAuth 2.1 PKCE mobile boundary without exposing web tRPC", async () => {
     const [contract, router, oidc] = await Promise.all([
-      text("mobile/api-contract/openapi.yaml"),
+      text("server/http/mobile/openapi.yaml"),
       text("server/http/mobile/index.ts"),
       text("server/auth/mobileOidc.ts"),
     ]);
@@ -29,6 +29,19 @@ describe("native mobile contract safeguards", () => {
     expect(router).toContain("currentStage");
   });
 
+  it("creates mobile orders from listed SKUs with Portal-authoritative pricing and idempotency", async () => {
+    const router = await text("server/http/mobile/index.ts");
+    expect(router).toContain('router.get("/catalog"');
+    expect(router).toContain('router.post("/orders"');
+    expect(router).toContain('runIdempotent(req, "POST /orders"');
+    expect(router).toContain("requireScope(req, \"mobile:write\")");
+    expect(router).toContain("resolveListedProducts(selections)");
+    expect(router).toContain("createOrder({");
+    expect(router).toContain("productBySku.get(selection.sku)!.id");
+    expect(router).not.toContain("req.body?.priceCents");
+    expect(router).not.toContain("req.body?.paymentStatus");
+  });
+
   it("keeps browser CSRF protection and exempts only the bearer/code mobile prefix", async () => {
     const csrf = await text("server/security/csrf.ts");
     expect(csrf).toContain('"/api/mobile/"');
@@ -36,20 +49,17 @@ describe("native mobile contract safeguards", () => {
     expect(csrf).toContain("isAllowedHostname");
   });
 
-  it("uses native secure storage and system-browser OAuth rather than a web wrapper", async () => {
-    const [iosSecurity, iosAuth, androidStorage, androidAuth, iosReadme, androidReadme] = await Promise.all([
-      text("mobile/ios/ReadyPackets/ReadyPacketsApp/Core/Security.swift"),
-      text("mobile/ios/ReadyPackets/ReadyPacketsApp/Core/AuthCoordinator.swift"),
-      text("mobile/android/app/src/main/java/com/readypackets/mobile/core/SecureTokenStore.kt"),
-      text("mobile/android/app/src/main/java/com/readypackets/mobile/core/AuthCoordinator.kt"),
-      text("mobile/ios/ReadyPackets/README.md"),
-      text("mobile/android/README.md"),
+  it("requires a bearer mobile principal and does not fall back to browser session authority", async () => {
+    const [router, oidc] = await Promise.all([
+      text("server/http/mobile/index.ts"),
+      text("server/auth/mobileOidc.ts"),
     ]);
-    expect(iosSecurity).toContain("kSecAttrAccessibleWhenUnlockedThisDeviceOnly");
-    expect(iosAuth).toContain("ASWebAuthenticationSession");
-    expect(androidStorage).toContain("EncryptedSharedPreferences");
-    expect(androidAuth).toContain("CustomTabsIntent");
-    expect(iosReadme).toMatch(/no cross-platform runtime/i);
-    expect(androidReadme).toMatch(/does not include React Native/i);
+    expect(router).toContain('router.use(bearer)');
+    expect(router).toContain('header?.startsWith("Bearer ")');
+    expect(router).toContain('requireScope(req, "mobile:write")');
+    expect(router.slice(router.indexOf("router.use(bearer)"))).not.toContain("resolveSession(req)");
+    expect(oidc).not.toContain("ASWebAuthenticationSession");
+    expect(oidc).toContain("codeChallenge");
+    expect(oidc).toContain("mobile:write");
   });
 });

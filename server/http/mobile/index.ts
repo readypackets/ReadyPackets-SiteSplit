@@ -1,15 +1,15 @@
 /** Versioned, bearer-token mobile API. Browser sessions/tRPC are intentionally not reused as an API contract. */
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { env } from "../../config/env.js";
 import { MOBILE_CLIENT_ID, MobileOAuthError, allowedRedirectUri, createAuthorizationCode, exchangeAuthorizationCode, hashMobileValue, opaqueMobileId, resolveMobilePrincipal, revokePresentedRefreshToken, rotateRefreshToken, validateAuthorizeInput, type MobilePrincipal } from "../../auth/mobileOidc.js";
 import { resolveSession } from "../../auth/session.js";
 import { db } from "../../db/client.js";
-import { mobileDevices, mobileIdempotencyKeys, orders, users } from "../../db/schema.js";
+import { mobileDevices, mobileIdempotencyKeys, orders, packetGroups, products, users } from "../../db/schema.js";
 import { getUserById, displayNameOf } from "../../db/users.js";
 import { recordSecurityEvent } from "../../observability/audit.js";
-import { assertOrderAccess, listOrdersForUser } from "../../services/orders.js";
+import { assertOrderAccess, createOrder, listOrdersForUser, OrderStateError } from "../../services/orders.js";
 
 interface MobileRequest extends Request { mobile?: MobilePrincipal; }
 
@@ -21,6 +21,32 @@ function safeProblem(res: Response, status: number, code: string, title: string,
 function serializeDate(value: Date | null | undefined): string | null { return value ? value.toISOString() : null; }
 function opaqueOrderId(orderNumber: string): string { return orderNumber; }
 function parseLimit(value: unknown): number { const parsed = Number(value); return Number.isInteger(parsed) ? Math.min(50, Math.max(1, parsed)) : 20; }
+
+function requireScope(req: MobileRequest, scope: "mobile:read" | "mobile:write"): void {
+  if (!req.mobile?.scopes.includes(scope)) throw new MobileOAuthError("insufficient_scope", `The ${scope} permission is required.`, 403);
+}
+
+type MobileSelection = { sku: string; quantity?: number };
+function parseSelections(value: unknown): MobileSelection[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 12) throw new MobileOAuthError("invalid_request", "Choose between one and twelve listed packets.");
+  const seen = new Set<string>();
+  return value.map((item) => {
+    if (!item || typeof item !== "object") throw new MobileOAuthError("invalid_request", "Each packet selection must be valid.");
+    const candidate = item as Record<string, unknown>;
+    const sku = typeof candidate.sku === "string" ? candidate.sku.trim() : "";
+    const quantity = candidate.quantity === undefined ? 1 : Number(candidate.quantity);
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(sku) || seen.has(sku)) throw new MobileOAuthError("invalid_request", "Each selection must identify a unique listed packet.");
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 25) throw new MobileOAuthError("invalid_request", "Packet quantities must be whole numbers between one and twenty-five.");
+    seen.add(sku);
+    return { sku, quantity };
+  });
+}
+
+async function resolveListedProducts(selections: MobileSelection[]): Promise<{ id: number; sku: string }[]> {
+  const rows = await db.select({ id: products.id, sku: products.sku }).from(products).where(and(inArray(products.sku, selections.map((item) => item.sku)), eq(products.listed, true), eq(products.active, true)));
+  if (rows.length !== selections.length) throw new MobileOAuthError("invalid_request", "One or more selected packets are unavailable.");
+  return rows;
+}
 
 function withMobileError(handler: (req: MobileRequest, res: Response) => Promise<void>) {
   return async (req: MobileRequest, res: Response): Promise<void> => {
@@ -125,9 +151,80 @@ export function createMobileRouter(): Router {
     res.status(200).json({ revoked: true });
   }));
 
-  router.use(bearer);
+	router.use(bearer);
 
-  router.get("/me", withMobileError(async (req, res) => {
+	router.get("/catalog", withMobileError(async (req, res) => {
+	  requireScope(req, "mobile:read");
+	  const rows = await db
+	    .select({
+	      groupSlug: packetGroups.slug,
+	      groupNumber: packetGroups.groupNumber,
+	      groupName: packetGroups.name,
+	      groupCategory: packetGroups.category,
+	      groupSummary: packetGroups.summary,
+	      sku: products.sku,
+	      productName: products.name,
+	      tier: products.tier,
+	      priceCents: products.priceCents,
+	      customPricing: products.customPricing,
+	      deliveryEstimate: products.deliveryEstimate,
+	      outcome: products.outcome,
+	      description: products.description,
+	    })
+	    .from(packetGroups)
+	    .innerJoin(products, eq(products.packetGroupId, packetGroups.id))
+	    .where(and(eq(packetGroups.listed, true), eq(products.listed, true), eq(products.active, true)))
+	    .orderBy(asc(packetGroups.sortOrder), asc(products.sortOrder));
+	  const groups = new Map<string, { slug: string; number: number; name: string; category: string; summary: string | null; packets: Array<Record<string, unknown>> }>();
+	  for (const row of rows) {
+	    const group = groups.get(row.groupSlug) ?? { slug: row.groupSlug, number: row.groupNumber, name: row.groupName, category: row.groupCategory, summary: row.groupSummary, packets: [] };
+	    group.packets.push({ sku: row.sku, name: row.productName, tier: row.tier, priceCents: row.priceCents, customPricing: row.customPricing, deliveryEstimate: row.deliveryEstimate, outcome: row.outcome, description: row.description });
+	    groups.set(row.groupSlug, group);
+	  }
+	  res.json({ items: [...groups.values()] });
+	}));
+
+	router.post("/orders", withMobileError(async (req, res) => {
+	  requireScope(req, "mobile:write");
+	  const result = await runIdempotent(req, "POST /orders", req.body, async () => {
+	    const selections = parseSelections(req.body?.selections);
+	    const listed = await resolveListedProducts(selections);
+	    const productBySku = new Map(listed.map((product) => [product.sku, product]));
+	    const projectName = typeof req.body?.projectName === "string" ? req.body.projectName.trim() : "";
+	    if (projectName.length > 160) throw new MobileOAuthError("invalid_request", "The project name must be 160 characters or fewer.");
+	    try {
+	      const created = await createOrder({
+	        userId: req.mobile!.userId,
+	        selections: selections.map((selection) => ({ productId: productBySku.get(selection.sku)!.id, quantity: selection.quantity })),
+	        projectName: projectName || null,
+	        paymentRequirement: "required",
+	        actorUserId: req.mobile!.userId,
+	        actorRole: req.mobile!.role,
+	        ipAddress: clientIp(res),
+	      });
+	      const quote = created.quote as { totalCents: number; requiresCustomQuote?: boolean };
+	      const requiresCustomQuote = quote.requiresCustomQuote === true;
+	      return {
+	        order: {
+	          publicOrderId: opaqueOrderId(created.orderNumber),
+	          projectName: projectName || null,
+	          status: "new",
+	          paymentStatus: requiresCustomQuote ? "awaiting_invoice" : "unpaid",
+	          totalCents: quote.totalCents,
+	          requiresCustomQuote,
+	        },
+	        nextAction: requiresCustomQuote ? "await_quote" : "complete_payment_in_portal",
+	        message: requiresCustomQuote ? "Your request is recorded. ReadyPackets will provide the required quote in the Portal." : "Your order is recorded. Complete payment through the secure ReadyPackets Portal to activate work.",
+	      };
+	    } catch (error) {
+	      if (error instanceof OrderStateError) throw new MobileOAuthError("order_rejected", error.message, 422);
+	      throw error;
+	    }
+	  });
+	  res.status(result.replayed ? 200 : 201).json(result.value);
+	}));
+
+	router.get("/me", withMobileError(async (req, res) => {
     const principal = req.mobile!;
     const user = await getUserById(principal.userId);
     if (!user) throw new MobileOAuthError("invalid_token", "The account is not active.", 401);
