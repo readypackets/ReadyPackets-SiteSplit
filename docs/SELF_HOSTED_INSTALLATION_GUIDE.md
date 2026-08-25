@@ -1,41 +1,38 @@
-# ReadyPackets Self-Hosted Production Installation Guide
+# ReadyPackets Self-Hosted Installation Guide
 
-**Audience:** Server administrators
+**Audience:** Infrastructure administrators deploying ReadyPackets on a new Ubuntu server.
 
-> ReadyPackets is designed to run without a managed platform dependency. The supported production deployment is an Ubuntu LTS server using either the native installer or Docker behind nginx and HTTPS.
+**Current installation target:** Native VPS deployment with Ubuntu LTS, Node.js 22, MySQL 8, nginx, systemd, protected local backups, and a self-hosted ReadyPackets service. The native deployment is the recommended production path because it includes the platform backup, migration, update, and rollback helpers.
 
-## 1. Choose the deployment model
+> ReadyPackets is self-hosted. The installer generates application encryption keys locally on the VPS, binds the application only to `127.0.0.1:3000`, keeps MySQL private, and places nginx in front of the portal. Do not expose ports `3000` or `3306` to the Internet.
 
-| Model | Recommended when | Installer responsibility |
+## 1. Choose the correct installation path
+
+| Situation | Recommended procedure |
+|---|---|
+| **New production VPS with a private GitHub repository** | Use the read-only GitHub deploy-key path in this guide, then run `deploy/install.sh`. |
+| **New VPS with an approved public source repository** | Use the guided `one-click-install.sh` bootstrap. It reviews settings before it changes the host. |
+| **Existing ReadyPackets native installation** | Pull the reviewed source under `/srv/readypackets`, then re-run `deploy/install.sh` with `--skip-packages`. Do not run a fresh bootstrap over an active service. |
+| **Replacement server / disaster recovery** | Install a clean native portal first, verify schema readiness, then use the root-console full restore flow described in [Full Backup Restore](FULL_BACKUP_RESTORE.md). |
+| **Existing Docker estate** | Use `deploy/unified-install.sh --mode docker` or `--mode docker-bootstrap`. Native VPS remains the recommended path for most installations. |
+
+The active production application is installed at `/opt/readypackets`. The source checkout used for deployment belongs at `/srv/readypackets`; do not expect `/opt/readypackets` to be a Git checkout.
+
+## 2. VPS and DNS prerequisites
+
+Use a supported Ubuntu LTS server with a static public IP address, root or sudo access, and enough capacity for MySQL, Node.js, customer files, and backups. A practical starting point is **2 vCPU, 4 GB RAM, and 80 GB SSD**, with additional storage for order-file and archive growth.
+
+Create an `A` record for the chosen hostname before certificate issuance. For an apex domain such as `readypackets.com`, the installer also configures the conventional `www.readypackets.com` alias and certificate coverage. If IPv6 is used, ensure the matching `AAAA` record points to the same server.
+
+| Port | Purpose | Required public exposure |
 |---|---|---|
-| **Native VPS** | Recommended for most production systems. You want systemd, MySQL, protected host backups, update/rollback helpers, and straightforward operations. | Installs and configures Node.js 22, MySQL 8, nginx, TLS, systemd, backups, database migrations, and the ReadyPackets service. |
-| **Existing Docker** | Your organization already operates Docker Engine and Compose v2 under its own standards. | Creates the application/database container stack, loopback-only app publishing, host nginx, TLS, migrations, and seed data. |
-| **Docker bootstrap** | You have a clean Ubuntu server and prefer containers. | Installs Docker Engine/Compose, then performs the Docker deployment. |
+| `22/tcp` | SSH administration | Restrict to known administrator IP addresses where practical. |
+| `80/tcp` | HTTP redirect and Let’s Encrypt HTTP-01 validation | Public for Let’s Encrypt deployments. |
+| `443/tcp` | ReadyPackets HTTPS portal | Public. |
+| `3000/tcp` | ReadyPackets Node.js application | **Never public.** Loopback only. |
+| `3306/tcp` | MySQL | **Never public.** Local only. |
 
-The **Native VPS** option is the recommended path for a conventional self-hosted production portal.
-
-## 2. Production prerequisites
-
-Provision a current **Ubuntu 22.04 or 24.04 LTS** server with a static public IP address, root or sudo access, and a DNS name such as `myportal.example.com`. A minimum practical configuration is **2 vCPU, 4 GB RAM, and 80 GB SSD storage**; add more capacity for higher file-storage, email, backup, or concurrent-user needs.
-
-Create a DNS **A** record for the portal hostname pointing to the server’s public IP. If IPv6 is configured, create a matching **AAAA** record. Before requesting a public certificate, confirm DNS resolves correctly:
-
-```bash
-dig +short myportal.example.com A
-curl -4 ifconfig.me
-```
-
-Allow only these inbound ports at the provider firewall and host firewall:
-
-| Port | Purpose | Public exposure |
-|---|---|---|
-| `22/tcp` | SSH administration | Restrict to known administrator IP ranges when feasible. |
-| `80/tcp` | HTTP redirect and Let’s Encrypt validation | Public. |
-| `443/tcp` | Customer portal HTTPS | Public. |
-| `3000/tcp` | ReadyPackets application | **Never public.** The installer binds it to loopback only. |
-| `3306/tcp` | MySQL | **Never public.** The installer keeps it private. |
-
-Update the operating system before deployment:
+Prepare the operating system, then reconnect after the reboot:
 
 ```bash
 sudo apt-get update
@@ -44,19 +41,15 @@ sudo apt-get install -y ca-certificates curl git openssh-client
 sudo reboot
 ```
 
-Reconnect after the reboot and confirm the hostname, disk capacity, and firewall policy:
-
 ```bash
 hostnamectl
 lsblk
 sudo ufw status verbose
 ```
 
-## 3. Retrieve the private ReadyPackets repository securely
+## 3. Securely obtain the ReadyPackets source
 
-Use a dedicated **read-only GitHub deploy key** rather than embedding a personal access token in commands, shell history, `.env`, Git configuration, or the server filesystem.
-
-Generate a key on the server:
+For the private `readypackets/ReadyPackets` repository, use a read-only deploy key. Do not place a personal access token in a shell command, Git remote URL, environment file, browser console, or source repository.
 
 ```bash
 sudo install -d -m 0700 /root/.ssh
@@ -64,9 +57,7 @@ sudo ssh-keygen -t ed25519 -f /root/.ssh/readypackets_deploy -N '' -C 'readypack
 sudo cat /root/.ssh/readypackets_deploy.pub
 ```
 
-In GitHub, open the private `readypackets/ReadyPackets` repository, then add the displayed public key under **Settings → Deploy keys**. Name it clearly, such as `production-vps`, and leave **Allow write access** disabled.
-
-Configure SSH to use that deploy key and clone the repository:
+Add the displayed public key in GitHub under **Repository → Settings → Deploy keys**. Leave **Allow write access** disabled. Then configure the server and clone the repository:
 
 ```bash
 sudo tee /root/.ssh/config >/dev/null <<'EOF'
@@ -76,7 +67,7 @@ Host github.com
   IdentityFile /root/.ssh/readypackets_deploy
   IdentitiesOnly yes
 EOF
-sudo chmod 600 /root/.ssh/config
+sudo chmod 0600 /root/.ssh/config
 
 sudo ssh -T git@github.com || true
 sudo git clone git@github.com:readypackets/ReadyPackets.git /srv/readypackets
@@ -84,175 +75,193 @@ cd /srv/readypackets
 sudo git rev-parse --verify HEAD
 ```
 
-> GitHub may report that shell access is not provided after successful deploy-key authentication. That is expected. The clone command is the actual repository-access check.
+GitHub may state that shell access is unavailable after successful deploy-key authentication. That response is normal; the `git clone` result is the relevant access test.
 
-## 4. Install with the interactive installer
+## 4. Native VPS installation — Let’s Encrypt
 
-From the checked-out repository, run the installer with your real portal hostname and an operational email address:
-
-```bash
-cd /srv/readypackets
-sudo bash deploy/unified-install.sh \
-  --domain myportal.example.com \
-  --email operations@example.com
-```
-
-The installer will prompt you to choose one of these modes:
-
-| Prompt choice | Selection |
-|---|---|
-| `1` | Native VPS — recommended |
-| `2` | Existing Docker Engine and Compose |
-| `3` | Docker bootstrap |
-
-It will then prompt for a TLS method. Choose **Let’s Encrypt** for a normal public certificate. Choose **Cloudflare Origin CA** only if the hostname will always remain proxied through Cloudflare and Cloudflare SSL/TLS mode is **Full (strict)**.
-
-## 5. Non-interactive native VPS installation
-
-For an automated deployment, use an explicit mode and TLS choice:
-
-```bash
-cd /srv/readypackets
-sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/unified-install.sh \
-  --mode native \
-  --domain myportal.example.com \
-  --email operations@example.com \
-  --tls-provider letsencrypt
-```
-
-The installer creates or preserves these protected locations:
-
-| Location | Purpose |
-|---|---|
-| `/opt/readypackets` | Installed application, server bundle, client assets, and release marker. |
-| `/etc/readypackets/portal.env` | Root-protected runtime configuration and generated encryption keys. |
-| `/var/lib/readypackets/storage` | Customer uploads and generated artifacts. |
-| `/var/backups/readypackets` | Protected local backup archives. |
-| `readypackets.service` | Application service, bound to `127.0.0.1:3000`. |
-| `/etc/nginx/sites-available/readypackets` | HTTPS reverse-proxy configuration. |
-
-Do **not** overwrite `DATA_ENCRYPTION_KEY` or `EMAIL_INDEX_KEY` after users or data exist. Losing the former makes encrypted customer information unrecoverable; changing the latter makes stored email lookups fail until a managed migration is performed.
-
-## 6. Cloudflare Origin CA installation
-
-Use this option only for a hostname that stays proxied through Cloudflare. In Cloudflare, set the zone to **Full (strict)**, then create an Origin CA certificate that includes the exact hostname or appropriate wildcard. Store the certificate and key in a root-only directory on the server:
-
-```bash
-sudo install -d -m 0700 /root/readypackets-tls
-# Transfer origin-cert.pem and origin-key.pem through an approved secure channel.
-sudo chmod 600 /root/readypackets-tls/origin-key.pem
-
-cd /srv/readypackets
-sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/unified-install.sh \
-  --mode native \
-  --domain myportal.example.com \
-  --tls-provider cloudflare-origin \
-  --cloudflare-origin-cert /root/readypackets-tls/origin-cert.pem \
-  --cloudflare-origin-key /root/readypackets-tls/origin-key.pem
-```
-
-Do not switch a Cloudflare Origin CA hostname to DNS-only mode: browsers do not trust an Origin CA certificate directly.
-
-## 7. Docker installation
-
-Use Docker mode only if the host is intentionally managed for containers.
-
-For an existing Docker Engine and Compose v2 installation:
-
-```bash
-cd /srv/readypackets
-sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/unified-install.sh \
-  --mode docker \
-  --project-dir /srv/readypackets \
-  --domain myportal.example.com \
-  --email operations@example.com \
-  --tls-provider letsencrypt
-```
-
-For a new Ubuntu server where the installer should provision Docker first:
-
-```bash
-cd /srv/readypackets
-sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/unified-install.sh \
-  --mode docker-bootstrap \
-  --project-dir /srv/readypackets \
-  --domain myportal.example.com \
-  --email operations@example.com
-```
-
-The Docker deployment keeps MySQL on the internal container network and publishes the application only through host nginx. Back up the generated mode-0600 `.env` file and database backups using an encrypted off-host process.
-
-## 8. Create the first administrator and enroll MFA
-
-After the native installation completes, create the first administrator from the root console. Replace the example address with the actual administrator email address:
-
-```bash
-sudo runuser -u readypackets -- env $(grep -v '^#' /etc/readypackets/portal.env | xargs) \
-  node /opt/readypackets/dist/create-admin.js \
-  --email admin@example.com
-```
-
-The command prints a one-time password or setup instruction. Store it in an approved password manager, sign in at `https://myportal.example.com`, and enroll MFA. Administrator MFA is enforced server-side.
-
-Complete the controlled first-run setup in **Admin → Platform setup** and **Admin → Finance**. Configure the Microsoft Graph mail connection or SMTP, Stripe secret/webhook settings, Microsoft Entra ID if required, phase webhook endpoints, allowed administrative IPs, backup schedule, and at least one encrypted external backup destination.
-
-## 9. Post-installation verification
-
-Run these checks before inviting customers:
-
-```bash
-curl -fsS https://myportal.example.com/api/health
-curl -fsS https://myportal.example.com/api/health/ready
-sudo nginx -t
-sudo systemctl status readypackets nginx mysql
-sudo systemctl list-timers readypackets-backup.timer certbot.timer
-sudo ss -ltnp | grep -E ':(22|80|443|3000|3306)'
-```
-
-Expected results are a successful health JSON response, active native services, enabled backup/certificate timers, and application/MySQL listeners on loopback rather than a public interface.
-
-For a Let’s Encrypt hostname, inspect the active certificate:
-
-```bash
-openssl s_client -connect myportal.example.com:443 -servername myportal.example.com </dev/null 2>/dev/null \
-  | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
-```
-
-## 10. Operations, updates, and rollback
-
-Use the application’s **Admin → Platform updates** workflow for approved updates. It supports an explicit scan/approval process, snapshot creation, health checking, and rollback. Do not deploy an unreviewed moving branch tip directly to a live server.
-
-If you must re-run a native installation after packages are already present, use the idempotent installer with `--skip-packages`:
+Use Let’s Encrypt only when the hostname resolves directly to this VPS and Cloudflare or another proxy permits HTTP-01 validation. Use a real contact address for expiry notices.
 
 ```bash
 cd /srv/readypackets
 sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/install.sh \
-  --domain myportal.example.com \
+  --domain portal.example.com \
   --email operations@example.com \
-  --tls \
+  --tls-provider letsencrypt \
+  --site-name ReadyPackets
+```
+
+For an apex domain, substitute `readypackets.com` for `portal.example.com`. The installer requests certificate coverage for the apex and `www` alias when applicable.
+
+## 5. Native VPS installation — automated Cloudflare Origin CA
+
+For a Cloudflare-proxied site, set **Cloudflare SSL/TLS mode to Full (strict)** and keep both portal DNS records proxied (orange cloud). A Cloudflare Origin CA certificate is trusted by Cloudflare at the origin; it is not intended for a browser that connects directly to the VPS.
+
+Create a least-privilege Cloudflare API token scoped to the target zone with **Zone → SSL and Certificates → Edit**. Enter the token through a root-only temporary file rather than through an environment variable or command-line argument.
+
+```bash
+sudo install -d -m 0700 /root/readypackets-secrets
+sudo sh -c 'umask 077; cat > /root/readypackets-secrets/cloudflare-origin-ca.token'
+sudo chown root:root /root/readypackets-secrets/cloudflare-origin-ca.token
+sudo chmod 0600 /root/readypackets-secrets/cloudflare-origin-ca.token
+```
+
+Paste the scoped token, press `Enter`, then press `Ctrl+D`. Issue and install a 15-year Origin CA certificate:
+
+```bash
+cd /srv/readypackets
+sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/install.sh \
+  --domain readypackets.com \
+  --tls-provider cloudflare-origin-ca \
+  --cloudflare-api-token-file /root/readypackets-secrets/cloudflare-origin-ca.token \
+  --cloudflare-origin-validity 5475 \
+  --site-name ReadyPackets
+```
+
+After successful issuance, remove the one-time token file and revoke the token unless it is being retained under an approved renewal procedure:
+
+```bash
+sudo shred -u /root/readypackets-secrets/cloudflare-origin-ca.token
+```
+
+The installed certificate material is stored under `/etc/readypackets/tls/cloudflare-origin/`, and nginx reads the managed `/etc/readypackets/tls/nginx-tls.conf` include.
+
+### Manual Cloudflare Origin CA certificate
+
+If a certificate and private key were generated in the Cloudflare dashboard, place them in root-only paths and use this alternative:
+
+```bash
+cd /srv/readypackets
+sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/install.sh \
+  --domain portal.example.com \
+  --tls-provider cloudflare-origin \
+  --cloudflare-origin-cert /root/readypackets-secrets/origin-cert.pem \
+  --cloudflare-origin-key /root/readypackets-secrets/origin-key.pem \
+  --site-name ReadyPackets
+```
+
+## 6. Guided fresh-VPS bootstrap
+
+If the approved source repository is publicly retrievable, a guided installer can collect deployment choices through a terminal review. It asks for the mode, hostname, display name, certificate model, optional encrypted configuration-vault recovery, backup schedule, initial administrator, and a final confirmation phrase.
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/readypackets/ReadyPackets/main/deploy/one-click-install.sh \
+  && chmod 0700 one-click-install.sh \
+  && sudo ./one-click-install.sh
+```
+
+The guided installer supports Let’s Encrypt, manual Cloudflare Origin CA PEM files, and automated Cloudflare Origin CA issuance with a scoped token. It prints the installed commit at completion. For a failed **fresh** installation only, use its controlled resume path; it refuses to run against an active ReadyPackets service.
+
+## 7. What the installer creates and verifies
+
+The installer is idempotent. On a clean server it installs system packages, creates the service account, generates local secrets, configures MySQL, builds the application, runs migrations, verifies the critical schema contract, configures systemd and nginx, configures TLS, installs protected backup helpers, and runs a local readiness probe.
+
+| Location or service | Purpose |
+|---|---|
+| `/opt/readypackets` | Deployed server bundle and client assets. |
+| `/srv/readypackets` | Deployment source checkout. |
+| `/etc/readypackets/portal.env` | Root-protected runtime settings and generated application secrets. |
+| `/var/lib/readypackets/storage` | Uploaded and generated customer files. |
+| `/var/backups/readypackets` | Root-protected full backup archives. |
+| `readypackets.service` | Node.js portal service, bound only to `127.0.0.1:3000`. |
+| `/etc/nginx/sites-available/readypackets` | nginx reverse-proxy configuration. |
+| `readypackets-backup.timer` | Nightly protected backup schedule. |
+
+> Do not replace `DATA_ENCRYPTION_KEY` or `EMAIL_INDEX_KEY` after customer data exists. The first protects encrypted customer fields; the second supports protected email lookup. Both must be retained for a successful replacement-server recovery.
+
+A current installation fails closed if migrations leave a required critical table or column absent. It names the incomplete schema object and stops before exposing a partly working portal.
+
+## 8. First administrator and initial configuration
+
+After installation, create the first administrator if the installer did not provision one. Replace the sample address with the real administrator email address:
+
+```bash
+sudo runuser -u readypackets -- env $(grep -v '^#' /etc/readypackets/portal.env | xargs) \
+  node /opt/readypackets/dist/create-admin.js --email admin@example.com
+```
+
+Store any generated temporary password in an approved password manager. Sign in over HTTPS, enroll the administrator’s required MFA, save the recovery codes, and then complete the protected settings under **Admin → Platform setup**, **Admin → Integrations**, **Admin → Finance**, **Admin → Security centre**, and **Admin → Backup Management**.
+
+Configure SMTP or Microsoft Graph mail delivery, Stripe settings/webhook verification, Microsoft Entra ID when required, phase webhooks, SharePoint, trusted administrative network controls, backup retention, and at least one encrypted off-host backup destination.
+
+## 9. Required post-install verification
+
+Run these checks before inviting users:
+
+```bash
+sudo systemctl status readypackets nginx mysql --no-pager
+sudo systemctl is-enabled readypackets readypackets-backup.timer
+sudo nginx -t
+sudo systemctl list-timers readypackets-backup.timer certbot.timer
+curl -fsS https://portal.example.com/api/health
+curl -fsS https://portal.example.com/api/health/ready
+sudo ss -ltnp | grep -E ':(22|80|443|3000|3306)'
+```
+
+The health endpoints should return `{"status":"ok"}` and `{"status":"ready"}`. Node.js and MySQL must remain private on loopback; nginx alone should accept public portal traffic.
+
+For a Cloudflare Origin CA installation, verify the certificate path and nginx include:
+
+```bash
+sudo openssl x509 \
+  -in /etc/readypackets/tls/cloudflare-origin/certificate.pem \
+  -noout -issuer -subject -dates
+sudo cat /etc/readypackets/tls/nginx-tls.conf
+```
+
+A `308 Permanent Redirect` from an apex hostname to the canonical `www` hostname is expected when the installer configured that canonical pair. A `522` returned by Cloudflare means Cloudflare cannot reach the origin; first confirm the VPS firewall allows `80`/`443`, nginx is active, and the DNS records point to the correct server.
+
+## 10. Backup and replacement-server recovery
+
+Use **Admin → Backup Management** for routine portal recovery. That standard restore validates the archive, restores database and order-file content, and intentionally retains the target server’s hostname, TLS material, and protected secret environment.
+
+For a complete replacement-server migration, install a clean portal first and verify its health. Then use the root-console recovery mode with the protected full archive:
+
+```bash
+sudo /opt/readypackets/deploy/restore.sh \
+  --archive /var/backups/readypackets/readypackets-YYYYMMDDTHHMMSSZ.tar.gz \
+  --yes \
+  --restore-platform-secrets
+```
+
+This deliberate command restores the database, ReadyPackets-managed files, application/integration settings, encryption keys, and backup-sync runtime when included. It preserves the replacement server’s database connection, hostname, network binding, and TLS configuration. Review [Full Backup Restore](FULL_BACKUP_RESTORE.md) before performing a recovery.
+
+## 11. Updating an existing native portal
+
+Use the built-in **Admin → Platform updates** approval workflow for ordinary application updates. It creates a protected snapshot, performs a reviewed update, performs health checks, and offers rollback.
+
+For a controlled installer re-run after system packages are already installed, update the deployment source and preserve the existing TLS configuration by not specifying a new TLS provider:
+
+```bash
+cd /srv/readypackets
+sudo git fetch origin main
+sudo git pull --ff-only origin main
+sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/install.sh \
+  --domain portal.example.com \
   --skip-packages
 ```
 
-Before any manual release operation, create and verify a database backup and preserve the previous server/client build. Do not publish ports `3000` or `3306`, and do not store application encryption keys, database credentials, Microsoft Graph secrets, Stripe secrets, deploy keys, or certificate private keys in Git.
+Do not use this command to change a live hostname or replace TLS keys. Use the portal’s domain/certificate management controls or follow a planned certificate-change procedure instead.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
-| Symptom | First checks |
+| Symptom | Correct first action |
 |---|---|
-| Certificate issuance fails | Confirm the hostname resolves to the server, ports 80/443 are open, and a competing web server is not using port 80. |
-| Public site is unavailable | Check `sudo systemctl status readypackets nginx`, `sudo nginx -t`, `/api/health`, and `journalctl -u readypackets -n 100 --no-pager`. |
-| Application service cannot start | Check `/etc/readypackets/portal.env` permissions/values and the migration output in `journalctl -u readypackets`. Do not replace generated encryption keys. |
-| Email, Stripe, or SharePoint does not work | Test the connection from the relevant protected Admin settings page; do not paste secret values into browser consoles, logs, Git, or support tickets. |
-| Backup failed | Check `sudo systemctl status readypackets-backup.service` and `/var/backups/readypackets`; verify off-host destination settings and credentials through the admin backup controls. |
+| Installer reports a missing database table or column | Do not manually alter the database. Pull the reviewed current source and re-run the installer so its forward-only migrations and schema contract execute. |
+| P101 or P201 fails before queueing a webhook | Check `sudo journalctl -u readypackets.service -n 150 --no-pager`; verify the installation completed its critical schema contract. |
+| Let’s Encrypt validation fails through Cloudflare | Confirm the proxy/firewall permits HTTP-01 validation, or use Cloudflare Origin CA with Full (strict). |
+| Cloudflare returns `522` | Verify DNS, Cloudflare proxy status, VPS firewall `80`/`443`, nginx service status, and local readiness before changing application settings. |
+| Health responds with `308` at the apex hostname | Follow the redirect or check the canonical `www` host; the redirect is not a readiness failure. |
+| Cannot find a Git checkout under `/opt/readypackets` | Use `/srv/readypackets`; `/opt/readypackets` is the deployed artifact directory. |
+| Restore preflight rejects an archive | Re-run the archive preflight, confirm the passphrase and archive integrity, and use the full replacement-server path only when the protected secret environment must be restored. |
 
-## 12. Security acceptance checklist
+## 13. Go-live security acceptance
 
-Before go-live, confirm the following: HTTPS is active; Cloudflare uses Full (strict) if proxying; SSH root access is limited or disabled in favor of a named sudo user and key-based login; ports 3000/3306 are private; MFA is enabled for every administrator; the first backup restores in a non-production test; an external encrypted backup target is configured; Stripe webhooks have been tested; external webhook endpoints are verified; and all generated encryption keys are backed up off-host in an approved password/secrets vault.
+Before public launch, verify that HTTPS is active; Cloudflare is set to **Full (strict)** if proxying; SSH uses named administrators and key-based access; ports `3000` and `3306` are private; every administrator has MFA; the first full backup has been tested in an isolated restore drill; an encrypted off-host backup destination is configured; Stripe webhooks have been tested; external webhooks have approved endpoints; and encryption keys are retained in an approved recovery vault.
 
 ## References
 
-[1]: https://docs.docker.com/engine/install/ "Docker Engine installation documentation"
-[2]: https://eff-certbot.readthedocs.io/en/stable/using.html "Certbot user guide"
-[3]: https://dev.mysql.com/doc/refman/8.0/en/ "MySQL 8.0 Reference Manual"
-[4]: https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/ "Cloudflare Origin CA"
-[5]: https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/ "Cloudflare Full (strict)"
+[1]: https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/ "Cloudflare Origin CA"
+[2]: https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/ "Cloudflare Full (strict)"
+[3]: https://eff-certbot.readthedocs.io/en/stable/using.html "Certbot user guide"
+[4]: https://docs.github.com/authentication/connecting-to-github-with-ssh/managing-deploy-keys "GitHub deploy keys"
+[5]: https://dev.mysql.com/doc/refman/8.0/en/ "MySQL 8.0 Reference Manual"

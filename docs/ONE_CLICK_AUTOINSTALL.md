@@ -1,6 +1,6 @@
 # ReadyPackets Guided Fresh-VPS Installer
 
-The ReadyPackets guided installer provisions a **fresh Ubuntu or Debian VPS** from the latest public GitHub `main` commit by default. It asks only for deployment values that cannot be safely inferred, displays a redacted configuration review, and does not change the server until the operator types the final confirmation phrase.
+The ReadyPackets guided installer provisions a **fresh Ubuntu or Debian VPS** from the approved GitHub `main` source by default. It asks only for deployment values that cannot be safely inferred, displays a redacted configuration review, and does not change the server until the operator types the final confirmation phrase.
 
 > The installer is intended for a fresh server. It refuses to overwrite an existing project directory. Before running it, point the public hostname you plan to use to the server and ensure SSH access is available.
 
@@ -14,7 +14,7 @@ curl -fsSLO https://raw.githubusercontent.com/readypackets/ReadyPackets/main/dep
   && sudo ./one-click-install.sh
 ```
 
-The script downloads the latest public `main` source only after you complete the final review. It prints the resolved commit SHA at completion, so the installed version can be recorded independently.
+The script retrieves the selected `main` source only after you complete the final review. It prints the resolved commit SHA at completion, so the installed version can be recorded independently. For a private source repository, use the read-only GitHub deploy-key procedure in [Self-Hosted Installation Guide](SELF_HOSTED_INSTALLATION_GUIDE.md) rather than placing a personal token in a command.
 
 ## Guided prompt sequence
 
@@ -25,8 +25,8 @@ The script downloads the latest public `main` source only after you complete the
 | Website display name | Optional | Browser titles and public metadata; defaults to `ReadyPackets`. |
 | TLS method | Yes | Let’s Encrypt, Cloudflare Origin CA, or explicitly confirmed HTTP-only mode. |
 | Let’s Encrypt email | Conditional | Required only if Let’s Encrypt is selected. |
-| Cloudflare PEM paths | Conditional | Required only when Cloudflare Origin CA is selected. The certificate and private key are not displayed. |
-| Public source repository | Optional | Defaults to `readypackets/ReadyPackets` and the latest `main` commit. Advanced operators can choose a public fork, branch, or reviewed 40-character commit SHA. |
+| Cloudflare Origin CA credentials | Conditional | Either a least-privilege zone-scoped API token for automated issuance, or root-only PEM certificate/key paths for a manual Origin CA installation. Secrets are collected through protected prompts and are not displayed. |
+| Source repository | Optional | Defaults to `readypackets/ReadyPackets` and the latest `main` commit. Advanced operators can choose an approved source, branch, or reviewed 40-character commit SHA. |
 | Configuration-vault recovery | Optional | Retrieves the newest encrypted backup from a private GitHub vault after receiving a fine-grained token and recovery passphrase through masked prompts. |
 | Nightly local backup timer | Optional | Defaults to enabled on the native VPS path. |
 | Initial administrator | Required on a new installation without vault recovery | Collects administrator email and full name, then either generates a one-time password or accepts a masked password over standard input. MFA remains mandatory after first sign-in. |

@@ -3760,3 +3760,10 @@ The requested native ReadyPackets mobile application foundation has been impleme
 - TypeScript check and production server/client builds passed.
 - Deployed server/client release to production `myportal.readypackets.com` with checksum verification and rollback copies at `/opt/readypackets/rollback-20260822175857-sharepoint-folder-structure` plus the previous client asset directory.
 - Production service is active; public health returned `{"status":"ok"}` and readiness returned `{"status":"ready"}`.
+
+
+## 2026-08-24 — Self-hosted installation directions refreshed
+
+**User request:** Update the directions to install the ReadyPackets application.
+
+**Completed:** Rewrote `docs/SELF_HOSTED_INSTALLATION_GUIDE.md` as the current self-hosted administrator guide and aligned `docs/ONE_CLICK_AUTOINSTALL.md` with the active bootstrap flow. The revised instructions distinguish the source checkout (`/srv/readypackets`) from deployed artifacts (`/opt/readypackets`), document secure private-repository deploy-key retrieval, native Let’s Encrypt deployment, automated and manual Cloudflare Origin CA deployment, Cloudflare Full (strict), first-administrator/MFA setup, required health/readiness checks, expected canonical redirects, Cloudflare 522 troubleshooting, critical-schema fail-closed behavior, routine versus replacement-server recovery, and safe idempotent installer updates. The commands and referenced installer flags were validated against the current scripts with shell syntax checks and documentation consistency checks.
