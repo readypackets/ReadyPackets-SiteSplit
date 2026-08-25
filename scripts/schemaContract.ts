@@ -102,8 +102,8 @@ export const criticalSchemaContract: Readonly<Record<string, readonly string[]>>
 export type SchemaContractConnection = Pick<Connection, "query">;
 
 type ColumnRow = RowDataPacket & {
-  table_name: string;
-  column_name: string;
+  tableName: string;
+  columnName: string;
 };
 
 /**
@@ -117,7 +117,7 @@ export async function assertCriticalSchemaContract(
   const tables = Object.keys(criticalSchemaContract);
   const placeholders = tables.map(() => "?").join(", ");
   const [rows] = await connection.query<ColumnRow[]>(
-    `SELECT table_name, column_name
+    `SELECT table_name AS tableName, column_name AS columnName
        FROM information_schema.columns
       WHERE table_schema = DATABASE()
         AND table_name IN (${placeholders})`,
@@ -126,9 +126,9 @@ export async function assertCriticalSchemaContract(
 
   const available = new Map<string, Set<string>>();
   for (const row of rows) {
-    const columns = available.get(row.table_name) ?? new Set<string>();
-    columns.add(row.column_name);
-    available.set(row.table_name, columns);
+    const columns = available.get(row.tableName) ?? new Set<string>();
+    columns.add(row.columnName);
+    available.set(row.tableName, columns);
   }
 
   const missing: string[] = [];

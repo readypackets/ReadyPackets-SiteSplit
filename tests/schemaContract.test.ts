@@ -8,7 +8,7 @@ import {
 
 function contractRows() {
   return Object.entries(criticalSchemaContract).flatMap(([table, columns]) =>
-    columns.map((column) => ({ table_name: table, column_name: column })),
+    columns.map((column) => ({ tableName: table, columnName: column })),
   );
 }
 
@@ -26,7 +26,7 @@ describe("critical database schema contract", () => {
 
   it("fails before portal startup when a Phase Kickoff column is absent", async () => {
     const incompleteRows = contractRows().filter(
-      (row) => !(row.table_name === "phase_kickoff_configs" && row.column_name === "completion_percent"),
+      (row) => !(row.tableName === "phase_kickoff_configs" && row.columnName === "completion_percent"),
     );
 
     await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
@@ -35,10 +35,24 @@ describe("critical database schema contract", () => {
   });
 
   it("reports a missing operational table by name", async () => {
-    const incompleteRows = contractRows().filter((row) => row.table_name !== "outbound_call_logs");
+    const incompleteRows = contractRows().filter((row) => row.tableName !== "outbound_call_logs");
 
     await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
       "outbound_call_logs (table missing)",
     );
+  });
+
+  it("uses explicit metadata aliases so MySQL column-name casing cannot hide existing tables", async () => {
+    let statement = "";
+    const connection = {
+      query: async (sql: string) => {
+        statement = sql;
+        return [contractRows(), []];
+      },
+    } as unknown as SchemaContractConnection;
+
+    await expect(assertCriticalSchemaContract(connection)).resolves.toBeUndefined();
+    expect(statement).toContain("table_name AS tableName");
+    expect(statement).toContain("column_name AS columnName");
   });
 });

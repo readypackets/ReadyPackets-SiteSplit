@@ -151,6 +151,8 @@ curl -fsSLO https://raw.githubusercontent.com/readypackets/ReadyPackets/main/dep
 
 The guided installer supports Let’s Encrypt, manual Cloudflare Origin CA PEM files, and automated Cloudflare Origin CA issuance with a scoped token. It performs an unauthenticated source-reachability check and is appropriate only while the source repository is intentionally public. Follow [Temporary Public-Repository Installation](TEMPORARY_PUBLIC_REPOSITORY_INSTALL.md) for the required preflight, immutable-commit, and re-private steps. It prints the installed commit at completion. For a failed **fresh** installation only, use its controlled resume path; it refuses to run against an active ReadyPackets service.
 
+For a reproducible blank-server deployment with an immutable source pin and mandatory migration checkpoint, use [Clean-Room Fresh VPS Installation](FRESH_VPS_CLEAN_ROOM_INSTALL.md).
+
 ## 7. What the installer creates and verifies
 
 The installer is idempotent. On a clean server it installs system packages, creates the service account, generates local secrets, configures MySQL, builds the application, runs migrations, verifies the critical schema contract, configures systemd and nginx, configures TLS, installs protected backup helpers, and runs a local readiness probe.
