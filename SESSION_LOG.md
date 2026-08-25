@@ -3813,3 +3813,11 @@ Clarified the workflow designer’s SharePoint destination section to name the e
 **Repair:** The installer now records `RP_SOURCE_DIR` in the root-owned runtime environment. The update helper derives its hostname from `APP_URL` and finds the source checkout from `RP_SOURCE_DIR`, with tightly constrained legacy fallbacks. It preserves the active TLS configuration during upgrade rather than forcing Let’s Encrypt, and its rollback health probe uses the target server’s actual hostname. The router and approved auto-deploy wrapper no longer accept or provide fixed domain/contact parameters. The platform-update guide now requires an active helper/status before token setup and specifies a single-repository fine-grained GitHub token with Repository contents read-only permission.
 
 **Validation:** Shell syntax checks passed for the installer and both upgrade scripts. TypeScript validation and 4/4 schema-contract tests passed. A guard confirmed fixed deployment values no longer remain in the platform-update router or helpers.
+
+## 2026-08-25 — Platform update release-marker completion
+
+**Verification result:** The self-hosted update helper returned `serviceActive: true`, proving the protected helper and portal service were installed correctly. `currentCommit` remained `unknown` because earlier normal installer runs did not create `/opt/readypackets/RELEASE_COMMIT`; that marker previously existed only after a platform-update deployment.
+
+**Repair:** `deploy/install.sh` now derives the immutable `HEAD` SHA from its Git checkout during every installation or normal re-run, writes it to the root-owned `RELEASE_COMMIT` marker, and gives the ReadyPackets service group read access. A source archive without Git metadata logs an explicit warning rather than presenting a misleading commit. Future fresh installs and normal re-runs therefore display the running commit before GitHub platform updates are configured.
+
+**Validation:** Installer shell syntax and whitespace validation passed. The change is published with the platform-update domain/source safeguard so the first status refresh after the normal installer re-run can show the actual release SHA.

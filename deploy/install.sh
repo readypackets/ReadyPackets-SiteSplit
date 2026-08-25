@@ -468,6 +468,17 @@ if [[ -n "$GITHUB_CONFIG_REPOSITORY" ]]; then
   chown root:"$APP_USER" "$ENV_FILE"; chmod 0640 "$ENV_FILE"
 fi
 
+# Record the immutable source revision whenever the installer runs from a Git checkout.
+# The controlled Platform updates screen reads this root-owned marker rather than
+# guessing from a branch name or another server's deployment configuration.
+if release_commit="$(git -C "$REPO_ROOT" rev-parse --verify HEAD 2>/dev/null)"; then
+  printf '%s\n' "$release_commit" > "${APP_DIR}/RELEASE_COMMIT"
+  chown root:"$APP_USER" "${APP_DIR}/RELEASE_COMMIT"
+  chmod 0640 "${APP_DIR}/RELEASE_COMMIT"
+else
+  warn "Source checkout has no Git commit marker; Platform updates will show unknown until an immutable release is installed."
+fi
+
 # ---------------------------------------------------------------------------
 # systemd
 # ---------------------------------------------------------------------------
