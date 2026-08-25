@@ -3802,3 +3802,14 @@ Created `docs/global-growth/READY_PACKETS_GLOBAL_GROWTH_AND_MOBILE_PLAN.md` and 
 ## 2026-08-25 — Explicit Order Files-tab SharePoint destination wording
 
 Clarified the workflow designer’s SharePoint destination section to name the exact administrator action: **Order → Files → Upload phase documents**. The visual canvas now states that its document and audio folders control the SharePoint synchronization destination for that action. The guided designer’s **Uploads & SharePoint** step uses the same explicit language and distinguishes staff/customer document and audio folders. TypeScript and production client build passed.
+
+
+## 2026-08-25 — Domain-aware GitHub platform updates
+
+**User request:** The administrator requested help setting up **Admin → Platform updates** for controlled GitHub upgrades.
+
+**Safety finding:** The existing update worker passed fixed `myportal.readypackets.com` and `admin@readypackets.com` values into the upgrade helper. The root helper also assumed a fixed `/home/ubuntu/src/readypackets` source checkout and used the fixed hostname for rollback health validation. This was unsafe for independently hosted ReadyPackets installations and explained the platform-update page’s `unknown` commit and `Not active` state where the expected helper/layout was absent.
+
+**Repair:** The installer now records `RP_SOURCE_DIR` in the root-owned runtime environment. The update helper derives its hostname from `APP_URL` and finds the source checkout from `RP_SOURCE_DIR`, with tightly constrained legacy fallbacks. It preserves the active TLS configuration during upgrade rather than forcing Let’s Encrypt, and its rollback health probe uses the target server’s actual hostname. The router and approved auto-deploy wrapper no longer accept or provide fixed domain/contact parameters. The platform-update guide now requires an active helper/status before token setup and specifies a single-repository fine-grained GitHub token with Repository contents read-only permission.
+
+**Validation:** Shell syntax checks passed for the installer and both upgrade scripts. TypeScript validation and 4/4 schema-contract tests passed. A guard confirmed fixed deployment values no longer remain in the platform-update router or helpers.

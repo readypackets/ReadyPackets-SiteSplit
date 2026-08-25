@@ -353,6 +353,8 @@ PORT=3000
 BIND_HOST=127.0.0.1
 APP_URL=https://${DOMAIN}
 ALLOWED_ORIGINS=https://${DOMAIN}
+# Root-owned source checkout used by the controlled platform-update helper.
+RP_SOURCE_DIR=${REPO_ROOT}
 
 DATABASE_URL=mysql://${DB_USER}:${DB_PASSWORD}@127.0.0.1:3306/${DB_NAME}
 DB_NAME=${DB_NAME}

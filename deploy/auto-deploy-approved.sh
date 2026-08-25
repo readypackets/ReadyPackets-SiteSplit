@@ -9,8 +9,10 @@
 # Usage (root only):
 #   printf '%s\n' "$GITHUB_PAT" | sudo -E bash deploy/auto-deploy-approved.sh \
 #     --run-id 42 --repository readypackets/ReadyPackets --branch main \
-#     --commit <40-hex-sha> --domain myportal.readypackets.com \
-#     --contact admin@readypackets.com
+#     --commit <40-hex-sha>
+#
+# The protected helper reads the active hostname and source checkout from the
+# target server's root-owned ReadyPackets environment file.
 #
 # The PAT is accepted on standard input only. Never place it in a command-line
 # argument, systemd unit, shell history, timer definition, or world-readable file.
@@ -27,15 +29,13 @@ fail() { printf '[auto-deploy] %s\n' "$*" >&2; exit 1; }
 [[ ${EUID} -eq 0 ]] || fail "Run as root."
 [[ -x "$CONTROL" ]] || fail "Protected platform-upgrade helper is not installed. Run the unified installer first."
 
-RUN_ID=""; REPOSITORY=""; BRANCH="main"; COMMIT=""; DOMAIN=""; CONTACT=""
+RUN_ID=""; REPOSITORY=""; BRANCH="main"; COMMIT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --run-id) RUN_ID="${2:-}"; shift 2 ;;
     --repository) REPOSITORY="${2:-}"; shift 2 ;;
     --branch) BRANCH="${2:-}"; shift 2 ;;
     --commit) COMMIT="${2:-}"; shift 2 ;;
-    --domain) DOMAIN="${2:-}"; shift 2 ;;
-    --contact) CONTACT="${2:-}"; shift 2 ;;
     *) fail "Unknown option: $1" ;;
   esac
 done
@@ -44,8 +44,6 @@ done
 [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail "--repository must be owner/repository."
 [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]{1,128}$ ]] || fail "Invalid --branch."
 [[ "$COMMIT" =~ $SHA_RE ]] || fail "--commit must be an immutable 40-character lowercase SHA."
-[[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || fail "Invalid --domain."
-[[ "$CONTACT" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || fail "Invalid --contact."
 
 # Explicit environmental acknowledgement prevents accidental invocation by an
 # inherited cron/timer environment. Root remains the final authorization boundary.
@@ -54,4 +52,4 @@ done
 # The helper reads the PAT exactly once from stdin, verifies the remote branch
 # still points at the scanned SHA, performs tests and builds, snapshots state, and
 # rolls back on any error. Do not add a token persistence mechanism to this script.
-exec "$CONTROL" apply "$RUN_ID" "$REPOSITORY" "$BRANCH" "$COMMIT" "$DOMAIN" "$CONTACT"
+exec "$CONTROL" apply "$RUN_ID" "$REPOSITORY" "$BRANCH" "$COMMIT"

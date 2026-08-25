@@ -12,8 +12,6 @@ const UPDATE_CONTROL = "/usr/local/sbin/readypackets-platform-update";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BRANCH_RE = /^[A-Za-z0-9._/-]{1,128}$/;
 const SHA_RE = /^[a-f0-9]{40}$/;
-const DOMAIN = "myportal.readypackets.com";
-const CONTACT_EMAIL = "admin@readypackets.com";
 
 type HelperStatus = { currentCommit: string; serviceActive: boolean };
 type HelperApply = { status: "completed"; snapshot: string; targetCommit: string };
@@ -127,7 +125,7 @@ export const platformUpdatesRouter = router({
     await db.update(platformUpgradeRuns).set({ status: "running", startedAt: new Date() }).where(eq(platformUpgradeRuns.id, input.id));
     await setSetting("maintenance.enabled", "true", { category: "maintenance", valueType: "boolean", userId: ctx.session.user.id });
     try {
-      const output = await runUpdateControl(["apply", String(run.id), run.repository, run.branch, run.targetCommit, DOMAIN, CONTACT_EMAIL], `${pat}\n`);
+      const output = await runUpdateControl(["apply", String(run.id), run.repository, run.branch, run.targetCommit], `${pat}\n`);
       const applied = parseHelper<HelperApply>(output);
       await db.update(platformUpgradeRuns).set({ status: "completed", rollbackSnapshot: applied.snapshot, output: output.slice(0, 12_000), completedAt: new Date() }).where(eq(platformUpgradeRuns.id, input.id));
       void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "platform_upgrade.completed", entityType: "platform_upgrade", entityId: input.id, severity: "warning", summary: `Installed approved release ${run.targetCommit.slice(0, 12)}`, ipAddress: ctx.clientIp });

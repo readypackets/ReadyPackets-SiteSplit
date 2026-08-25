@@ -1,6 +1,6 @@
 # ReadyPackets Upgrade and Rollback Guide
 
-**Version:** 2026-08-13
+**Version:** 2026-08-25
 **Audience:** Platform administrators
 
 ## Purpose
@@ -11,9 +11,11 @@ The ReadyPackets **Platform updates** workspace provides a controlled native-VPS
 
 ## Configure the repository connection
 
-Open **Admin → Platform updates**. Enter the repository as `owner/repository`, select the source branch, and provide a GitHub fine-grained personal access token.
+Open **Admin → Platform updates**. Before saving a connection, confirm that **Current deployed commit** is a commit SHA and **Service status** is active. If either value is unknown/inactive, update or repair the server using the normal self-hosted installer first; do not attempt a platform update.
 
-The token should be restricted to the single repository and have only the minimum read-only repository contents access needed for scans and release checkout. ReadyPackets encrypts the token using AES-256-GCM before storage, never returns it through the browser API, never includes it in standard configuration exports, and passes it to the root-owned update helper only through process standard input. Replace the token by entering a new value; leaving the token field blank preserves the encrypted stored value.
+Enter the repository as `owner/repository`, select the source branch, and provide a GitHub fine-grained personal access token. Restrict the token to the single repository with **Repository contents: Read-only** only. GitHub metadata read access is implicit. Do not grant Administration, Actions, Commit statuses, Deployments, Environments, Issues, Pull requests, Secrets, Workflows, or write access. Set a short expiration and replace it before expiry.
+
+ReadyPackets encrypts the token using AES-256-GCM before storage, never returns it through the browser API, never includes it in standard configuration exports, and passes it to the root-owned update helper only through process standard input. Replace the token by entering a new value; leaving the token field blank preserves the encrypted stored value. The helper reads the active hostname and source checkout from the server’s protected environment file, so it never reuses a fixed domain from another deployment.
 
 ## Scan and review changes
 
@@ -30,7 +32,7 @@ The two-step approval process is deliberate.
 | **Approve** | Type `APPROVE <12-character target commit>` | Records a specific reviewed commit as approved. |
 | **Upgrade** | Type `UPGRADE <12-character target commit>` | Starts the root-owned update helper for that approved commit. |
 
-The helper turns on the existing maintenance gate, creates a root-owned application and database snapshot, checks out only the approved commit, performs dependency installation/build/migration/deployment steps, restarts the service, and runs a health check. The system retains the run output and snapshot reference in the update history.
+The helper turns on the existing maintenance gate, creates a root-owned application and database snapshot, checks out only the approved commit, performs dependency installation/build/migration/deployment steps, restarts the service, and runs a health check using the active hostname configured on that server. The system retains the run output and snapshot reference in the update history.
 
 Do not update during an active customer submission, scheduled backup, or other maintenance window. Configure a maintenance message and login/registration policy in **Admin → System** before starting a major upgrade.
 

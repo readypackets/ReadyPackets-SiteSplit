@@ -7,8 +7,9 @@ umask 077
 
 readonly APP_USER="readypackets"
 readonly APP_DIR="/opt/readypackets"
-readonly SOURCE_DIR="/home/ubuntu/src/readypackets"
 readonly ENV_FILE="/etc/readypackets/portal.env"
+SOURCE_DIR=""
+RUNTIME_DOMAIN=""
 readonly BACKUP_ROOT="/var/backups/readypackets/platform-upgrades"
 readonly WORK_ROOT="/var/lib/readypackets/platform-upgrades"
 readonly SERVICE="readypackets"
@@ -21,6 +22,29 @@ fail() { printf '%s\n' "$*" >&2; exit 1; }
 require_root() { [[ $EUID -eq 0 ]] || fail "This helper must run as root."; }
 valid() { [[ "$1" =~ $2 ]] || fail "Invalid $3."; }
 json_escape() { node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$1"; }
+
+env_value() {
+  local key="$1"
+  grep -m1 "^${key}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"' || true
+}
+
+load_runtime_config() {
+  [[ -r "$ENV_FILE" ]] || fail "ReadyPackets environment file is unavailable."
+  local app_url configured candidate
+  app_url="$(env_value APP_URL)"
+  RUNTIME_DOMAIN="${app_url#https://}"
+  RUNTIME_DOMAIN="${RUNTIME_DOMAIN#http://}"
+  RUNTIME_DOMAIN="${RUNTIME_DOMAIN%%/*}"
+  [[ "$RUNTIME_DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || fail "The active APP_URL does not contain a valid hostname."
+
+  configured="$(env_value RP_SOURCE_DIR)"
+  for candidate in "$configured" /srv/readypackets /home/ubuntu/src/readypackets; do
+    [[ -n "$candidate" && -d "$candidate" && -f "$candidate/deploy/install.sh" ]] || continue
+    SOURCE_DIR="$candidate"
+    break
+  done
+  [[ -n "$SOURCE_DIR" ]] || fail "ReadyPackets source checkout is unavailable. Re-run deploy/install.sh from the source checkout before enabling platform updates."
+}
 
 safe_copy_tree() {
   local source="$1" destination="$2"
@@ -55,7 +79,7 @@ restore_snapshot() {
   systemctl daemon-reload
   systemctl start "$SERVICE"
   sleep 4
-  curl -fsS -H 'Host: myportal.readypackets.com' -H 'X-Forwarded-Proto: https' http://127.0.0.1:3000/api/health >/dev/null
+  curl -fsS -H "Host: ${RUNTIME_DOMAIN}" -H 'X-Forwarded-Proto: https' http://127.0.0.1:3000/api/health >/dev/null
 }
 
 clone_release() {
@@ -74,7 +98,7 @@ clone_release() {
 }
 
 apply_upgrade() {
-  local run_id="$1" repository="$2" branch="$3" target="$4" domain="$5" contact="$6" token="$7"
+  local run_id="$1" repository="$2" branch="$3" target="$4" token="$5"
   local snapshot work
   snapshot="$(write_snapshot "$run_id")"
   work="$(clone_release "$run_id" "$repository" "$branch" "$target" "$token")"
@@ -88,7 +112,7 @@ apply_upgrade() {
   pnpm run build:server
   safe_copy_tree "$work" "$SOURCE_DIR"
   cd "$SOURCE_DIR"
-  COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/install.sh --domain "$domain" --email "$contact" --tls --skip-packages
+  COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/install.sh --domain "$RUNTIME_DOMAIN" --skip-packages < /dev/null
   printf '%s\n' "$target" > "$APP_DIR/RELEASE_COMMIT"
   chmod 0640 "$APP_DIR/RELEASE_COMMIT"
   chown root:readypackets "$APP_DIR/RELEASE_COMMIT"
@@ -97,6 +121,7 @@ apply_upgrade() {
 }
 
 require_root
+load_runtime_config
 [[ $# -ge 1 ]] || fail "Usage: status|apply|rollback"
 case "$1" in
   status)
@@ -104,13 +129,11 @@ case "$1" in
     printf '{"currentCommit":%s,"serviceActive":%s}\n' "$(json_escape "$current")" "$(systemctl is-active --quiet "$SERVICE" && printf true || printf false)"
     ;;
   apply)
-    [[ $# -eq 7 ]] || fail "Usage: apply <run> <repository> <branch> <target-sha> <domain> <contact-email>"
+    [[ $# -eq 5 ]] || fail "Usage: apply <run> <repository> <branch> <target-sha>"
     valid "$2" "$RUN_RE" "run id"; valid "$3" "$REPO_RE" "repository"; valid "$4" "$BRANCH_RE" "branch"; valid "$5" "$SHA_RE" "target commit"
-    [[ "$6" =~ ^[A-Za-z0-9.-]+$ ]] || fail "Invalid domain."
-    [[ "$7" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || fail "Invalid contact email."
     IFS= read -r token || true
     [[ ${#token} -ge 20 ]] || fail "A GitHub token is required."
-    apply_upgrade "$2" "$3" "$4" "$5" "$6" "$7" "$token"
+    apply_upgrade "$2" "$3" "$4" "$5" "$token"
     ;;
   rollback)
     [[ $# -eq 2 ]] || fail "Usage: rollback <run>"
