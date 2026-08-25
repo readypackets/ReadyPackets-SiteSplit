@@ -1,0 +1,41 @@
+flowchart TB
+  classDef edge fill:#0D1B2A,color:#FFFFFF,stroke:#20C4C8,stroke-width:2px
+  classDef primary fill:#142C3D,color:#FFFFFF,stroke:#D4AF37,stroke-width:2px
+  classDef regional fill:#173E4B,color:#FFFFFF,stroke:#20C4C8,stroke-width:2px
+  classDef data fill:#263B4A,color:#FFFFFF,stroke:#D4AF37,stroke-width:2px
+  classDef control fill:#1E293B,color:#FFFFFF,stroke:#94A3B8,stroke-width:2px
+
+  Users[Web and native mobile users] --> Edge[Cloudflare edge: DNS, WAF, CDN, API protection]
+  Edge --> LB[Global traffic manager and health checks]
+
+  subgraph Phase_1[Phase 1: current primary region]
+    VA[Virginia application pool]:::primary
+    DB1[(Primary MySQL / future managed MySQL)]:::data
+    OBJ1[(Encrypted object storage)]:::data
+    VA --> DB1
+    VA --> OBJ1
+  end
+
+  subgraph Phase_2[Phase 2: warm recovery region]
+    DR[Secondary application pool]:::regional
+    DB2[(Asynchronous database replica)]:::data
+    OBJ2[(Cross-region object replica)]:::data
+    DR --> DB2
+    DR --> OBJ2
+  end
+
+  subgraph Phase_3[Phase 3: regional tenant cells]
+    EU[EU application and data cell]:::regional
+    APAC[APAC application and data cell]:::regional
+    CP[Minimal global control plane: routing, release metadata, region registry]:::control
+  end
+
+  LB --> VA
+  LB -. health-based failover .-> DR
+  DB1 -. encrypted replication .-> DB2
+  OBJ1 -. versioned replication .-> OBJ2
+  LB -. region / tenant route .-> EU
+  LB -. region / tenant route .-> APAC
+  CP -. approved configuration and release metadata .-> VA
+  CP -. approved configuration and release metadata .-> EU
+  CP -. approved configuration and release metadata .-> APAC

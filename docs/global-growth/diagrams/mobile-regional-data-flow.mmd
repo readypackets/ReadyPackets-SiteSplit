@@ -1,0 +1,23 @@
+sequenceDiagram
+  participant App as Native iOS / Android app
+  participant Edge as Cloudflare edge
+  participant Registry as Region discovery service
+  participant API as Tenant home-region mobile API
+  participant DB as Regional database
+  participant Store as Regional encrypted object store
+  participant Push as APNs / FCM
+
+  App->>Edge: Resolve global app API host
+  Edge->>Registry: Route region discovery request
+  Registry-->>App: Signed tenant region and API base URL
+  App->>Edge: OAuth PKCE authorization and token request
+  Edge->>API: Authenticated /api/mobile/v1 request
+  API->>DB: Authorize by tenant, role, region, and order scope
+  DB-->>API: Authorized data only
+  API-->>App: Regional API response with correlation ID
+  App->>API: Create resumable upload session
+  API-->>App: Short-lived regional upload target
+  App->>Store: Background/resumable upload
+  Store-->>API: Object-complete event
+  API->>Push: Minimal notification request
+  Push-->>App: Generic notification only

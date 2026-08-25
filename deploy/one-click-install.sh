@@ -61,6 +61,9 @@ ADMIN_GENERATE_PASSWORD="${RP_ADMIN_GENERATE_PASSWORD:-yes}"
 AUTO_CONFIRM="${RP_AUTO_CONFIRM:-}"
 RESUME_FAILED_INSTALL="${RP_RESUME_FAILED_INSTALL:-no}"
 REQUIRE_PUBLIC_HEALTH="${RP_REQUIRE_PUBLIC_HEALTH:-no}"
+# This bootstrap path deliberately retrieves source over unauthenticated HTTPS.
+# It is only appropriate while the selected repository is intentionally public.
+REQUIRE_PUBLIC_SOURCE="${RP_REQUIRE_PUBLIC_SOURCE:-yes}"
 TEMP_FILES=()
 
 step() { printf '\n\033[1;36m[ReadyPackets install]\033[0m %s\n' "$*"; }
@@ -217,6 +220,8 @@ TLS_PROVIDER="${TLS_PROVIDER:-letsencrypt}"
 PROVISION_ADMIN="${PROVISION_ADMIN:-auto}"
 
 [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail "RP_REPOSITORY must be owner/repository."
+[[ "$REQUIRE_PUBLIC_SOURCE" =~ ^(yes|no)$ ]] || fail "RP_REQUIRE_PUBLIC_SOURCE must be yes or no."
+[[ "$REQUIRE_PUBLIC_SOURCE" == "yes" ]] || fail "This bootstrap only retrieves intentionally public source over anonymous HTTPS. Use the private-repository deploy-key procedure for a private repository."
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "Set a valid public website hostname."
 [[ "$MODE" =~ ^(native|docker|docker-bootstrap)$ ]] || fail "Installation type must be native, docker, or docker-bootstrap."
 [[ "$TLS_PROVIDER" =~ ^(letsencrypt|cloudflare-origin|cloudflare-origin-ca|none)$ ]] || fail "TLS provider must be letsencrypt, cloudflare-origin, cloudflare-origin-ca, or none."
@@ -267,6 +272,7 @@ if [[ "$INTERACTIVE_MODE" == "true" ]]; then
   printf '  Website name:       %s\n' "$SITE_NAME"
   printf '  TLS method:         %s\n' "$TLS_PROVIDER"
   printf '  Source:             https://github.com/%s.git (%s%s)\n' "$REPOSITORY" "$REF" "${COMMIT:+, pinned ${COMMIT}}"
+  printf '  Source access:      temporary public repository over anonymous HTTPS\n'
   printf '  Config recovery:    %s\n' "$( [[ -n "$VAULT_REPOSITORY" ]] && printf 'enabled (secrets hidden)' || printf 'not requested' )"
   printf '  Nightly backup:     %s\n' "$BACKUP_ENABLED"
   printf '  Initial admin:      %s\n' "$( [[ "$PROVISION_ADMIN" == "yes" ]] && printf '%s (%s password)' "$ADMIN_EMAIL" "$ADMIN_GENERATE_PASSWORD" || printf 'not provisioned by installer' )"
@@ -283,6 +289,10 @@ step "Installing only bootstrap packages needed to retrieve the public source."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y --no-install-recommends ca-certificates curl git
+
+step "Verifying that the selected source is reachable without GitHub credentials."
+GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "https://github.com/${REPOSITORY}.git" "refs/heads/${REF}" >/dev/null \
+  || fail "The selected source is not anonymously readable at the requested ref. Temporarily make the repository public, verify the ref, or use the private-repository deploy-key procedure."
 
 step "Retrieving ReadyPackets source from https://github.com/${REPOSITORY}.git"
 if [[ "$RESUME_FAILED_INSTALL" == "yes" ]]; then

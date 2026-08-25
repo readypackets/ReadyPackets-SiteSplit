@@ -149,7 +149,7 @@ curl -fsSLO https://raw.githubusercontent.com/readypackets/ReadyPackets/main/dep
   && sudo ./one-click-install.sh
 ```
 
-The guided installer supports Let’s Encrypt, manual Cloudflare Origin CA PEM files, and automated Cloudflare Origin CA issuance with a scoped token. It prints the installed commit at completion. For a failed **fresh** installation only, use its controlled resume path; it refuses to run against an active ReadyPackets service.
+The guided installer supports Let’s Encrypt, manual Cloudflare Origin CA PEM files, and automated Cloudflare Origin CA issuance with a scoped token. It performs an unauthenticated source-reachability check and is appropriate only while the source repository is intentionally public. Follow [Temporary Public-Repository Installation](TEMPORARY_PUBLIC_REPOSITORY_INSTALL.md) for the required preflight, immutable-commit, and re-private steps. It prints the installed commit at completion. For a failed **fresh** installation only, use its controlled resume path; it refuses to run against an active ReadyPackets service.
 
 ## 7. What the installer creates and verifies
 
