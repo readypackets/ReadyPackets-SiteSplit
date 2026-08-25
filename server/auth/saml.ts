@@ -21,6 +21,7 @@ import { samlConfigs, users } from "../db/schema.js";
 import {
   createUser,
   getUserByEmail,
+  recordSuccessfulLogin,
   type CreateUserInput,
 } from "../db/users.js";
 import { createSession, revokePendingMfaSessions } from "./session.js";
@@ -289,6 +290,12 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  // Keep the user record consistent with password and magic-link sign-ins.
+  // The customer grid's “Last sign-in” value is derived from lastLoginAt, while
+  // the audit event below retains SAML-specific provider/MFA evidence. This is
+  // intentionally after all account, access, and Entra-assurance gates pass.
+  await recordSuccessfulLogin(user.id, req.ip ?? null);
+
   // Dual mode always requires a local administrator MFA factor in addition to
   // the signed Entra assurance assertion, even if the generic role policy was
   // relaxed later. Entra-only mode intentionally skips the local MFA prompt only
@@ -324,7 +331,13 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
     userId: user.id,
     ipAddress: req.ip ?? null,
     userAgent: req.headers["user-agent"]?.slice(0, 255) ?? null,
-    metadata: isAdministrator ? { mfaSource: samlMfaPolicy.source, entraAssuranceSatisfied: assuranceEvidence.assuranceSatisfied } : undefined,
+    metadata: {
+      authenticationMethod: "saml",
+      identityProvider: config.name,
+      ...(isAdministrator
+        ? { mfaSource: samlMfaPolicy.source, entraAssuranceSatisfied: assuranceEvidence.assuranceSatisfied }
+        : {}),
+    },
   });
   const relayState = req.body?.RelayState as string | undefined;
   const redirectTo = relayState && relayState.startsWith("/") ? relayState : "/portal";

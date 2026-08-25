@@ -44,6 +44,21 @@ Changes do **not** rename, move, or delete folders already present in SharePoint
 
 Document and audio synchronization may be routed to a specific folder by the applicable **Order Workflow** stage’s SharePoint document or audio destination. Those workflow-stage routing settings take precedence for file delivery; the Phase Kickoff designer controls the broader folder creation layout.
 
+## Workflow-stage file destinations
+
+Each workflow stage provides **Document folder — customer and staff** and **Audio folder — customer and staff** settings. These are relative to the managed customer/order root and apply to every accepted upload assigned to that stage, regardless of who supplied it.
+
+| File origin | Destination selection |
+|---|---|
+| Customer document upload | The stage document folder. |
+| Customer browser recording or pre-recorded audio | The stage audio folder. |
+| Administrator **Upload phase documents** action | The selected phase’s document folder, unless the uploaded file is audio. |
+| Administrator pre-recorded audio upload | The selected phase’s audio folder. |
+
+ReadyPackets determines the final folder from the detected file type, not the uploader role, then records the final SharePoint path in the order’s **SharePoint Sync** tab. In the guided workflow designer, select **Uploads & SharePoint** to configure these fields. In the visual canvas, they are in each stage’s **SharePoint destinations for every upload in this stage** panel.
+
+Changing a workflow destination affects future synchronization jobs. It does not rename, move, or delete SharePoint files that have already synchronized.
+
 ## Recommended operating procedure
 
 Create the desired design in a test order first. Confirm that the base folder, customer/order hierarchy, phase paths, document route, audio route, and SharePoint sync log all match expectations. Then save the production phase template and allow the next normal phase kickoff to create missing folders. Avoid manually moving active order folders in SharePoint, because ReadyPackets retains its audited sync paths and will not infer a manual relocation.
