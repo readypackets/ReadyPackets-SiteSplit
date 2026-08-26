@@ -16,6 +16,10 @@ Description=ReadyPackets Portal
 Documentation=file:/opt/readypackets/docs/DEPLOYMENT.md
 After=network-online.target mysql.service
 Wants=network-online.target
+# Give up if the service crashes repeatedly, so a broken deploy is visible in
+# monitoring rather than silently flapping.
+StartLimitBurst=5
+StartLimitIntervalSec=120
 # The application exits with a clear message if the database is unreachable, so
 # a hard dependency is not required, but ordering avoids a noisy first start.
 
@@ -39,11 +43,6 @@ TimeoutStopSec=30
 
 Restart=always
 RestartSec=5s
-# Give up if the service crashes repeatedly, so a broken deploy is visible in
-# monitoring rather than silently flapping.
-StartLimitBurst=5
-StartLimitIntervalSec=120
-
 # ---------------------------------------------------------------------------
 # Filesystem isolation
 # ---------------------------------------------------------------------------

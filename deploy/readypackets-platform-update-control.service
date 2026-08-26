@@ -1,0 +1,47 @@
+[Unit]
+Description=ReadyPackets protected platform update control socket daemon
+Documentation=file:/opt/readypackets/docs/UPGRADE_AND_ROLLBACK.md
+After=network-online.target mysql.service
+Wants=network-online.target mysql.service
+
+[Service]
+Type=simple
+User=root
+# The root daemon creates a 0660 Unix socket owned by this group. The public
+# service can request only a validated allowlist; it never gains sudo access.
+Group=readypackets
+ExecStart=/usr/bin/node /opt/readypackets/deploy/platform-update-control-daemon.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RemoveIPC=true
+PrivateUsers=false
+ProtectSystem=full
+# The fixed update helper snapshots and replaces only these controlled paths.
+ReadWritePaths=/run /opt/readypackets /srv/readypackets /home/ubuntu/src/readypackets /var/backups/readypackets /var/lib/readypackets /etc/readypackets /etc/systemd/system
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @mount @swap @reboot @module @raw-io @debug @clock @cpu-emulation
+SystemCallArchitectures=native
+SystemCallErrorNumber=EPERM
+LimitNOFILE=1024
+LimitNPROC=128
+
+[Install]
+WantedBy=multi-user.target

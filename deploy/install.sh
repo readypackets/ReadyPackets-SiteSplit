@@ -869,23 +869,23 @@ install -d -m 0755 -o root -g root /usr/local/lib/readypackets
 install -m 0750 "${APP_DIR}/deploy/backup.sh" /usr/local/sbin/readypackets-backup
 install -m 0750 "${APP_DIR}/deploy/backup-control.sh" /usr/local/sbin/readypackets-backup-control
 chmod 0750 "${APP_DIR}/deploy/backup-control-daemon.mjs"
+chmod 0750 "${APP_DIR}/deploy/platform-update-control-daemon.mjs"
 install -m 0750 "${APP_DIR}/deploy/certificate-control-daemon.mjs" /usr/local/lib/readypackets/certificate-control-daemon.mjs
 install -m 0750 "${APP_DIR}/deploy/platform-upgrade-control.sh" /usr/local/sbin/readypackets-platform-update
 install -m 0750 "${APP_DIR}/deploy/auto-deploy-approved.sh" /usr/local/sbin/readypackets-auto-deploy-approved
 install -m 0644 "${APP_DIR}/deploy/readypackets-backup.service" /etc/systemd/system/
 install -m 0644 "${APP_DIR}/deploy/readypackets-backup-control.service" /etc/systemd/system/
 install -m 0644 "${APP_DIR}/deploy/readypackets-certificate-control.service" /etc/systemd/system/
+install -m 0644 "${APP_DIR}/deploy/readypackets-platform-update-control.service" /etc/systemd/system/
 install -m 0644 "${APP_DIR}/deploy/readypackets-backup.timer" /etc/systemd/system/
 # Backups use a root-owned Unix-socket daemon with a fixed action allowlist.
 # The web service has no sudo rule for backup operations; it can reach only the
 # group-writable local socket and cannot pass arbitrary commands or paths.
 rm -f /etc/sudoers.d/readypackets-backup-control
-# Platform upgrades have a separate root-owned allowlisted helper. The web
-# service can request only status, validated approved upgrades, or rollback by
-# a recorded run ID; it cannot execute arbitrary shell commands.
-printf 'readypackets ALL=(root) NOPASSWD: /usr/local/sbin/readypackets-platform-update *\n' > /etc/sudoers.d/readypackets-platform-update
-chmod 0440 /etc/sudoers.d/readypackets-platform-update
-visudo -cf /etc/sudoers.d/readypackets-platform-update
+# Platform updates use a second root-owned Unix-socket daemon with an action
+# allowlist. This preserves NoNewPrivileges=true on the customer-facing service
+# and removes the service account's sudo capability entirely.
+rm -f /etc/sudoers.d/readypackets-platform-update
 install -d -m 0700 -o root -g root /var/backups/readypackets/platform-upgrades
 install -d -m 0700 -o root -g root /var/lib/readypackets/platform-upgrades
 # The service needs to list/copy archives into its protected download staging area,
@@ -899,6 +899,7 @@ install -d -m 0730 -o root -g readypackets /var/lib/readypackets/storage/backup-
 systemctl daemon-reload
 systemctl enable --now readypackets-backup-control.service
 systemctl enable --now readypackets-certificate-control.service
+systemctl enable --now readypackets-platform-update-control.service
 systemctl enable --now readypackets-backup.timer
 
 # Run one backup now. An untested backup is not a backup, and discovering that

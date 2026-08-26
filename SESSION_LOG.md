@@ -3821,3 +3821,14 @@ Clarified the workflow designer’s SharePoint destination section to name the e
 **Repair:** `deploy/install.sh` now derives the immutable `HEAD` SHA from its Git checkout during every installation or normal re-run, writes it to the root-owned `RELEASE_COMMIT` marker, and gives the ReadyPackets service group read access. A source archive without Git metadata logs an explicit warning rather than presenting a misleading commit. Future fresh installs and normal re-runs therefore display the running commit before GitHub platform updates are configured.
 
 **Validation:** Installer shell syntax and whitespace validation passed. The change is published with the platform-update domain/source safeguard so the first status refresh after the normal installer re-run can show the actual release SHA.
+
+
+## 2026-08-26 — Platform Updates NoNewPrivileges repair
+
+**User report:** After the GitHub token connection was saved, Platform updates failed with a generic scan error. The ReadyPackets service log reported: `sudo: The "no new privileges" flag is set, which prevents sudo from running as root.`
+
+**Root cause:** The public ReadyPackets service correctly runs with `NoNewPrivileges=true`, but the Platform Updates router attempted to invoke the root update helper through `sudo -n`. This conflicts with the intended systemd hardening and prevented status scans, approved deployment, and rollback requests from executing.
+
+**Repair:** Replaced service-process sudo with a separate root-owned `readypackets-platform-update-control.service`. The new daemon creates a 0660 Unix socket for the `readypackets` group, accepts only bounded `status`, validated immutable `apply`, and validated `rollback` requests, limits message/output sizes, uses fixed absolute helper paths, and gives the portal no arbitrary command or sudo authority. The native installer provisions/enables the service and removes the obsolete platform-update sudoers rule. Factory reset removes the new service. The main application retains `NoNewPrivileges=true`; systemd start-limit directives were also moved to the correct `[Unit]` section to eliminate repeated warnings.
+
+**Validation:** Daemon syntax, installer/factory-reset syntax, TypeScript, focused schema-contract tests (4/4), server bundle, client production build, systemd unit validation, and whitespace validation passed.

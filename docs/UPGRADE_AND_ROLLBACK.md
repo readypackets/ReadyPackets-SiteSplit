@@ -47,7 +47,8 @@ Because database restoration is included, any customer data written after the up
 | Control | Behavior |
 |---|---|
 | **Root-owned helper** | `/usr/local/sbin/readypackets-platform-update` performs only allowlisted status, apply, and rollback operations. |
-| **Sudo allowlist** | The application service can invoke only that helper through a dedicated sudoers rule. It cannot run arbitrary shell commands. |
+| **Root-owned socket daemon** | `readypackets-platform-update-control.service` owns a group-restricted local socket and validates only status, approved apply, and rollback request shapes before invoking the helper. |
+| **No service sudo** | The customer-facing ReadyPackets service retains `NoNewPrivileges=true` and has no sudo rule or arbitrary command capability. |
 | **Run history** | Scans, approvals, executions, errors, and rollbacks are retained in the platform upgrade history and activity log. |
 | **Rollback material** | Snapshots are root-owned under protected backup storage and are not downloadable through the public site. |
 | **Credential handling** | The GitHub token is encrypted at rest and excluded from ordinary configuration exports. |

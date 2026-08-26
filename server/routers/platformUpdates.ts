@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import net from "node:net";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db/client.js";
@@ -8,7 +9,7 @@ import { decryptField, encryptField } from "../security/crypto.js";
 import { getSetting, setSetting } from "../services/settings.js";
 import { recordActivity } from "../observability/audit.js";
 
-const UPDATE_CONTROL = "/usr/local/sbin/readypackets-platform-update";
+const PLATFORM_UPDATE_CONTROL_SOCKET = "/run/readypackets/platform-update-control.sock";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BRANCH_RE = /^[A-Za-z0-9._/-]{1,128}$/;
 const SHA_RE = /^[a-f0-9]{40}$/;
@@ -17,16 +18,30 @@ type HelperStatus = { currentCommit: string; serviceActive: boolean };
 type HelperApply = { status: "completed"; snapshot: string; targetCommit: string };
 type HelperRollback = { status: "rolled_back"; snapshot: string };
 
-function runUpdateControl(args: string[], stdin?: string): Promise<string> {
+function runUpdateControl(args: string[], stdin = ""): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("sudo", ["-n", UPDATE_CONTROL, ...args], { stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
-    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-    child.once("error", reject);
-    child.once("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error(stderr.trim() || `Update control exited with ${code}`)));
-    child.stdin.end(stdin ?? "");
+    const socket = net.createConnection({ path: PLATFORM_UPDATE_CONTROL_SOCKET });
+    let response = "";
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("Platform update control request timed out."));
+    }, 20 * 60_000);
+    socket.setEncoding("utf8");
+    socket.once("connect", () => socket.write(`${JSON.stringify({ action: args[0], args: args.slice(1), stdin })}\n`));
+    socket.on("data", (chunk) => {
+      response += chunk;
+      if (response.includes("\n")) socket.end();
+    });
+    socket.once("error", (error) => { clearTimeout(timer); reject(error); });
+    socket.once("close", () => {
+      clearTimeout(timer);
+      try {
+        const payload = JSON.parse(response.trim()) as { ok?: boolean; output?: string; error?: string };
+        payload.ok ? resolve((payload.output ?? "").trim()) : reject(new Error(payload.error ?? "Platform update control rejected the request."));
+      } catch {
+        reject(new Error("Platform update control returned an invalid response."));
+      }
+    });
   });
 }
 

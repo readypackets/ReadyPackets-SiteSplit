@@ -69,7 +69,9 @@ else
   systemctl disable readypackets 2>/dev/null || true
   systemctl stop readypackets-backup.timer 2>/dev/null || true
   systemctl disable readypackets-backup.timer 2>/dev/null || true
-  rm -f /etc/systemd/system/readypackets.service /etc/systemd/system/readypackets-backup.service /etc/systemd/system/readypackets-backup.timer
+  systemctl stop readypackets-platform-update-control.service 2>/dev/null || true
+  systemctl disable readypackets-platform-update-control.service 2>/dev/null || true
+  rm -f /etc/systemd/system/readypackets.service /etc/systemd/system/readypackets-backup.service /etc/systemd/system/readypackets-backup.timer /etc/systemd/system/readypackets-platform-update-control.service
   rm -f /etc/sudoers.d/readypackets-backup-control /etc/sudoers.d/readypackets-platform-update
   systemctl daemon-reload
 fi
