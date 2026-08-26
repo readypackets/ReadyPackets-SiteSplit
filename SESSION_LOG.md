@@ -3832,3 +3832,14 @@ Clarified the workflow designer’s SharePoint destination section to name the e
 **Repair:** Replaced service-process sudo with a separate root-owned `readypackets-platform-update-control.service`. The new daemon creates a 0660 Unix socket for the `readypackets` group, accepts only bounded `status`, validated immutable `apply`, and validated `rollback` requests, limits message/output sizes, uses fixed absolute helper paths, and gives the portal no arbitrary command or sudo authority. The native installer provisions/enables the service and removes the obsolete platform-update sudoers rule. Factory reset removes the new service. The main application retains `NoNewPrivileges=true`; systemd start-limit directives were also moved to the correct `[Unit]` section to eliminate repeated warnings.
 
 **Validation:** Daemon syntax, installer/factory-reset syntax, TypeScript, focused schema-contract tests (4/4), server bundle, client production build, systemd unit validation, and whitespace validation passed.
+
+
+## 2026-08-26 — Platform update control daemon sandbox-path repair
+
+**User report:** After the socket-control release was installed, `readypackets-platform-update-control.service` remained activating and no `/run/readypackets/platform-update-control.sock` was created.
+
+**Root cause:** The systemd unit had `ProtectSystem=full` plus a `ReadWritePaths` entry for the absent legacy checkout `/home/ubuntu/src/readypackets`. Systemd therefore failed to create the service mount namespace, returning `status=226/NAMESPACE` and reporting both the absent legacy path and `/usr/bin/node` as unavailable in the failed sandbox.
+
+**Repair:** Marked both supported source locations as optional `ReadWritePaths` entries (`-/srv/readypackets` and `-/home/ubuntu/src/readypackets`). The root daemon retains a tightly bounded writable-path allowlist, `NoNewPrivileges=true`, its fixed Node entrypoint, and validated socket action allowlist. A missing legacy source directory no longer prevents the daemon from starting on a `/srv/readypackets` deployment.
+
+**Validation:** Node daemon syntax, installer shell syntax, systemd unit validation, TypeScript, focused schema-contract tests (4/4), and whitespace validation passed.

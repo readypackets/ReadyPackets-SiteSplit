@@ -34,7 +34,8 @@ RemoveIPC=true
 PrivateUsers=false
 ProtectSystem=full
 # The fixed update helper snapshots and replaces only these controlled paths.
-ReadWritePaths=/run /opt/readypackets /srv/readypackets /home/ubuntu/src/readypackets /var/backups/readypackets /var/lib/readypackets /etc/readypackets /etc/systemd/system
+# A leading dash makes legacy optional source locations non-fatal when absent.
+ReadWritePaths=/run /opt/readypackets -/srv/readypackets -/home/ubuntu/src/readypackets /var/backups/readypackets /var/lib/readypackets /etc/readypackets /etc/systemd/system
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @obsolete @mount @swap @reboot @module @raw-io @debug @clock @cpu-emulation
