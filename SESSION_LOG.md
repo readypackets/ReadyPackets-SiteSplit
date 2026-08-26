@@ -3866,3 +3866,5 @@ The companion native-mobile source now has matching SwiftUI and Jetpack Compose 
 **Validation:** Canonical Portal TypeScript validation passed and the focused mobile contract suite passed 5/5. Android native `testDebugUnitTest` passed with Java 17 and Android API 36. The iOS implementation requires the documented macOS/Xcode, development-signing, Universal Link, Keychain, physical-device biometric, and TestFlight validation route before store release.
 
 **Parity statement:** The two platforms are feature-equivalent for their supported customer workflows and use a single OpenAPI contract. They are intentionally not code- or pixel-identical: iOS uses SwiftUI, Keychain, LocalAuthentication, and Universal Links; Android uses Jetpack Compose, Keystore-backed storage, BiometricPrompt, and Android App Links. The Portal remains the shared authority in both cases.
+
+**GitHub synchronization:** The reviewed Portal change was rebased onto the current main branch without overwriting newer work and published to `readypackets/ReadyPackets`. The published commit is `e74fd55` (`feat: add mobile catalog and order placement API`).
