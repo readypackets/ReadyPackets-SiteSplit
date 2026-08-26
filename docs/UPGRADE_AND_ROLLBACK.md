@@ -36,6 +36,10 @@ The helper turns on the existing maintenance gate, creates a root-owned applicat
 
 Do not update during an active customer submission, scheduled backup, or other maintenance window. Configure a maintenance message and login/registration policy in **Admin → System** before starting a major upgrade.
 
+## Failed update handling
+
+A failed approved update leaves the current portal service running whenever the failure occurs before the application swap. The Platform Updates run is marked **Failed**, maintenance mode is cleared, and the root-owned pre-upgrade snapshot remains protected under `/var/backups/readypackets/platform-upgrades/`. The administrator should review the recorded run error and service logs before retrying; do not repeatedly submit the same approved run until its cause is fixed.
+
 ## Rollback
 
 A completed run exposes **Rollback**. Type `ROLLBACK <run ID>` to confirm. Rollback restores the recorded pre-upgrade snapshot and restarts the service. It is a recovery operation, not a substitute for release testing.
@@ -48,6 +52,7 @@ Because database restoration is included, any customer data written after the up
 |---|---|
 | **Root-owned helper** | `/usr/local/sbin/readypackets-platform-update` performs only allowlisted status, apply, and rollback operations. |
 | **Root-owned socket daemon** | `readypackets-platform-update-control.service` owns a group-restricted local socket and validates only status, approved apply, and rollback request shapes before invoking the helper. |
+| **Snapshot ownership** | The daemon permits the fixed root helper to preserve `root:readypackets` ownership inside only its protected rollback paths, so a pre-upgrade snapshot is complete and restorable. |
 | **No service sudo** | The customer-facing ReadyPackets service retains `NoNewPrivileges=true` and has no sudo rule or arbitrary command capability. |
 | **Run history** | Scans, approvals, executions, errors, and rollbacks are retained in the platform upgrade history and activity log. |
 | **Rollback material** | Snapshots are root-owned under protected backup storage and are not downloadable through the public site. |

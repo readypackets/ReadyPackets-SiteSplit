@@ -3843,3 +3843,14 @@ Clarified the workflow designer’s SharePoint destination section to name the e
 **Repair:** Marked both supported source locations as optional `ReadWritePaths` entries (`-/srv/readypackets` and `-/home/ubuntu/src/readypackets`). The root daemon retains a tightly bounded writable-path allowlist, `NoNewPrivileges=true`, its fixed Node entrypoint, and validated socket action allowlist. A missing legacy source directory no longer prevents the daemon from starting on a `/srv/readypackets` deployment.
 
 **Validation:** Node daemon syntax, installer shell syntax, systemd unit validation, TypeScript, focused schema-contract tests (4/4), and whitespace validation passed.
+
+
+## 2026-08-26 — Controlled upgrade snapshot and operational schema repair
+
+**User report:** The first approved GitHub platform update failed after the typed upgrade confirmation. The portal remained active, but the UI showed a generic error. Security Centre also displayed historical errors for `inbound_webhook_listeners`, `inbound_webhook_events`, `portal_wizard_slides`, and `outbound_call_logs`; current portal logs also reported failed `site_settings` reads.
+
+**Root cause:** The root platform-update control daemon correctly validated its limited update actions but inherited a systemd syscall deny filter that blocked privileged ownership-preservation syscalls required by `cp -a` during the mandatory pre-upgrade snapshot. The approved run stopped before release replacement with `Operation not permitted: failed to preserve ownership`. A support diagnostic also queried non-existent `platform_upgrade_runs.finished_at`; the actual completion field is `completed_at`.
+
+**Repair:** Retained the root-owned validated socket boundary and public-service `NoNewPrivileges=true`, while allowing ownership preservation only inside the helper's already allowlisted rollback paths. Added migration `0051_ui_operational_tables_compat.sql` to idempotently create `site_settings`, inbound webhook listener/event, and portal wizard slide tables on partial legacy schemas. Expanded the startup schema contract to verify those tables before serving traffic. The Platform Updates mutation now records a bounded sanitized controller failure and returns a visible administrator-safe error instead of an opaque generic message.
+
+**Validation:** A clean MySQL 8 database applied all 47 forward-only migrations and verified 11 critical tables, including all six affected UI/operational tables. TypeScript, focused schema-contract tests (5/5), daemon and helper syntax, installer syntax, and whitespace validation passed.

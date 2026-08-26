@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import net from "node:net";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db/client.js";
@@ -47,6 +48,16 @@ function runUpdateControl(args: string[], stdin = ""): Promise<string> {
 
 function parseHelper<T>(output: string): T {
   try { return JSON.parse(output) as T; } catch { throw new Error("The platform update helper returned an invalid response."); }
+}
+
+function sanitizeControllerError(error: unknown): string {
+  const message = String(error instanceof Error ? error.message : error)
+    .replace(/(github_pat_|ghp_)[A-Za-z0-9_]+/g, "$1[redacted]")
+    .replace(/(Authorization:\s*(?:Basic|Bearer)\s+)[^\s]+/gi, "$1[redacted]")
+    .replace(/([?&](?:token|access_token)=)[^&\s]+/gi, "$1[redacted]")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+  return message.slice(0, 1_500) || "The platform update controller reported an unspecified failure.";
 }
 
 function scanRemote(repository: string, branch: string, pat: string, currentCommit: string): Promise<{ targetCommit: string; changedFiles: string[]; summary: { filesChanged: number; insertions: number; deletions: number }; riskSummary: { highRiskPaths: string[]; dependencyFilesChanged: boolean; migrationFilesChanged: boolean; deploymentFilesChanged: boolean } }> {
@@ -146,9 +157,10 @@ export const platformUpdatesRouter = router({
       void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "platform_upgrade.completed", entityType: "platform_upgrade", entityId: input.id, severity: "warning", summary: `Installed approved release ${run.targetCommit.slice(0, 12)}`, ipAddress: ctx.clientIp });
       return { ok: true as const, restarted: true };
     } catch (error) {
-      await db.update(platformUpgradeRuns).set({ status: "failed", output: String(error instanceof Error ? error.message : error).slice(0, 12_000), completedAt: new Date() }).where(eq(platformUpgradeRuns.id, input.id));
+      const detail = sanitizeControllerError(error);
+      await db.update(platformUpgradeRuns).set({ status: "failed", output: detail, completedAt: new Date() }).where(eq(platformUpgradeRuns.id, input.id));
       await setSetting("maintenance.enabled", "false", { category: "maintenance", valueType: "boolean", userId: ctx.session.user.id });
-      throw error;
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Controlled upgrade failed: ${detail}` });
     }
   }),
   rollback: adminProcedure.input(z.object({ id: z.number().int().positive(), confirmation: z.string().trim().min(10).max(128) })).mutation(async ({ ctx, input }) => {

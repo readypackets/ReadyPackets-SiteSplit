@@ -42,6 +42,14 @@ describe("critical database schema contract", () => {
     );
   });
 
+  it("blocks startup when the Security Centre inbound webhook tables are absent", async () => {
+    const incompleteRows = contractRows().filter((row) => row.tableName !== "inbound_webhook_events");
+
+    await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
+      "inbound_webhook_events (table missing)",
+    );
+  });
+
   it("uses explicit metadata aliases so MySQL column-name casing cannot hide existing tables", async () => {
     let statement = "";
     const connection = {

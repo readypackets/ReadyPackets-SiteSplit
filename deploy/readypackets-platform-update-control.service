@@ -38,7 +38,10 @@ ProtectSystem=full
 ReadWritePaths=/run /opt/readypackets -/srv/readypackets -/home/ubuntu/src/readypackets /var/backups/readypackets /var/lib/readypackets /etc/readypackets /etc/systemd/system
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources @obsolete @mount @swap @reboot @module @raw-io @debug @clock @cpu-emulation
+# The fixed root helper must preserve root:readypackets ownership in its protected
+# snapshots. Request validation remains in the daemon; only non-file-ownership
+# privileged syscall classes are denied here.
+SystemCallFilter=~@resources @obsolete @mount @swap @reboot @module @raw-io @debug @clock @cpu-emulation
 SystemCallArchitectures=native
 SystemCallErrorNumber=EPERM
 LimitNOFILE=1024

@@ -8,6 +8,40 @@ import type { Connection, RowDataPacket } from "mysql2/promise";
  * startup failure instead of a later generic administrator UI error.
  */
 export const criticalSchemaContract: Readonly<Record<string, readonly string[]>> = {
+  site_settings: [
+    "setting_key",
+    "setting_value",
+    "value_type",
+    "category",
+    "is_secret",
+    "updated_at",
+  ],
+  inbound_webhook_listeners: [
+    "id",
+    "name",
+    "slug",
+    "handler",
+    "enabled",
+    "created_at",
+    "updated_at",
+  ],
+  inbound_webhook_events: [
+    "id",
+    "listener_id",
+    "payload",
+    "signature_valid",
+    "processed",
+    "created_at",
+  ],
+  portal_wizard_slides: [
+    "id",
+    "title",
+    "sort_order",
+    "is_active",
+    "target_audience",
+    "created_at",
+    "updated_at",
+  ],
   phase_kickoff_configs: [
     "id",
     "phase",
