@@ -7,6 +7,8 @@
  * script, a zip bomb sized past the limit, and a traversal sequence in the
  * filename. The declared extension is never trusted; the magic bytes decide.
  */
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   allowedExtensions,
@@ -51,6 +53,12 @@ describe("upload validation", () => {
     expect((await validateUpload("logo.png", PNG)).ok).toBe(true);
     expect((await validateUpload("photo.jpg", JPEG)).ok).toBe(true);
     expect((await validateUpload("photo.jpeg", JPEG)).ok).toBe(true);
+  });
+
+  it("accepts a Safari AAC/M4A recording after magic-byte validation", async () => {
+    const safariM4a = await readFile(path.join(process.cwd(), "tests/fixtures/safari-recording.m4a"));
+    const result = await validateUpload("customer-recording.m4a", safariM4a, { allowedExtensions: [".webm", ".m4a", ".ogg"] });
+    expect(result).toMatchObject({ ok: true, extension: "m4a", mime: "audio/x-m4a" });
   });
 
   it("rejects an empty file", async () => {

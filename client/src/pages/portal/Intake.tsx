@@ -21,6 +21,7 @@ import { INTAKE_OUTCOMES, INTEGRITY_CHOICES, INTEGRITY_CHOICE_LABELS } from "@sh
 import { BRAND } from "@shared/brand";
 import { trpc, errorMessage, refreshCsrfToken } from "@/lib/trpc";
 import { formatDateTime } from "@/lib/utils";
+import { normalizeAudioRecordingFormat, recordingFileName, selectAudioRecordingFormat } from "@/lib/audioRecording";
 import { Markdown } from "@/lib/markdown";
 import { Button, LinkButton } from "@/components/ui/Button";
 import { Checkbox, Input, Textarea } from "@/components/ui/Field";
@@ -236,10 +237,10 @@ export function IntakePage() {
       setPreflightMessage("This browser can access a microphone but cannot create a Business Pitch recording. Use a current Chrome, Edge, Firefox, or Safari browser.");
       return;
     }
-    const webmSupported = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") || MediaRecorder.isTypeSupported("audio/webm");
-    if (!webmSupported) {
+    const recordingFormat = selectAudioRecordingFormat(MediaRecorder);
+    if (!recordingFormat) {
       setPreflightStatus("failed");
-      setPreflightMessage("This browser does not support the required WebM recording format. Use Chrome, Edge, or Firefox to record your Business Pitch Idea.");
+      setPreflightMessage("This browser cannot create a supported audio recording. Use a current Chrome, Edge, Firefox, or Safari browser.");
       return;
     }
     try {
@@ -294,10 +295,18 @@ export function IntakePage() {
         toast.error("Microphone unavailable", "No enabled microphone was found. Choose an input device in your browser or operating-system settings and try again.");
         return;
       }
-      const recorderMimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType: recorderMimeType });
+      if (typeof MediaRecorder === "undefined") {
+        stream.getTracks().forEach((track) => track.stop());
+        toast.error("Recording is not supported", "Use a current Chrome, Edge, Firefox, or Safari browser with in-browser audio recording enabled.");
+        return;
+      }
+      const selectedFormat = selectAudioRecordingFormat(MediaRecorder);
+      if (!selectedFormat) {
+        stream.getTracks().forEach((track) => track.stop());
+        toast.error("Recording format is not supported", "This browser cannot create an approved M4A, WebM, or Ogg recording.");
+        return;
+      }
+      const recorder = new MediaRecorder(stream, { mimeType: selectedFormat.mimeType });
       mediaRecorder.current = recorder;
       audioChunks.current = [];
 
@@ -306,7 +315,8 @@ export function IntakePage() {
       };
 
       recorder.onstop = () => {
-        const audioBlob = new Blob(audioChunks.current, { type: "audio/webm" });
+        const actualFormat = normalizeAudioRecordingFormat(recorder.mimeType, selectedFormat);
+        const audioBlob = new Blob(audioChunks.current, { type: actualFormat.mimeType });
         stream.getTracks().forEach(track => track.stop());
         if (audioBlob.size === 0) {
           toast.error("Recording was empty", "No audio data was captured. Check your selected microphone and try again.");
@@ -314,8 +324,8 @@ export function IntakePage() {
         }
         const file = new File(
           [audioBlob],
-          `pitch-recording-${formatDateTime(new Date()).replace(/[^a-zA-Z0-9]/g, "-")}.webm`,
-          { type: "audio/webm" },
+          recordingFileName("pitch-recording", formatDateTime(new Date()).replace(/[^a-zA-Z0-9]/g, "-"), actualFormat),
+          { type: actualFormat.mimeType },
         );
         setPendingPitch((current) => {
           if (current) URL.revokeObjectURL(current.previewUrl);
@@ -442,7 +452,7 @@ export function IntakePage() {
       return;
     }
     if (pendingPitch) {
-      toast.warning("Review the recording first", "Upload or discard the locally held WebM recording before submitting Phase 1.");
+      toast.warning("Review the recording first", "Upload or discard the locally held browser recording before submitting Phase 1.");
       return;
     }
     // Persist all typed draft fields, then submit.
@@ -621,15 +631,15 @@ export function IntakePage() {
                   {microphonePreflightEnabled && !recording ? <Button variant="outline" onClick={() => openPreflight(false)} disabled={uploading}>Test microphone</Button> : null}
                 </div>
               ) : null}
-              {pendingPitch ? <div className="mt-3 space-y-3 rounded-lg border border-teal/40 bg-teal/5 p-3"><div><p className="text-sm font-semibold text-ink">Review your WebM recording</p><p className="mt-1 text-xs text-muted">This recording remains in your browser until you choose Upload. You may discard it and record again.</p></div><audio className="w-full" controls preload="metadata" src={pendingPitch.previewUrl}>Your browser cannot play this recording.</audio><div className="flex flex-wrap gap-2"><Button busy={uploading} onClick={() => void (async () => { const uploaded = await handleUpload([pendingPitch.file], true); if (uploaded) { URL.revokeObjectURL(pendingPitch.previewUrl); setPendingPitch(null); } })()}>Upload WebM recording</Button><Button variant="outline" disabled={uploading} onClick={() => { URL.revokeObjectURL(pendingPitch.previewUrl); setPendingPitch(null); }}>Discard recording</Button></div></div> : null}
-              <ul className="mt-3 space-y-2 text-sm">{pitches.map((file) => <li key={file.id} className="flex items-center justify-between gap-2 rounded border border-line px-3 py-2"><span className="truncate">{file.originalName} <Badge tone="teal">WebM recording</Badge></span>{!readOnly && <Button size="sm" variant="ghost" onClick={() => deleteFileMut.mutate({ fileId: file.id })}>Remove</Button>}</li>)}</ul>
+              {pendingPitch ? <div className="mt-3 space-y-3 rounded-lg border border-teal/40 bg-teal/5 p-3"><div><p className="text-sm font-semibold text-ink">Review your browser recording</p><p className="mt-1 text-xs text-muted">This recording remains in your browser until you choose Upload. You may discard it and record again.</p></div><audio className="w-full" controls preload="metadata" src={pendingPitch.previewUrl}>Your browser cannot play this recording.</audio><div className="flex flex-wrap gap-2"><Button busy={uploading} onClick={() => void (async () => { const uploaded = await handleUpload([pendingPitch.file], true); if (uploaded) { URL.revokeObjectURL(pendingPitch.previewUrl); setPendingPitch(null); } })()}>Upload recording</Button><Button variant="outline" disabled={uploading} onClick={() => { URL.revokeObjectURL(pendingPitch.previewUrl); setPendingPitch(null); }}>Discard recording</Button></div></div> : null}
+              <ul className="mt-3 space-y-2 text-sm">{pitches.map((file) => <li key={file.id} className="flex items-center justify-between gap-2 rounded border border-line px-3 py-2"><span className="truncate">{file.originalName} <Badge tone="teal">Browser recording</Badge></span>{!readOnly && <Button size="sm" variant="ghost" onClick={() => deleteFileMut.mutate({ fileId: file.id })}>Remove</Button>}</li>)}</ul>
             </div>
           </div>
         </Card>
 
         <Modal open={preflightOpen} onClose={() => setPreflightOpen(false)} title="Microphone check" description="Verify your browser, permission, and microphone before recording a Business Pitch Idea.">
           <div className="space-y-4">
-            {preflightStatus === "idle" ? <Alert tone="info">The check requests microphone access, confirms a live audio input, and verifies WebM recording support. It does not save or upload audio.</Alert> : null}
+            {preflightStatus === "idle" ? <Alert tone="info">The check requests microphone access, confirms a live audio input, and verifies a supported browser recording format. It does not save or upload audio.</Alert> : null}
             {preflightStatus === "running" ? <Alert tone="info">{preflightMessage}</Alert> : null}
             {preflightStatus === "passed" ? <Alert tone="success">{preflightMessage}</Alert> : null}
             {preflightStatus === "failed" ? <Alert tone="danger">{preflightMessage}</Alert> : null}
@@ -640,9 +650,9 @@ export function IntakePage() {
             </div>
           </div>
         </Modal>
-        <Modal open={microphonePromptOpen} onClose={() => setMicrophonePromptOpen(false)} title="Allow microphone access" description="ReadyPackets needs microphone access only while you record this Business Pitch Idea. Your browser will show its own permission prompt next. This step is skipped automatically once access is already granted."><div className="space-y-4"><Alert tone="info">Select <strong>Allow microphone</strong> in the browser prompt. The recording stays in your browser until you stop it, then it is uploaded as a WebM recording for this order.</Alert><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setMicrophonePromptOpen(false)}>Cancel</Button><Button onClick={requestMicrophone}>Allow microphone and record</Button></div></div></Modal>
+        <Modal open={microphonePromptOpen} onClose={() => setMicrophonePromptOpen(false)} title="Allow microphone access" description="ReadyPackets needs microphone access only while you record this Business Pitch Idea. Your browser will show its own permission prompt next. This step is skipped automatically once access is already granted."><div className="space-y-4"><Alert tone="info">Select <strong>Allow microphone</strong> in the browser prompt. The recording stays in your browser until you stop it, then it is uploaded in the format supported by your browser for this order.</Alert><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setMicrophonePromptOpen(false)}>Cancel</Button><Button onClick={requestMicrophone}>Allow microphone and record</Button></div></div></Modal>
 
-        <Modal open={saveChoiceOpen} onClose={() => setSaveChoiceOpen(false)} title="Save your order workspace" description="Your typed intake information is saved as a draft. Files and recordings already uploaded are already attached to this order."><div className="space-y-4"><Alert tone="info">{pendingPitch ? "Your reviewed WebM recording will be uploaded with this save, then attached to this order." : "All current answers, project details, uploaded documents, and uploaded recordings will remain available when you return."}</Alert><div className="rounded-lg border border-line bg-surface-soft p-3 text-sm text-body"><p className="font-medium text-ink">Choose what happens after saving</p><p className="mt-1">You can continue working now, or save and return to your order dashboard. Nothing is submitted or locked by either choice.</p></div><div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setSaveChoiceOpen(false)}>Cancel</Button><Button variant="outline" busy={save.isPending || uploading} onClick={() => { setSaveReturningLater(false); void persistDraft(false, true).then(() => setSaveChoiceOpen(false)); }}>Save and continue working</Button><Button busy={save.isPending || uploading || saveReturningLater} onClick={() => { setSaveReturningLater(true); void persistDraft(true, true); }}>Save and return later</Button></div></div></Modal>
+        <Modal open={saveChoiceOpen} onClose={() => setSaveChoiceOpen(false)} title="Save your order workspace" description="Your typed intake information is saved as a draft. Files and recordings already uploaded are already attached to this order."><div className="space-y-4"><Alert tone="info">{pendingPitch ? "Your reviewed browser recording will be uploaded with this save, then attached to this order." : "All current answers, project details, uploaded documents, and uploaded recordings will remain available when you return."}</Alert><div className="rounded-lg border border-line bg-surface-soft p-3 text-sm text-body"><p className="font-medium text-ink">Choose what happens after saving</p><p className="mt-1">You can continue working now, or save and return to your order dashboard. Nothing is submitted or locked by either choice.</p></div><div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setSaveChoiceOpen(false)}>Cancel</Button><Button variant="outline" busy={save.isPending || uploading} onClick={() => { setSaveReturningLater(false); void persistDraft(false, true).then(() => setSaveChoiceOpen(false)); }}>Save and continue working</Button><Button busy={save.isPending || uploading || saveReturningLater} onClick={() => { setSaveReturningLater(true); void persistDraft(true, true); }}>Save and return later</Button></div></div></Modal>
 
         <Card id="intake-desiredOutcomes" className="hidden">
           <CardHeader
@@ -715,7 +725,7 @@ export function IntakePage() {
 
         {!readOnly ? (
           <Card id="intake-confirmAccurate">
-            <Alert tone="warning" className="mb-4">Submitting Phase 1 locks your customer documents, WebM recording, and answers. You may remove or replace your own materials until you submit. After submission, only an administrator can confirm an unlock.</Alert>
+            <Alert tone="warning" className="mb-4">Submitting Phase 1 locks your customer documents, browser recording, and answers. You may remove or replace your own materials until you submit. After submission, only an administrator can confirm an unlock.</Alert>
             <Checkbox
               label="I confirm that the information I have provided is accurate and complete to the best of my knowledge, and I acknowledge that submitting this intake locks Phase 1 until an administrator confirms an unlock."
               checked={confirmAccurate}

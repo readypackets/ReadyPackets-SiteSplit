@@ -3868,3 +3868,12 @@ The companion native-mobile source now has matching SwiftUI and Jetpack Compose 
 **Parity statement:** The two platforms are feature-equivalent for their supported customer workflows and use a single OpenAPI contract. They are intentionally not code- or pixel-identical: iOS uses SwiftUI, Keychain, LocalAuthentication, and Universal Links; Android uses Jetpack Compose, Keystore-backed storage, BiometricPrompt, and Android App Links. The Portal remains the shared authority in both cases.
 
 **GitHub synchronization:** The reviewed Portal change was rebased onto the current main branch without overwriting newer work and published to `readypackets/ReadyPackets`. The published commit is `e74fd55` (`feat: add mobile catalog and order placement API`).
+## 2026-08-27 — Safari-compatible customer audio recording
+
+**User report:** A customer could not record audio from an Apple device using Safari because the portal required a WebM `MediaRecorder` MIME type. Safari provides MediaRecorder audio as AAC in an MP4 container rather than WebM.
+
+**Repair:** Added a shared browser-capability selector that preserves WebM/Opus where the browser supports it, automatically selects Safari-compatible M4A/AAC when WebM is unavailable, and uses Ogg only as a final advertised fallback. Phase I Business Pitch, Phase 2, and workflow-stage recorders now use the selected MIME type, derive the saved file extension from the recorder's actual supported container, and use format-neutral customer wording. The preflight diagnostic now verifies an approved browser recording format rather than WebM specifically.
+
+**Server-side safeguards:** The authenticated recorded-pitch route now permits only magic-byte-validated `.webm`, `.m4a`, or `.ogg` browser containers, retains the one-recording/order requirement, measures duration server-side, and retains all existing file-size, phase-lock, CSRF, authorization, and storage-key controls. The stored detected MIME is retained rather than normalized incorrectly. Safari M4A, WebM, and Ogg recordings remain classified as audio for playback, limits, downloads, and SharePoint routing.
+
+**Validation:** Added unit coverage for format negotiation (Safari M4A, WebM preference, Ogg fallback, unsupported failure) and a real AAC/M4A magic-byte regression fixture. The complete suite passed 208/208 against a freshly migrated and seeded disposable MySQL database; TypeScript, production client/server build, and whitespace validation passed.

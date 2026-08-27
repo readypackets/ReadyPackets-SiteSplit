@@ -238,16 +238,16 @@ export function createUploadRouter(): Router {
       let allowedExtensions: string[] | undefined;
       if (category === "intake_attachment") {
         if (recordedPitch) {
-          allowedExtensions = [".webm"];
+          allowedExtensions = [".webm", ".m4a", ".ogg"];
           if (!orderId || uploaded.length !== 1) {
-            res.status(400).json({ error: "A Business Pitch Idea must be recorded as one WebM file for a specific order." });
+            res.status(400).json({ error: "A Business Pitch Idea must be recorded as one browser audio file for a specific order." });
             return;
           }
           const maxPitchRecordings = await getSettingNumber("intake.max_pitch_recordings", 1);
           const existingPitchRows = await db
             .select({ total: sql<number>`COUNT(*)` })
             .from(files)
-            .where(and(eq(files.orderId, orderId), eq(files.category, "intake_attachment"), eq(files.phase, phase), isNull(files.deletedAt), sql`${files.detectedMime} = 'audio/webm'`));
+            .where(and(eq(files.orderId, orderId), eq(files.category, "intake_attachment"), eq(files.phase, phase), isNull(files.deletedAt), sql`${files.detectedMime} IN ('audio/webm', 'video/webm', 'audio/mp4', 'audio/x-m4a', 'audio/ogg', 'video/ogg')`));
           if (Number(existingPitchRows[0]?.total ?? 0) >= maxPitchRecordings) {
             res.status(400).json({ error: `This intake already has the maximum of ${maxPitchRecordings} Business Pitch recording(s).` });
             return;
@@ -277,17 +277,21 @@ export function createUploadRouter(): Router {
         }
 
         const isAudio = validation.mime?.startsWith("audio/") || validation.mime === "video/webm" || validation.mime === "video/ogg";
-        // file-type safely verifies the WebM container from magic bytes, but a
-        // generic WebM header is classified as video/webm before its tracks are
-        // inspected. Browser-recorded pitches are audio-only by construction.
-        const recordedPitchWebm = validation.extension === "webm" && (
-          validation.mime === "audio/webm" || validation.mime === "video/webm"
+        // Magic-byte validation accepts only browser-recordable audio containers.
+        // Generic WebM and Ogg containers can be classified as video MIME types
+        // before tracks are inspected; browser-recorded pitches are audio-only by construction.
+        const recordedPitchFormat = (
+          validation.extension === "webm" && (validation.mime === "audio/webm" || validation.mime === "video/webm")
+        ) || (
+          validation.extension === "m4a" && (validation.mime === "audio/mp4" || validation.mime === "audio/x-m4a")
+        ) || (
+          validation.extension === "ogg" && (validation.mime === "audio/ogg" || validation.mime === "video/ogg")
         );
-        if (recordedPitch && !recordedPitchWebm) {
-          rejected.push({ name: file.originalname, reason: "Business Pitch recordings must be recorded in WebM audio format." });
+        if (recordedPitch && !recordedPitchFormat) {
+          rejected.push({ name: file.originalname, reason: "Business Pitch recordings must use a browser-recorded M4A, WebM, or Ogg audio container." });
           continue;
         }
-        const detectedMime = recordedPitch ? "audio/webm" : (validation.mime ?? "application/octet-stream");
+        const detectedMime = validation.mime ?? "application/octet-stream";
         const countsAsAudio = recordedPitch || isAudio || prerecordedAudio;
         const audioDurationSeconds = countsAsAudio ? await probeAudioDurationSeconds(file.buffer, validation.extension ?? "") : null;
         const durationGoverned = Boolean(stageUploadLimits?.recordingMaxDurationSeconds || stageUploadLimits?.audioTotalDurationSeconds);
@@ -296,7 +300,7 @@ export function createUploadRouter(): Router {
           continue;
         }
         if (recordedPitch && stageUploadLimits?.recordingMaxDurationSeconds && audioDurationSeconds && audioDurationSeconds > stageUploadLimits.recordingMaxDurationSeconds) {
-          rejected.push({ name: file.originalname, reason: `This WebM recording is ${audioDurationSeconds} seconds; this phase allows up to ${stageUploadLimits.recordingMaxDurationSeconds} seconds per browser recording.` });
+          rejected.push({ name: file.originalname, reason: `This browser recording is ${audioDurationSeconds} seconds; this phase allows up to ${stageUploadLimits.recordingMaxDurationSeconds} seconds per browser recording.` });
           continue;
         }
         if (!replaceFileId && stageUploadLimits?.audioTotalDurationSeconds && audioDurationSeconds && existingAudioDurationSeconds + audioDurationSeconds > stageUploadLimits.audioTotalDurationSeconds) {

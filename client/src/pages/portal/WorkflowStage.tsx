@@ -3,6 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { CheckCircle2, Download, FileAudio, FileQuestion, FileText, Megaphone, Mic, Upload } from "lucide-react";
 import { trpc, errorMessage, refreshCsrfToken, csrfToken } from "@/lib/trpc";
 import { formatBytes, formatDate } from "@/lib/utils";
+import { normalizeAudioRecordingFormat, recordingFileName, selectAudioRecordingFormat } from "@/lib/audioRecording";
 import { Button, LinkButton } from "@/components/ui/Button";
 import { AudioPlayback } from "@/components/ui/AudioPlayback";
 import { Textarea } from "@/components/ui/Field";
@@ -163,16 +164,20 @@ export function WorkflowStagePage() {
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") throw new Error("This browser does not support in-browser audio recording.");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
-      if (!mimeType) { stream.getTracks().forEach((track) => track.stop()); throw new Error("This browser cannot create the required WebM recording."); }
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const selectedFormat = selectAudioRecordingFormat(MediaRecorder);
+      if (!selectedFormat) {
+        stream.getTracks().forEach((track) => track.stop());
+        throw new Error("This browser cannot create an approved M4A, WebM, or Ogg recording.");
+      }
+      const recorder = new MediaRecorder(stream, { mimeType: selectedFormat.mimeType });
       mediaRecorder.current = recorder;
       audioChunks.current = [];
       recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunks.current.push(event.data); };
       recorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(audioChunks.current, { type: mimeType });
-        if (blob.size > 0) void upload([new File([blob], `${phaseKey}-recording-${Date.now()}.webm`, { type: mimeType })], true);
+        const actualFormat = normalizeAudioRecordingFormat(recorder.mimeType, selectedFormat);
+        const blob = new Blob(audioChunks.current, { type: actualFormat.mimeType });
+        if (blob.size > 0) void upload([new File([blob], recordingFileName(`${phaseKey}-recording`, Date.now(), actualFormat), { type: actualFormat.mimeType })], true);
       };
       recorder.start();
       recordingSecondsRef.current = 0;
@@ -212,7 +217,7 @@ export function WorkflowStagePage() {
   const submissionNotice = stage.submissionNotice?.trim() || `You are about to submit ${stage.label}. This locks all customer files, recordings, and answers in this phase. It cannot be undone by a customer; an administrator must confirm an unlock.`;
   const submitCurrentPhase = (acknowledgedByCustomer: boolean) => submitPhase.mutate({ orderId, phaseKey: stage.key, acknowledgementText: acknowledgementPolicy === "none" ? undefined : submissionNotice, acknowledged: acknowledgedByCustomer });
   const formatDuration = (seconds: number) => `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-  const uploadLimitText = [stage.uploadLimits?.documentMaxFiles ? `${stage.uploadLimits.documentMaxFiles} document${stage.uploadLimits.documentMaxFiles === 1 ? "" : "s"}` : null, stage.uploadLimits?.documentMaxSizeMb ? `${stage.uploadLimits.documentMaxSizeMb} MB per document` : null, stage.uploadLimits?.audioMaxFiles ? `${stage.uploadLimits.audioMaxFiles} audio file${stage.uploadLimits.audioMaxFiles === 1 ? "" : "s"}` : null, stage.uploadLimits?.audioMaxSizeMb ? `${stage.uploadLimits.audioMaxSizeMb} MB per audio file` : null, stage.uploadLimits?.recordingMaxDurationSeconds ? `${formatDuration(stage.uploadLimits.recordingMaxDurationSeconds)} per WebM recording` : null, stage.uploadLimits?.audioTotalDurationSeconds ? `${formatDuration(stage.uploadLimits.audioTotalDurationSeconds)} total audio` : null].filter(Boolean).join(" · ");
+  const uploadLimitText = [stage.uploadLimits?.documentMaxFiles ? `${stage.uploadLimits.documentMaxFiles} document${stage.uploadLimits.documentMaxFiles === 1 ? "" : "s"}` : null, stage.uploadLimits?.documentMaxSizeMb ? `${stage.uploadLimits.documentMaxSizeMb} MB per document` : null, stage.uploadLimits?.audioMaxFiles ? `${stage.uploadLimits.audioMaxFiles} audio file${stage.uploadLimits.audioMaxFiles === 1 ? "" : "s"}` : null, stage.uploadLimits?.audioMaxSizeMb ? `${stage.uploadLimits.audioMaxSizeMb} MB per audio file` : null, stage.uploadLimits?.recordingMaxDurationSeconds ? `${formatDuration(stage.uploadLimits.recordingMaxDurationSeconds)} per browser recording` : null, stage.uploadLimits?.audioTotalDurationSeconds ? `${formatDuration(stage.uploadLimits.audioTotalDurationSeconds)} total audio` : null].filter(Boolean).join(" · ");
   const phaseFiles = (filesQuery.data ?? []).filter((file) => file.phase === stage.key && file.category !== "deliverable");
   const downloadablePhaseFiles = phaseFiles.filter((file) => !file.isPlaceholder);
   const audioFiles = phaseFiles.filter((file) => AUDIO_EXTENSIONS.has((file.extension ?? "").toLowerCase()));
@@ -248,7 +253,7 @@ export function WorkflowStagePage() {
         <ul className="mt-4 space-y-2">{documentFiles.length ? documentFiles.map((file) => <li key={file.id} className="flex flex-wrap items-center justify-between gap-3 rounded border border-line px-3 py-2 text-sm"><span className="min-w-0 truncate"><FileText className="mr-1 inline size-4" />{file.originalName} <span className="text-xs text-muted">· {formatBytes(file.sizeBytes)} · {formatDate(file.createdAt)}</span></span><div className="flex flex-wrap items-center gap-2">{!file.isPlaceholder ? <Button size="sm" variant="outline" leadingIcon={<Download className="size-3.5" />} busy={requestDownload.isPending} onClick={() => requestDownload.mutate({ fileId: file.id })}>Download</Button> : null}{!file.uploadedByStaff && !phaseLocked ? <Button size="sm" variant="ghost" onClick={() => deleteFile.mutate({ fileId: file.id })}>Remove</Button> : file.uploadedByStaff ? <Badge tone="teal">Team document</Badge> : <Badge tone="neutral">Locked</Badge>}</div></li>) : <li className="text-sm text-muted">No documents for this phase yet.</li>}</ul>
       </Card>
       <Card>
-        <CardHeader title={`${stage.label} audio recording`} description={capabilities.has("recording") || capabilities.has("audio_upload") ? "Record an in-browser WebM update or upload approved prerecorded audio when this phase enables the relevant action." : "No customer audio action is enabled for this phase."} />
+        <CardHeader title={`${stage.label} audio recording`} description={capabilities.has("recording") || capabilities.has("audio_upload") ? "Record an in-browser audio update in the format supported by your browser, or upload approved prerecorded audio when this phase enables the relevant action." : "No customer audio action is enabled for this phase."} />
         <div className="mt-4 flex flex-wrap gap-2">{capabilities.has("recording") && !phaseLocked ? <Button disabled={!recording && totalAudioRemainingSeconds === 0} leadingIcon={recording ? <span className="relative flex size-4 items-center justify-center"><span className="absolute size-3 animate-ping rounded-full bg-white/80" /><span className="relative size-2 rounded-full bg-white" /></span> : <Mic className="size-4" />} className={recording ? "animate-pulse ring-2 ring-danger/40 shadow-lg shadow-danger/20" : ""} variant={recording ? "danger" : "primary"} busy={uploading} onClick={() => recording ? stopRecording() : setMicrophoneOpen(true)}>{recording ? `Recording — stop (${recordingSeconds}s${effectiveRecordingLimitSeconds ? ` / ${formatDuration(effectiveRecordingLimitSeconds)}` : ""})` : totalAudioRemainingSeconds === 0 ? "Audio time limit reached" : `Record ${stage.label} audio`}</Button> : null}{capabilities.has("audio_upload") && !phaseLocked ? <><input id={`audio-upload-${stage.key}`} className="hidden" type="file" accept="audio/*,.webm,.ogg" onChange={(event) => void upload(event.target.files, false, true)} /><Button variant="outline" leadingIcon={<Upload className="size-4" />} busy={uploading} onClick={() => document.getElementById(`audio-upload-${stage.key}`)?.click()}>Upload audio file</Button></> : null}</div>
         {stage.uploadLimits?.audioTotalDurationSeconds !== undefined ? <p className="mt-3 text-xs text-muted">Audio time used: {formatDuration(audioUsedSeconds)} of {formatDuration(stage.uploadLimits.audioTotalDurationSeconds)}{totalAudioRemainingSeconds !== undefined ? ` · ${formatDuration(totalAudioRemainingSeconds)} remaining` : ""}.</p> : null}<ul className="mt-4 space-y-2">{audioFiles.length ? audioFiles.map((file) => <li key={file.id} className="rounded border border-line px-3 py-2 text-sm"><div className="flex flex-wrap items-center justify-between gap-3"><span className="min-w-0 truncate"><FileAudio className="mr-1 inline size-4" />{file.originalName}{file.durationSeconds ? <span className="text-xs text-muted"> · {formatDuration(file.durationSeconds)}</span> : null}</span><div className="flex flex-wrap items-center gap-2">{!file.isPlaceholder ? <Button size="sm" variant="outline" leadingIcon={<Download className="size-3.5" />} busy={requestDownload.isPending} onClick={() => requestDownload.mutate({ fileId: file.id })}>Download</Button> : null}{!file.uploadedByStaff && !phaseLocked ? <Button size="sm" variant="ghost" onClick={() => deleteFile.mutate({ fileId: file.id })}>Remove</Button> : file.uploadedByStaff ? <Badge tone="teal">Team recording</Badge> : <Badge tone="neutral">Locked</Badge>}</div></div><div className="mt-2"><AudioPlayback fileId={file.id} /></div></li>) : <li className="text-sm text-muted">No recordings for this phase yet.</li>}</ul>
       </Card>

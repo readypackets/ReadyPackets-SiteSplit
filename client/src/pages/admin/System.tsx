@@ -1435,7 +1435,7 @@ function IntakeControlsPanel() {
             label="Run microphone preflight before Business Pitch recording"
             checked={microphonePreflightEnabled}
             onChange={(event) => setMicrophonePreflightEnabled(event.target.checked)}
-            help="When enabled, customers verify browser support, microphone permission, a live input track, and WebM recording support before they begin a pitch."
+            help="When enabled, customers verify browser support, microphone permission, a live input track, and an approved recording format before they begin a pitch. Safari uses M4A/AAC when WebM is unavailable."
           />
         </div>
       </Card>
