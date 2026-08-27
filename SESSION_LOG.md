@@ -315,6 +315,16 @@ Mandatory administrative MFA was confirmed working in production: the portal ref
 
 *This log is committed to the repository as required by the project instructions. It records the session's requests, decisions, defects, and outcomes, and is intended to be readable by someone who was not present for the work.*
 
+## 2026-08-27 — Customer-mobile staging package and checkout refinement
+
+**User request:** The user requested configuration of a staging Portal environment for real customer-permission and workflow testing, a direct download for the Android debug app, and a smoother customer invoice and checkout experience without handling credit-card data.
+
+**Staging package:** The repository now includes `deploy/staging/.env.staging.example`, `deploy/staging/docker-compose.staging.yml`, and `deploy/staging/STAGING_RUNBOOK.md`. The configuration separates the Compose project, loopback application port, MySQL volume, uploaded-file volume, HTTPS hostname, mobile callback, encryption keys, email destination, and payment-provider test credentials from production. No populated environment file, TLS key, provider credential, customer data, or production configuration was committed.
+
+**Customer payment experience:** The invoice page now makes payment confirmation and customer evidence explicit. Checkout presents a three-step review-to-hosted-payment-to-Portal-confirmation sequence, clearly states that card data is entered only on the Stripe-hosted page, and cautions that the payment webhook—not a browser return URL—is the authority for activation.
+
+**Validation and staging boundary:** Portal TypeScript validation, the focused six-case mobile-boundary suite, and the production build passed. Docker is not installed in the sandbox, so the final Compose runtime check and HTTPS deployment require the self-hosted staging host, staging DNS/TLS, unique protected keys, test-mode provider credentials, and a release-owner controlled deployment. The Android customer debug APK checksum was verified; its staging configuration instructions are retained in the native repository.
+
 ---
 
 ## 12. Gap-fill session — August 10, 2026 (continued)

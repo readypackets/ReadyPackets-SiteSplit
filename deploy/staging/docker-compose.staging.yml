@@ -1,0 +1,20 @@
+# Run with:
+# docker compose -p readypackets-staging --env-file /etc/readypackets-staging/portal.env \
+#   -f docker-compose.yml -f deploy/staging/docker-compose.staging.yml up -d
+#
+# This override deliberately isolates loopback port, database volume, media
+# volume, and Compose project name from the live Portal installation.
+services:
+  db:
+    volumes:
+      - staging-db-data:/var/lib/mysql
+
+  app:
+    ports:
+      - "127.0.0.1:${STAGING_APP_PORT:-3100}:3000"
+    volumes:
+      - staging-storage-data:/var/lib/readypackets/storage
+
+volumes:
+  staging-db-data:
+  staging-storage-data:

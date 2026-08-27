@@ -1,5 +1,5 @@
 import { useParams } from "wouter";
-import { Download, FileText, Printer } from "lucide-react";
+import { BadgeCheck, Download, FileText, Printer, ShieldCheck } from "lucide-react";
 import { trpc, errorMessage } from "@/lib/trpc";
 import { Button, LinkButton } from "@/components/ui/Button";
 import { Alert, Card, CardHeader, EmptyState, Skeleton } from "@/components/ui/Surface";
@@ -23,14 +23,18 @@ export function InvoicePage() {
   if (invoiceQuery.error || !invoice) return <><PageHeader title="Order invoice" description="View the branded receipt for a confirmed paid order." breadcrumb={{ href: `/portal/orders/${orderId}`, label: "Back to order" }} /><Card className="max-w-2xl"><CardHeader title="Invoice unavailable" description={invoiceQuery.error ? errorMessage(invoiceQuery.error) : "The invoice is not available for this order."} /><LinkButton className="mt-5" href={`/portal/orders/${orderId}`} variant="outline">Back to order</LinkButton></Card></>;
 
   return <>
-    <PageHeader title="Order invoice" description="Your confirmed payment invoice is saved with this order." breadcrumb={{ href: `/portal/orders/${orderId}`, label: "Back to order" }} actions={<div className="flex flex-wrap gap-2"><Button variant="outline" leadingIcon={<Download className="size-4" />} busy={downloadPdf.isPending} onClick={() => downloadPdf.mutate({ orderId })}>Download PDF</Button><Button variant="outline" leadingIcon={<Printer className="size-4" />} onClick={print}>Print</Button></div>} />
+    <PageHeader title="Order invoice" description="A confirmed, customer-visible record of your ReadyPackets payment." breadcrumb={{ href: `/portal/orders/${orderId}`, label: "Back to order" }} actions={<div className="flex flex-wrap gap-2"><Button variant="outline" leadingIcon={<Download className="size-4" />} busy={downloadPdf.isPending} onClick={() => downloadPdf.mutate({ orderId })}>Download PDF</Button><Button variant="outline" leadingIcon={<Printer className="size-4" />} onClick={print}>Print</Button></div>} />
     <div className="mx-auto max-w-4xl print:max-w-none">
-      <Alert tone="info" className="mb-5 print:hidden">This branded PDF invoice is saved with your order. Use <strong>Download PDF</strong> for the same evidence document included with the invoice email.</Alert>
+      <Alert tone="info" className="mb-5 print:hidden"><strong>Payment confirmed.</strong> This branded PDF invoice is saved with your order and is the same evidence document included with the invoice email.</Alert>
       <article className="invoice-paper rounded-xl border border-line bg-white p-8 shadow-sm print:border-0 print:p-0 print:shadow-none">
         <header className="flex flex-wrap items-start justify-between gap-8 border-b-4 border-brand-gold pb-7">
           <div><img src={invoice.brand.logoPath} alt="ReadyPackets" className="h-14 w-auto" /><p className="mt-3 text-sm text-body">Business readiness, packaged with clarity.</p><a className="mt-1 block text-sm text-teal-dark" href={invoice.brand.supportUrl}>{invoice.brand.supportUrl}</a></div>
           <div className="text-right"><p className="text-3xl font-bold tracking-wide text-brand-navy">INVOICE</p><p className="mt-2 font-mono text-sm font-semibold text-brand-navy">{invoice.invoiceNumber}</p><p className="mt-1 text-sm text-body">Issued {formatDate(invoice.issuedAt)}</p><p className="mt-1 text-sm text-success">Payment confirmed{invoice.paidAt ? ` · ${formatDate(invoice.paidAt)}` : ""}</p></div>
         </header>
+        <section className="mt-7 grid gap-3 sm:grid-cols-2 print:hidden" aria-label="Invoice status">
+          <div className="rounded-lg border border-teal/30 bg-teal/5 p-4"><div className="flex items-center gap-2 text-teal-dark"><BadgeCheck className="size-5" aria-hidden="true" /><p className="font-semibold">Payment recorded</p></div><p className="mt-1 text-sm text-body">The Portal confirmed this payment and made the invoice visible to your account.</p></div>
+          <div className="rounded-lg border border-line bg-surface p-4"><div className="flex items-center gap-2 text-brand-navy"><ShieldCheck className="size-5" aria-hidden="true" /><p className="font-semibold">Protected account record</p></div><p className="mt-1 text-sm text-body">Use the invoice number and order reference when you contact support about this purchase.</p></div>
+        </section>
         <section className="mt-7 grid gap-6 sm:grid-cols-2">
           <div><p className="text-xs font-semibold uppercase tracking-wide text-muted">Bill to</p><p className="mt-2 text-base font-semibold text-ink">{invoice.customer.firstName ?? ""} {invoice.customer.lastName ?? ""}</p>{invoice.customer.company ? <p className="text-sm text-body">{invoice.customer.company}</p> : null}<p className="mt-1 font-mono text-xs text-muted">Customer ID: {invoice.customer.publicId}</p></div>
           <div className="sm:text-right"><p className="text-xs font-semibold uppercase tracking-wide text-muted">Order reference</p><p className="mt-2 font-mono text-base font-semibold text-ink">{invoice.orderNumber}</p><p className="mt-1 text-xs text-body">{invoice.orderOriginLabel}</p>{invoice.paymentReference ? <p className="mt-1 text-xs text-muted">Payment reference: {invoice.paymentReference}</p> : null}</div>

@@ -5,6 +5,7 @@ import { Card } from "../../components/ui/Surface";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Field";
 import { useToast } from "../../components/ui/Toast";
+import { ArrowUpRight, CheckCircle2, LockKeyhole, ReceiptText } from "lucide-react";
 
 function formatMoney(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -128,8 +129,9 @@ export default function Checkout() {
   return (
     <div className="max-w-lg mx-auto py-8 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Complete your order</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Review your order and proceed to payment.</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700 dark:text-teal-300">Secure checkout</p>
+        <h1 className="mt-2 text-2xl font-bold text-gray-900 dark:text-white">Review, pay securely, and return to your work.</h1>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">ReadyPackets prepares the order record. Payment details are entered only in the secure Stripe-hosted checkout.</p>
       </div>
 
       <Card className="p-6 space-y-4">
@@ -156,6 +158,15 @@ export default function Checkout() {
           <span className="text-gray-900 dark:text-white">Total due today</span>
           <span className="text-teal-600 dark:text-teal-400">{formatMoney(payableTotal)}</span>
         </div>
+      </Card>
+
+      <Card className="p-6">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white"><ReceiptText className="size-5 text-teal-600" aria-hidden="true" />What happens next</h2>
+        <ol className="mt-4 grid gap-3 text-sm text-gray-600 dark:text-gray-300 sm:grid-cols-3">
+          <li className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><span className="font-semibold text-gray-900 dark:text-white">1. Review</span><br />Confirm the order and any eligible coupon.</li>
+          <li className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><span className="font-semibold text-gray-900 dark:text-white">2. Pay in Stripe</span><br />Enter payment information only on Stripe’s secure page.</li>
+          <li className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><span className="font-semibold text-gray-900 dark:text-white">3. Confirm in Portal</span><br />Return here while the Portal verifies the payment webhook.</li>
+        </ol>
       </Card>
 
       <Card className="p-6 space-y-3">
@@ -196,15 +207,12 @@ export default function Checkout() {
       </Card>
 
       <Card className="p-6 space-y-4">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Payment</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">You will be redirected to Stripe's secure checkout to complete payment. We accept all major credit and debit cards.</p>
-        <div className="flex items-center gap-2 text-xs text-gray-400">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 002 2v6z" /></svg>
-          Secured by Stripe — we never see your card details
-        </div>
-        <button onClick={startCheckout} disabled={createCheckout.isPending} className="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-semibold py-3 px-6 rounded-lg transition-colors">
-          {createCheckout.isPending ? "Redirecting…" : `Pay ${formatMoney(payableTotal)} →`}
+        <div className="flex items-start gap-3"><div className="rounded-full bg-teal-50 p-2 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300"><LockKeyhole className="size-5" aria-hidden="true" /></div><div><h2 className="text-base font-semibold text-gray-900 dark:text-white">Continue to secure payment</h2><p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Your card details never pass through ReadyPackets. Stripe processes the payment on its hosted page.</p></div></div>
+        <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300"><CheckCircle2 className="mr-1 inline size-4 text-teal-600" aria-hidden="true" />A return to the Portal does not by itself confirm payment. Your order activates only after the provider webhook is verified.</p>
+        <button onClick={startCheckout} disabled={createCheckout.isPending} aria-busy={createCheckout.isPending} className="flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-teal-700 disabled:opacity-50">
+          {createCheckout.isPending ? "Opening secure payment…" : <><span>Pay {formatMoney(payableTotal)} in Stripe</span><ArrowUpRight className="size-4" aria-hidden="true" /></>}
         </button>
+        <p className="text-center text-xs text-gray-500 dark:text-gray-400" aria-live="polite">You will leave ReadyPackets briefly and return to your order after completing or cancelling payment.</p>
       </Card>
 
       <div className="text-center"><button onClick={() => navigate("/portal/orders")} className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">← Back to my orders</button></div>
