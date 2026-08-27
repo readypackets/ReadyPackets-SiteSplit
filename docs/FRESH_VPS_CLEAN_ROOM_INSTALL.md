@@ -52,10 +52,10 @@ The installer shows a final review. Confirm the domain, source repository, pinne
 A correct fresh installation prints a migration completion line in this form before it installs/starts ReadyPackets:
 
 ```text
-Applied 46 migration(s); 7 critical tables verified.
+Applied 48 migration(s); 16 critical tables verified.
 ```
 
-The exact number of migrations may increase in a later release. The required invariant is that the message ends in **`7 critical tables verified`** and that no schema-contract error is printed. If the installer prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
+The exact number of migrations and verified tables may increase in a later reviewed release. For this release, the expected completion line is **`Applied 48 migration(s); 16 critical tables verified.`** The required invariant is that the installer completes without a schema-contract error. If it prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
 
 ## 5. Post-install verification
 
@@ -74,18 +74,27 @@ SELECT COUNT(*) AS critical_tables
 FROM information_schema.tables
 WHERE table_schema = 'readypackets'
   AND table_name IN (
+    'site_settings',
+    'inbound_webhook_listeners',
+    'inbound_webhook_events',
+    'portal_wizard_slides',
     'phase_kickoff_configs',
     'phase_jobs',
     'webhook_deliveries',
     'email_automations',
     'system_backups',
     'outbound_connections',
-    'outbound_call_logs'
+    'outbound_call_logs',
+    'mobile_devices',
+    'mobile_device_sessions',
+    'mobile_authorization_codes',
+    'mobile_refresh_tokens',
+    'mobile_idempotency_keys'
   );
 "
 ```
 
-Expected results are two JSON health responses, `{"status":"ok"}` and `{"status":"ready"}`, plus `critical_tables = 7`. For a Cloudflare Origin CA deployment, also verify:
+Expected results are two JSON health responses, `{"status":"ok"}` and `{"status":"ready"}`, plus `critical_tables = 16`. For a Cloudflare Origin CA deployment, also verify:
 
 ```bash
 sudo openssl x509 \

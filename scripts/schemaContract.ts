@@ -2,7 +2,7 @@ import type { Connection, RowDataPacket } from "mysql2/promise";
 
 /**
  * Tables and columns that must exist before the portal can serve order workflow,
- * Phase Kickoff, configuration restore, backup, and outbound integration routes.
+ * Phase Kickoff, configuration restore, backup, outbound integration, and native mobile routes.
  * This is deliberately a small operational contract rather than a duplicate of
  * the complete Drizzle schema: it turns a partial or legacy upgrade into a clear
  * startup failure instead of a later generic administrator UI error.
@@ -129,6 +129,58 @@ export const criticalSchemaContract: Readonly<Record<string, readonly string[]>>
     "latency_ms",
     "error",
     "triggered_by",
+    "created_at",
+  ],
+  mobile_devices: [
+    "id",
+    "user_id",
+    "platform",
+    "app_version",
+    "push_token_hash",
+    "push_token_enc",
+    "push_platform",
+    "status",
+    "last_seen_at",
+    "created_at",
+  ],
+  mobile_device_sessions: [
+    "id",
+    "token_family_id",
+    "device_id",
+    "user_id",
+    "status",
+    "last_seen_at",
+    "expires_at",
+    "created_at",
+  ],
+  mobile_authorization_codes: [
+    "id",
+    "code_hash",
+    "user_id",
+    "device_id",
+    "redirect_uri",
+    "code_challenge",
+    "scopes",
+    "expires_at",
+    "created_at",
+  ],
+  mobile_refresh_tokens: [
+    "id",
+    "token_hash",
+    "session_id",
+    "token_family_id",
+    "status",
+    "expires_at",
+    "created_at",
+  ],
+  mobile_idempotency_keys: [
+    "id",
+    "user_id",
+    "route",
+    "key_hash",
+    "request_hash",
+    "response_json",
+    "expires_at",
     "created_at",
   ],
 };

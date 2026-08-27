@@ -50,6 +50,16 @@ describe("critical database schema contract", () => {
     );
   });
 
+  it("blocks startup when native mobile encrypted-token storage is absent", async () => {
+    const incompleteRows = contractRows().filter(
+      (row) => !(row.tableName === "mobile_devices" && row.columnName === "push_token_enc"),
+    );
+
+    await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
+      "mobile_devices.push_token_enc",
+    );
+  });
+
   it("uses explicit metadata aliases so MySQL column-name casing cannot hide existing tables", async () => {
     let statement = "";
     const connection = {

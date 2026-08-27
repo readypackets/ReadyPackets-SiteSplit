@@ -3889,3 +3889,12 @@ The companion native-mobile source now has matching SwiftUI and Jetpack Compose 
 **Validation:** Portal TypeScript validation passed. The focused mobile safeguard suite passed 6/6, including separate public/customer route and no-admin checks. The customer API implementation requires staged integration validation with real Portal records before production enablement.
 
 **GitHub synchronization:** The Portal customer-parity API was safely rebased onto newer remote work, preserving the Safari-compatible audio update, and published to `readypackets/ReadyPackets` commit `e735f89` on 2026-08-27. The corresponding native iOS/Android customer workflows, documentation, and redacted session record were published to `readypackets/readypackets-native-mobile` commit `8106c30`.
+
+
+## 2026-08-27 — Native mobile migration-path correction before VPS deployment
+
+**Deployment review finding:** While verifying the newer GitHub `main` tip before instructing the production VPS to reset its clean source checkout, the newly added mobile parity feature was found to include `server/db/migrations/006_mobile_push_token_encryption.sql`. The native installer and forward-only migration runner intentionally execute only `drizzle/migrations/*.sql`; therefore the new `mobile_devices.push_token_enc` column would not have been applied during an in-place upgrade, despite the mobile device-registration route writing it.
+
+**Repair:** Replaced the nonstandard migration file with `drizzle/migrations/0052_mobile_native_schema_compat.sql`, in the sole authoritative migration path. The migration idempotently creates the five native-mobile tables (`mobile_devices`, device sessions, authorization codes, refresh tokens, and idempotency keys) for fresh deployments and conditionally adds the encrypted push-token column to a legacy `mobile_devices` table when absent. The critical startup schema contract now checks the columns needed by all five mobile tables, so an incomplete mobile upgrade fails before serving routes instead of failing on the first device registration request. Fresh-install documentation now reflects the current expected checkpoint of 48 migrations and 16 critical tables.
+
+**Validation:** A clean disposable MySQL database applied all 48 migrations and verified all 16 contract tables. A separate pre-existing `mobile_devices` table without `push_token_enc` received only the additive encrypted-token column successfully. The full application suite passed 211/211; TypeScript, production client/server build, and whitespace validation passed.
