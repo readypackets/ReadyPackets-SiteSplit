@@ -9,7 +9,10 @@ import { db } from "../../db/client.js";
 import { mobileDevices, mobileIdempotencyKeys, orders, packetGroups, products, users } from "../../db/schema.js";
 import { getUserById, displayNameOf } from "../../db/users.js";
 import { recordSecurityEvent } from "../../observability/audit.js";
+import { encryptField } from "../../security/crypto.js";
 import { assertOrderAccess, createOrder, listOrdersForUser, OrderStateError } from "../../services/orders.js";
+import { createMobileCustomerRouter } from "./customer.js";
+import { createMobilePublicRouter } from "./public.js";
 
 interface MobileRequest extends Request { mobile?: MobilePrincipal; }
 
@@ -151,7 +154,15 @@ export function createMobileRouter(): Router {
     res.status(200).json({ revoked: true });
   }));
 
+	// Published catalogue, policy, help and contact content must remain available
+	// before sign-in. Auth lifecycle actions use system-browser Portal URLs rather
+	// than turning the native API into a parallel identity surface.
+	router.use("/public", createMobilePublicRouter());
+
 	router.use(bearer);
+	// Customer parity endpoints retain a separate allowlist from the browser tRPC
+	// surface. Staff and administrator roles are denied by this subrouter.
+	router.use("/customer", createMobileCustomerRouter());
 
 	router.get("/catalog", withMobileError(async (req, res) => {
 	  requireScope(req, "mobile:read");
@@ -279,7 +290,8 @@ export function createMobileRouter(): Router {
       if (!["ios", "android"].includes(body.platform)) throw new MobileOAuthError("invalid_request", "A supported platform is required.");
       if (!body.appVersion || String(body.appVersion).length > 32) throw new MobileOAuthError("invalid_request", "A valid app version is required.");
       if (body.deviceId !== req.mobile!.deviceId) throw new MobileOAuthError("invalid_request", "Device registration must match the authenticated installation.", 403);
-      await db.update(mobileDevices).set({ platform: body.platform, appVersion: String(body.appVersion), deviceName: typeof body.deviceName === "string" ? body.deviceName.slice(0, 128) : null, pushPlatform: typeof body.pushPlatform === "string" ? body.pushPlatform.slice(0, 16) : null, pushTokenHash: typeof body.pushToken === "string" && body.pushToken ? createHash("sha256").update(body.pushToken).digest("hex") : null, lastSeenAt: new Date() }).where(eq(mobileDevices.id, body.deviceId));
+	      const pushToken = typeof body.pushToken === "string" && body.pushToken.length > 0 ? body.pushToken.slice(0, 4096) : null;
+	      await db.update(mobileDevices).set({ platform: body.platform, appVersion: String(body.appVersion), deviceName: typeof body.deviceName === "string" ? body.deviceName.slice(0, 128) : null, pushPlatform: typeof body.pushPlatform === "string" ? body.pushPlatform.slice(0, 16) : null, pushTokenHash: pushToken ? createHash("sha256").update(pushToken).digest("hex") : null, pushTokenEnc: pushToken ? encryptField(pushToken, `mobile_device:${body.deviceId}:push_token`) : null, lastSeenAt: new Date() }).where(eq(mobileDevices.id, body.deviceId));
       return { registered: true };
     });
     res.status(result.replayed ? 200 : 201).json(result.value);

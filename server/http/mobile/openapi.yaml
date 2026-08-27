@@ -154,6 +154,108 @@ paths:
       summary: Request server-managed account deletion
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/detail:
+    get:
+      summary: Customer-safe order, workflow, deliverable, message, and activity detail
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+  /customer/orders/{publicOrderId}/files:
+    get:
+      summary: Customer-visible files for an authorised order
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+  /customer/files/{mobileFileRef}/content:
+    get:
+      summary: Authenticated file download or range-enabled inline audio stream
+      parameters:
+        - $ref: '#/components/parameters/MobileFileRef'
+        - name: disposition
+          in: query
+          schema: { type: string, enum: [attachment, inline] }
+  /customer/files/{mobileFileRef}:
+    delete:
+      summary: Delete a customer-owned intake attachment before its workflow lock
+      parameters:
+        - $ref: '#/components/parameters/MobileFileRef'
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/uploads:
+    post:
+      summary: Upload selected documents or explicitly recorded/pre-recorded audio
+      description: The Portal validates order access, workflow capability, phase lock, content type, byte limit, duration, digest, naming, and storage. Native recordings are M4A AAC-LC or accepted WebM audio; the client never uploads directly to storage.
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files, phase]
+              properties:
+                files: { type: array, minItems: 1, maxItems: 5, items: { type: string, format: binary } }
+                phase: { type: string, pattern: '^[a-z0-9_]{2,64}$' }
+                recordedAudio: { type: boolean, default: false }
+                prerecordedAudio: { type: boolean, default: false }
+  /customer/orders/{publicOrderId}/intake:
+    get:
+      summary: Read the current customer intake draft and server-provided limits
+      parameters: [{ $ref: '#/components/parameters/PublicOrderId' }]
+    put:
+      summary: Save an editable customer intake draft
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/intake/submit:
+    post:
+      summary: Submit an accurate intake and let the Portal lock or advance workflow state
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/mnda:
+    get:
+      summary: Current published MNDA and acceptance state, optionally for one authorised order
+      parameters:
+        - name: publicOrderId
+          in: query
+          schema: { type: string }
+  /customer/mnda/accept:
+    post:
+      summary: Record a typed, authority-confirmed MNDA acceptance with Portal audit evidence
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+  /customer/orders/{publicOrderId}/questions:
+    get:
+      summary: Customer-visible clarification questions and current answers
+      parameters: [{ $ref: '#/components/parameters/PublicOrderId' }]
+  /customer/questions/{mobileQuestionRef}/answer:
+    post:
+      summary: Submit or version a customer answer to an authorised workflow question
+      parameters:
+        - name: mobileQuestionRef
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/workflow/{phaseKey}/submit:
+    post:
+      summary: Submit and lock a configured customer workflow phase
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - name: phaseKey
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/workflow/{phaseKey}/advance:
+    post:
+      summary: Continue a configured workflow phase that permits non-locking advancement
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - name: phaseKey
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
 components:
   parameters:
     ClientId:
@@ -176,6 +278,16 @@ components:
       in: header
       required: true
       schema: { type: string, minLength: 16, maxLength: 128 }
+    PublicOrderId:
+      name: publicOrderId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^RP-ORD-[A-Z0-9-]{8,48}$' }
+    MobileFileRef:
+      name: mobileFileRef
+      in: path
+      required: true
+      schema: { type: string, minLength: 24, maxLength: 1024, description: User-bound opaque mobile reference, never a database identifier. }
   responses:
     Problem:
       description: RFC 9457-compatible problem response with a correlation identifier.

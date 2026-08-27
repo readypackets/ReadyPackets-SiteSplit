@@ -62,4 +62,22 @@ describe("native mobile contract safeguards", () => {
     expect(oidc).toContain("codeChallenge");
     expect(oidc).toContain("mobile:write");
   });
+
+  it("keeps customer-parity routes allowlisted, server-authoritative, and separate from public content", async () => {
+    const [customer, publicRouter, router] = await Promise.all([
+      text("server/http/mobile/customer.ts"),
+      text("server/http/mobile/public.ts"),
+      text("server/http/mobile/index.ts"),
+    ]);
+    expect(router).toContain('router.use("/public", createMobilePublicRouter())');
+    expect(router).toContain('router.use("/customer", createMobileCustomerRouter())');
+    expect(customer).toContain('requireCustomer(req, "mobile:write")');
+    expect(customer).toContain('runIdempotent(req, "POST /community/topics"');
+    expect(customer).toContain('checkout-handoff');
+    expect(customer).toContain('invoice/content');
+    expect(customer).not.toContain("caller.admin.");
+    expect(publicRouter).toContain('router.get("/catalog"');
+    expect(publicRouter).toContain('router.post("/contact"');
+    expect(publicRouter).not.toContain("mobile:write");
+  });
 });
