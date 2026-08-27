@@ -325,6 +325,8 @@ Mandatory administrative MFA was confirmed working in production: the portal ref
 
 **Validation and staging boundary:** Portal TypeScript validation, the focused six-case mobile-boundary suite, and the production build passed. Docker is not installed in the sandbox, so the final Compose runtime check and HTTPS deployment require the self-hosted staging host, staging DNS/TLS, unique protected keys, test-mode provider credentials, and a release-owner controlled deployment. The Android customer debug APK checksum was verified; its staging configuration instructions are retained in the native repository.
 
+**GitHub synchronization:** The staging package, payment-flow refinement, and this session record were safely rebased on the current Portal main branch and published to `readypackets/ReadyPackets` in commit `f105685` on 2026-08-27. No staging environment was deployed from the sandbox because that would require owner-controlled infrastructure and secrets.
+
 ---
 
 ## 12. Gap-fill session — August 10, 2026 (continued)
