@@ -23,7 +23,7 @@ import { probeAudioDurationSeconds } from "../services/audioDuration.js";
 import { queueOrderFileSharePointSync } from "../services/sharepoint.js";
 import { logger } from "../observability/logger.js";
 import { recordActivity, recordSecurityEvent } from "../observability/audit.js";
-import { assertCustomerWorkflowStageAccess, assertOrderAccess, OrderStateError } from "../services/orders.js";
+import { assertCustomerWorkflowStageAccess, assertOrderWritableAccess, OrderStateError } from "../services/orders.js";
 import { insertedId } from "../db/result.js";
 
 const UPLOAD_CATEGORIES = new Set([
@@ -118,7 +118,7 @@ export function createUploadRouter(): Router {
       // Customers may only attach to their own orders, and only in safe categories.
       if (orderId !== null) {
         try {
-          await assertOrderAccess(orderId, session.user.id, session.user.role);
+          await assertOrderWritableAccess(orderId, session.user.id, session.user.role);
         } catch {
           res.status(404).json({ error: "Order not found." });
           return;

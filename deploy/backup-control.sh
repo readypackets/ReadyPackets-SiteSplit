@@ -40,12 +40,68 @@ safe_config_export_name() {
   [[ "$1" =~ ^readypackets-config-github-secrets-[0-9TZ-]+\.rpconfig$ ]] || { echo "Invalid protected configuration export filename" >&2; exit 1; }
 }
 
+safe_scoped_recovery_name() {
+  [[ "$1" =~ ^readypackets-(identities|orders)-recovery-[0-9TZ-]+\.rprecovery$ ]] || { echo "Invalid scoped recovery filename" >&2; exit 1; }
+}
+
+safe_scoped_recovery_import_name() {
+  [[ "$1" =~ ^rprecovery-import-[a-f0-9]{32}\.rprecovery$ ]] || { echo "Invalid scoped recovery import filename" >&2; exit 1; }
+}
+
+safe_recovery_scope() {
+  [[ "$1" == "identities" || "$1" == "orders" ]] || { echo "Invalid scoped recovery type" >&2; exit 1; }
+}
+
 safe_config_import_name() {
   [[ "$1" =~ ^rpconfig-import-[a-f0-9]{32}\.rpconfig$ ]] || { echo "Invalid protected configuration import filename" >&2; exit 1; }
 }
 
 safe_backup_import_name() {
   [[ "$1" =~ ^rpbackup-import-[a-f0-9]{32}\.tar\.gz$ ]] || { echo "Invalid protected backup import filename" >&2; exit 1; }
+}
+
+read_recovery_passphrase() {
+  local passphrase
+  IFS= read -r passphrase || true
+  [[ ${#passphrase} -ge 16 && ${#passphrase} -le 512 && "$passphrase" != *$'\n'* && "$passphrase" != *$'\r'* ]] || { echo "Recovery passphrase is invalid" >&2; exit 1; }
+  printf '%s' "$passphrase"
+}
+
+export_scoped_recovery() {
+  local scope="$1" passphrase passfile output
+  safe_recovery_scope "$scope"
+  passphrase="$(read_recovery_passphrase)"
+  passfile="$(mktemp)"; trap 'rm -f "$passfile"' RETURN
+  printf '%s\n' "$passphrase" > "$passfile"; chmod 0600 "$passfile"
+  output="$EXPORT_DIR/readypackets-${scope}-recovery-$(date -u +%Y%m%dT%H%M%SZ).rprecovery"
+  RP_APP_ROOT="$APP_ROOT" RP_EXPORT_DIR="$EXPORT_DIR" bash "$APP_ROOT/deploy/scoped-recovery.sh" export "$scope" "$output" "$passfile" >/dev/null
+  chown root:readypackets "$output"
+  chmod 0640 "$output"
+  basename "$output"
+}
+
+inspect_scoped_recovery_import() {
+  local scope="$1" filename="$2" passphrase passfile
+  safe_recovery_scope "$scope"; safe_scoped_recovery_import_name "$filename"
+  [[ -f "$BACKUP_IMPORT_DIR/$filename" ]] || { echo "Scoped recovery upload was not found or has expired" >&2; exit 1; }
+  passphrase="$(read_recovery_passphrase)"
+  passfile="$(mktemp)"; trap 'rm -f "$passfile"' RETURN
+  printf '%s\n' "$passphrase" > "$passfile"; chmod 0600 "$passfile"
+  RP_APP_ROOT="$APP_ROOT" RP_IMPORT_DIR="$BACKUP_IMPORT_DIR" bash "$APP_ROOT/deploy/scoped-recovery.sh" inspect "$scope" "$BACKUP_IMPORT_DIR/$filename" "$passfile"
+}
+
+restore_scoped_recovery_import() {
+  local scope="$1" filename="$2" passphrase confirmation passfile restart_unit
+  safe_recovery_scope "$scope"; safe_scoped_recovery_import_name "$filename"
+  [[ -f "$BACKUP_IMPORT_DIR/$filename" ]] || { echo "Scoped recovery upload was not found or has expired" >&2; exit 1; }
+  IFS= read -r passphrase || true
+  IFS= read -r confirmation || true
+  [[ ${#passphrase} -ge 16 && ${#passphrase} -le 512 && "$passphrase" != *$'\n'* && "$passphrase" != *$'\r'* ]] || { echo "Recovery passphrase is invalid" >&2; exit 1; }
+  [[ "$confirmation" == "RESTORE ${scope^^} RECOVERY" ]] || { echo "Type RESTORE ${scope^^} RECOVERY to confirm this scoped recovery" >&2; exit 1; }
+  passfile="$(mktemp)"; trap 'rm -f "$passfile" "$BACKUP_IMPORT_DIR/$filename"' RETURN
+  printf '%s\n' "$passphrase" > "$passfile"; chmod 0600 "$passfile"
+  RP_APP_ROOT="$APP_ROOT" RP_IMPORT_DIR="$BACKUP_IMPORT_DIR" bash "$APP_ROOT/deploy/scoped-recovery.sh" restore "$scope" "$BACKUP_IMPORT_DIR/$filename" "$passfile" >/dev/null
+  printf 'restored=true\nscope=%s\n' "$scope"
 }
 
 read_config_import_passphrase() {
@@ -365,6 +421,15 @@ EOF
   restore-config)
     restore_config_import "${2:-}"
     ;;
+  export-scoped-recovery)
+    export_scoped_recovery "${2:-}"
+    ;;
+  inspect-scoped-recovery-import)
+    inspect_scoped_recovery_import "${2:-}" "${3:-}"
+    ;;
+  restore-scoped-recovery-import)
+    restore_scoped_recovery_import "${2:-}" "${3:-}"
+    ;;
   export-config|export-config-secrets)
     passphrase="$(head -n 1 | tr -d '\r\n')"
     [[ ${#passphrase} -ge 16 ]] || { echo "Configuration export passphrase must be at least 16 characters" >&2; exit 1; }
@@ -377,6 +442,7 @@ EOF
       output="$EXPORT_DIR/readypackets-config-$(date -u +%Y%m%dT%H%M%SZ).rpconfig"
       RP_APP_ROOT="$APP_ROOT" RP_CONFIG_BACKUP_DIR="$EXPORT_DIR" bash "$APP_ROOT/deploy/config-migration.sh" export --output "$output" --passphrase-file "$passfile" >/dev/null
     fi
+    chown root:readypackets "$output"
     chmod 0640 "$output"
     basename "$output"
     ;;
@@ -389,11 +455,11 @@ EOF
     safe_name "${2:-}"
     source="$(archive_path "$2")"
     output="$EXPORT_DIR/$2"
-    cp --preserve=mode "$source" "$output"; chmod 0640 "$output"
+    cp --preserve=mode "$source" "$output"; chown root:readypackets "$output"; chmod 0640 "$output"
     basename "$output"
     ;;
   *)
-    echo "Usage: $0 {start|status|schedule HH:MM|configure-remote|test-target DESTINATION|configure-targets|verify-archive FILENAME|start-restore FILENAME|restore-status|inspect-config FILENAME|restore-config FILENAME|export-config|export-config-secrets|delete-export FILENAME|prepare-download FILENAME}" >&2
+    echo "Usage: $0 {start|status|schedule HH:MM|configure-remote|test-target DESTINATION|configure-targets|verify-archive FILENAME|start-restore FILENAME|restore-status|export-scoped-recovery identities|orders|inspect-scoped-recovery-import identities|orders FILENAME|restore-scoped-recovery-import identities|orders FILENAME|inspect-config FILENAME|restore-config FILENAME|export-config|export-config-secrets|delete-export FILENAME|prepare-download FILENAME}" >&2
     exit 2
     ;;
 esac

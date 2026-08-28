@@ -45,9 +45,10 @@ describe("order state machine", () => {
     }
   });
 
-  it("treats closed and refunded as terminal", () => {
-    expect(ORDER_TRANSITIONS.closed).toEqual([]);
+  it("treats cancelled and refunded as terminal while allowing a late Stripe refund after completion", () => {
+    expect(ORDER_TRANSITIONS.cancelled).toEqual(["refunded"]);
     expect(ORDER_TRANSITIONS.refunded).toEqual([]);
+    expect(ORDER_TRANSITIONS.closed).toEqual(["refunded"]);
   });
 
   it("follows the documented four-phase production path", () => {
@@ -72,11 +73,11 @@ describe("order state machine", () => {
     expect(ORDER_TRANSITIONS.delivered).not.toContain("cancelled");
   });
 
-  it("permits a refund only after delivery or cancellation", () => {
+  it("permits a confirmed refund from any active, cancelled, or completed order state", () => {
     const refundable = ORDER_STATUSES.filter((status) =>
       ORDER_TRANSITIONS[status].includes("refunded"),
     );
-    expect(refundable.sort()).toEqual(["cancelled", "delivered"]);
+    expect(refundable.sort()).toEqual(["cancelled", "closed", "delivered", "in_production", "new", "phase_1_intake", "phase_2_synthesis"]);
   });
 
   it("makes every status reachable from the initial status", () => {

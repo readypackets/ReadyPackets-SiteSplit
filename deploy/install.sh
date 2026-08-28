@@ -868,6 +868,7 @@ log "Installing the nightly backup timer"
 install -d -m 0755 -o root -g root /usr/local/lib/readypackets
 install -m 0750 "${APP_DIR}/deploy/backup.sh" /usr/local/sbin/readypackets-backup
 install -m 0750 "${APP_DIR}/deploy/backup-control.sh" /usr/local/sbin/readypackets-backup-control
+install -m 0750 "${APP_DIR}/deploy/scoped-recovery.sh" /usr/local/sbin/readypackets-scoped-recovery
 chmod 0750 "${APP_DIR}/deploy/backup-control-daemon.mjs"
 chmod 0750 "${APP_DIR}/deploy/platform-update-control-daemon.mjs"
 install -m 0750 "${APP_DIR}/deploy/certificate-control-daemon.mjs" /usr/local/lib/readypackets/certificate-control-daemon.mjs

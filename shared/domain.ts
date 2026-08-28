@@ -38,12 +38,15 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
  * not represented here, so the lifecycle cannot be corrupted by a client.
  */
 export const ORDER_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
-  new: ["phase_1_intake", "cancelled"],
-  phase_1_intake: ["phase_2_synthesis", "cancelled"],
-  phase_2_synthesis: ["in_production", "cancelled"],
-  in_production: ["delivered", "cancelled"],
+  // A refund may be confirmed at any point before a terminal completion state.
+  // Both cancellation and refund are terminal: no customer work can resume.
+  new: ["phase_1_intake", "cancelled", "refunded"],
+  phase_1_intake: ["phase_2_synthesis", "cancelled", "refunded"],
+  phase_2_synthesis: ["in_production", "cancelled", "refunded"],
+  in_production: ["delivered", "cancelled", "refunded"],
   delivered: ["closed", "refunded"],
-  closed: [],
+  // A completed order may still receive a later Stripe-confirmed refund.
+  closed: ["refunded"],
   cancelled: ["refunded"],
   refunded: [],
 };

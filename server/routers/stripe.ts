@@ -126,10 +126,10 @@ export const stripeRouter = router({
 
       const order = orderRows[0]!;
 
-      if (order.paymentStatus === "paid") {
+      if (["paid", "partially_refunded", "refunded"].includes(order.paymentStatus) || ["cancelled", "refunded", "closed"].includes(order.status)) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "This order has already been paid.",
+          message: "This order is settled or closed and cannot accept another online payment. Create a new order to continue.",
         });
       }
       if (order.paymentRequirement !== "required" || order.isTestOrder) {

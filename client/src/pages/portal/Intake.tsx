@@ -843,7 +843,7 @@ export function MndaPage() {
             description={
               alreadySigned
                 ? "A copy of this agreement and your signature record is retained in your account."
-                : "Type your full legal name to sign electronically."
+                : "Type the first and last name recorded on your ReadyPackets account to sign electronically."
             }
           />
 
@@ -895,7 +895,7 @@ export function MndaPage() {
                 autoComplete="name"
                 required
                 maxLength={120}
-                help="This is recorded as your electronic signature."
+                help="This must match the first and last name saved in your ReadyPackets profile. It is recorded as your electronic signature."
               />
 
               <Checkbox

@@ -109,6 +109,7 @@ export function OrderDetailPage() {
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelConfirmation, setCancelConfirmation] = useState("");
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [downloading, setDownloading] = useState<number | null>(null);
@@ -155,6 +156,7 @@ export function OrderDetailPage() {
     async onSuccess() {
       setCancelOpen(false);
       setCancelReason("");
+      setCancelConfirmation("");
       await detail.refetch();
       toast.info(
         "Cancellation requested",
@@ -220,7 +222,9 @@ export function OrderDetailPage() {
 
   const { order, items, history, deliverables, notes } = detail.data;
   const currentPhase = phaseIndexOf(order.status);
-  const terminated = isTerminated(order.status);
+  // Older orders may show a settled refund before a lifecycle status transition.
+  // Treat both representations as read-only until the server synchronizes them.
+  const terminated = isTerminated(order.status) || order.paymentStatus === "refunded";
   const openQuestions = (questions.data ?? []).filter(
     (question) => question.status !== "answered" && question.status !== "resolved",
   );
@@ -252,7 +256,7 @@ export function OrderDetailPage() {
         breadcrumb={{ href: "/portal/orders", label: "My orders" }}
         actions={
           <>
-            <Button variant="outline" leadingIcon={<Pencil className="size-4" aria-hidden="true" />} onClick={() => { setRenameValue(order.projectName ?? ""); setRenameOpen(true); }}>Rename order</Button>
+            {!terminated ? <Button variant="outline" leadingIcon={<Pencil className="size-4" aria-hidden="true" />} onClick={() => { setRenameValue(order.projectName ?? ""); setRenameOpen(true); }}>Rename order</Button> : null}
             {["paid", "partially_refunded"].includes(order.paymentStatus) ? <LinkButton href={`/portal/orders/${order.id}/invoice`} variant="outline" leadingIcon={<FileText className="size-4" aria-hidden="true" />}>Invoice</LinkButton> : null}
             {deliverables.length > 0 ? (
               <LinkButton
@@ -275,9 +279,9 @@ export function OrderDetailPage() {
       {paymentReturn === "success" ? <Alert tone={paymentStatus.data?.paymentStatus === "paid" ? "success" : "info"} className="mb-6" title={paymentStatus.data?.paymentStatus === "paid" ? "Payment confirmed" : "Confirming payment"}>{paymentStatus.data?.paymentStatus === "paid" ? "Your payment has been verified and your order is marked paid." : "Stripe returned you to ReadyPackets. We are confirming the signed payment notification now; this page will update automatically."}</Alert> : null}
       {paymentReturn === "cancelled" ? <Alert tone="warning" className="mb-6" title="Checkout cancelled">No payment was taken. You can return to checkout from this order whenever you are ready.</Alert> : null}
 
-      {shares.data ? <Card className="mb-6"><CardHeader title="Shared access" description="Invite another customer to contribute to this order, or limit them to a specific capability." actions={<Button size="sm" variant="outline" onClick={() => setShareOpen(true)}>Share order</Button>} /><div className="mt-4 space-y-2">{shares.data.filter((share) => !share.revokedAt).length === 0 ? <p className="text-sm text-muted">This order is private to you.</p> : shares.data.filter((share) => !share.revokedAt).map((share) => <div key={share.id} className="flex items-center justify-between gap-3 rounded border border-line p-3"><div><p className="text-sm font-medium text-ink">{share.name}</p><p className="text-xs text-muted">{share.email} · {share.scope.replace(/_/g, " ")}</p></div><Button size="sm" variant="ghost" busy={revokeShare.isPending} onClick={() => revokeShare.mutate({ orderId, shareId: share.id })}>Remove</Button></div>)}</div></Card> : null}
+      {shares.data ? <Card className="mb-6"><CardHeader title="Shared access" description={terminated ? "This closed order remains available for viewing, but access cannot be changed." : "Invite another customer to contribute to this order, or limit them to a specific capability."} actions={!terminated ? <Button size="sm" variant="outline" onClick={() => setShareOpen(true)}>Share order</Button> : undefined} /><div className="mt-4 space-y-2">{shares.data.filter((share) => !share.revokedAt).length === 0 ? <p className="text-sm text-muted">This order is private to you.</p> : shares.data.filter((share) => !share.revokedAt).map((share) => <div key={share.id} className="flex items-center justify-between gap-3 rounded border border-line p-3"><div><p className="text-sm font-medium text-ink">{share.name}</p><p className="text-xs text-muted">{share.email} · {share.scope.replace(/_/g, " ")}</p></div>{!terminated ? <Button size="sm" variant="ghost" busy={revokeShare.isPending} onClick={() => revokeShare.mutate({ orderId, shareId: share.id })}>Remove</Button> : null}</div>)}</div></Card> : null}
 
-      {shares.data && (workspaces.data ?? []).some((workspace) => workspace.role === "owner") ? <Card className="mb-6"><CardHeader title="Share with a Packet Collective" description="Grant the active members of one of your organization workspaces the same order permission." /><div className="mt-4 grid gap-3 md:grid-cols-3"><Select label="Workspace" value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)} options={[{ value: "", label: "Select Packet Collective" }, ...(workspaces.data ?? []).filter((workspace) => workspace.role === "owner").map((workspace) => ({ value: String(workspace.id), label: workspace.name }))]} /><Select label="Permission" value={workspaceScope} onChange={(event) => setWorkspaceScope(event.target.value)} options={[{ value: "view", label: "View only" }, { value: "upload_documents", label: "Upload documents" }, { value: "view_deliverables", label: "View final deliverables" }, { value: "record_business_pitch", label: "Record a Business Pitch Idea" }, { value: "contributor", label: "Contributor" }, { value: "manager", label: "Manager" }]} /><div className="flex items-end"><Button fullWidth busy={shareWithWorkspace.isPending} disabled={!workspaceId} onClick={() => shareWithWorkspace.mutate({ orderId, workspaceId: Number(workspaceId), scope: workspaceScope as never })}>Share with workspace</Button></div></div></Card> : null}
+      {!terminated && shares.data && (workspaces.data ?? []).some((workspace) => workspace.role === "owner") ? <Card className="mb-6"><CardHeader title="Share with a Packet Collective" description="Grant the active members of one of your organization workspaces the same order permission." /><div className="mt-4 grid gap-3 md:grid-cols-3"><Select label="Workspace" value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)} options={[{ value: "", label: "Select Packet Collective" }, ...(workspaces.data ?? []).filter((workspace) => workspace.role === "owner").map((workspace) => ({ value: String(workspace.id), label: workspace.name }))]} /><Select label="Permission" value={workspaceScope} onChange={(event) => setWorkspaceScope(event.target.value)} options={[{ value: "view", label: "View only" }, { value: "upload_documents", label: "Upload documents" }, { value: "view_deliverables", label: "View final deliverables" }, { value: "record_business_pitch", label: "Record a Business Pitch Idea" }, { value: "contributor", label: "Contributor" }, { value: "manager", label: "Manager" }]} /><div className="flex items-end"><Button fullWidth busy={shareWithWorkspace.isPending} disabled={!workspaceId} onClick={() => shareWithWorkspace.mutate({ orderId, workspaceId: Number(workspaceId), scope: workspaceScope as never })}>Share with workspace</Button></div></div></Card> : null}
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <Badge tone={STATUS_TONES[order.status] ?? "neutral"}>
@@ -294,7 +298,7 @@ export function OrderDetailPage() {
       </div>
 
       {/* Action required */}
-      {needsMnda || needsIntake || openQuestions.length > 0 ? (
+      {!terminated && (needsMnda || needsIntake || openQuestions.length > 0) ? (
         <Card className="mb-6 border-warning/40 bg-warning/5">
           <h2 className="flex items-center gap-2 text-base font-semibold text-ink">
             <AlertTriangle className="size-4 text-warning" aria-hidden="true" />
@@ -344,12 +348,12 @@ export function OrderDetailPage() {
       {configuredWorkflowStages.length > 0 ? (
         <Card className="mb-6 border-teal/30 bg-teal/5">
           <CardHeader title={workflowPresentation === "wizard" ? "Guided order workspace" : "Order workspace"} description={workflowPresentation === "wizard" ? "Complete one phase at a time. Submitted phases remain available for review, while the next open phase is highlighted." : "Each workflow phase has its own files, questions, recordings, and customer actions. Final deliverables remain in My Business Packets."} />
-          {workflowPresentation === "wizard" ? <div className="mt-4"><div className="flex flex-wrap items-center gap-2 text-sm"><Badge tone="teal">Step {(nextWorkflowStage?.order ?? configuredWorkflowStages.length)} of {configuredWorkflowStages.length}</Badge>{workflowProgress ? <span className="text-muted">{workflowProgress.completedStages} of {workflowProgress.totalStages} workflow phases confirmed</span> : null}</div><ol className="mt-4 space-y-3">{configuredWorkflowStages.map((stage) => { const completed = stageIsCompleted(stage.key, completedWorkflowKeys, advancedWorkflowKeys, order.paymentStatus); const current = stage.key === nextWorkflowStage?.key && !completed; const customerActionable = ((stage.capabilities ?? []).length > 0 || Boolean(stage.customerMessage)) && stage.key !== "new"; return <li key={stage.key} className={`flex items-center justify-between gap-3 rounded-lg border p-4 ${current ? "border-teal bg-white shadow-sm" : completed ? "border-success/30 bg-success/5" : "border-line bg-surface-soft"}`}><div className="min-w-0"><p className="flex items-center gap-2 text-sm font-semibold text-ink"><span className={`flex size-6 items-center justify-center rounded-full text-xs font-bold ${completed ? "bg-success text-white" : current ? "bg-teal text-white" : "bg-surface-sunken text-muted"}`}>{completed ? <CheckCircle2 className="size-3.5" /> : stage.order}</span>{stage.label}</p><p className="mt-1 text-xs text-muted">{completed ? (stage.key === "new" ? "System step confirmed" : completedWorkflowKeys.has(stage.key) ? "Submitted and locked — review available" : "Continued with Next — still editable") : current ? "Current step" : "Available after the current step is submitted"}</p></div>{customerActionable && (completed || current) ? <LinkButton size="sm" variant={current ? "primary" : "outline"} href={`/portal/orders/${order.id}/workflow/${stage.key}`}>{completed ? "Review" : `Open ${stage.label}`}</LinkButton> : completed ? <Badge tone="success">Confirmed</Badge> : <Badge tone="neutral">Upcoming</Badge>}</li>; })}</ol></div> : <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {workflowPresentation === "wizard" ? <div className="mt-4"><div className="flex flex-wrap items-center gap-2 text-sm"><Badge tone="teal">Step {(nextWorkflowStage?.order ?? configuredWorkflowStages.length)} of {configuredWorkflowStages.length}</Badge>{workflowProgress ? <span className="text-muted">{workflowProgress.completedStages} of {workflowProgress.totalStages} workflow phases confirmed</span> : null}</div><ol className="mt-4 space-y-3">{configuredWorkflowStages.map((stage) => { const completed = stageIsCompleted(stage.key, completedWorkflowKeys, advancedWorkflowKeys, order.paymentStatus); const current = stage.key === nextWorkflowStage?.key && !completed; const customerActionable = ((stage.capabilities ?? []).length > 0 || Boolean(stage.customerMessage)) && stage.key !== "new"; return <li key={stage.key} className={`flex items-center justify-between gap-3 rounded-lg border p-4 ${current ? "border-teal bg-white shadow-sm" : completed ? "border-success/30 bg-success/5" : "border-line bg-surface-soft"}`}><div className="min-w-0"><p className="flex items-center gap-2 text-sm font-semibold text-ink"><span className={`flex size-6 items-center justify-center rounded-full text-xs font-bold ${completed ? "bg-success text-white" : current ? "bg-teal text-white" : "bg-surface-sunken text-muted"}`}>{completed ? <CheckCircle2 className="size-3.5" /> : stage.order}</span>{stage.label}</p><p className="mt-1 text-xs text-muted">{completed ? (stage.key === "new" ? "System step confirmed" : completedWorkflowKeys.has(stage.key) ? "Submitted and locked — review available" : "Continued with Next — still editable") : current ? "Current step" : "Available after the current step is submitted"}</p></div>{!terminated && customerActionable && (completed || current) ? <LinkButton size="sm" variant={current ? "primary" : "outline"} href={`/portal/orders/${order.id}/workflow/${stage.key}?focus=documents`}>{completed ? "Review" : `Open ${stage.label}`}</LinkButton> : completed ? <Badge tone="success">Confirmed</Badge> : <Badge tone="neutral">{terminated ? "Closed" : "Upcoming"}</Badge>}</li>; })}</ol></div> : <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {configuredWorkflowStages.map((stage) => (
               <div key={stage.key} className="rounded-lg border border-line bg-white p-4">
                 <p className="text-sm font-semibold text-ink">{stage.order}. {stage.label}</p>
                 <p className="mt-1 text-xs text-muted">{(stage.capabilities ?? []).map((capability) => capability === "recording" ? "Audio recording" : capability === "audio_upload" ? "Audio upload" : capability === "documents" ? "Documents" : "Questions").join(" · ")}</p>
-                <LinkButton className="mt-3" size="sm" variant="outline" href={`/portal/orders/${order.id}/workflow/${stage.key}`}>Open {stage.label}</LinkButton>
+                {!terminated ? <LinkButton className="mt-3" size="sm" variant="outline" href={`/portal/orders/${order.id}/workflow/${stage.key}?focus=documents`}>Open {stage.label}</LinkButton> : <Badge className="mt-3" tone="neutral">Closed</Badge>}
               </div>
             ))}
           </div>}
@@ -428,6 +432,7 @@ export function OrderDetailPage() {
                         </p>
                       ) : null}
                       <Textarea
+                        disabled={terminated}
                         label={answered ? "Update your answer" : "Your answer"}
                         className="mt-3"
                         rows={4}
@@ -442,7 +447,7 @@ export function OrderDetailPage() {
                         size="sm"
                         className="mt-2.5"
                         busy={answerQuestion.isPending}
-                        disabled={draft.trim().length === 0}
+                        disabled={terminated || draft.trim().length === 0}
                         onClick={() =>
                           answerQuestion.mutate({ questionId: question.id, body: draft.trim() })
                         }
@@ -508,6 +513,7 @@ export function OrderDetailPage() {
             />
             <div className="mt-4">
               <Textarea
+                disabled={terminated}
                 label="Add a message"
                 rows={3}
                 maxLength={5000}
@@ -520,7 +526,7 @@ export function OrderDetailPage() {
                 size="sm"
                 className="mt-2.5"
                 busy={addNote.isPending}
-                disabled={note.trim().length === 0}
+                disabled={terminated || note.trim().length === 0}
                 onClick={() => addNote.mutate({ orderId: order.id, body: note.trim() })}
                 leadingIcon={<MessageSquarePlus className="size-4" aria-hidden="true" />}
               >
@@ -597,8 +603,8 @@ export function OrderDetailPage() {
           <Card>
             <CardHeader title="Documents" description="Quick access to every customer-visible order document and file." />
             <ul className="mt-4 space-y-2.5 text-sm">
-              <li className="flex items-center justify-between gap-3"><span className="text-body">Mutual NDA</span>{mnda.data?.accepted ? <Link href={`/portal/orders/${order.id}/mnda`} className="text-sm font-medium">Signed {formatDate(mnda.data.acceptedAt)}</Link> : <Link href={`/portal/orders/${order.id}/mnda`} className="text-sm font-medium">Sign now</Link>}</li>
-              <li className="flex items-center justify-between gap-3"><span className="text-body">Phase I intake</span><Link href={`/portal/orders/${order.id}/intake`} className="text-sm font-medium">{intakeStatus === "submitted" ? "View submission" : "Continue"}</Link></li>
+              <li className="flex items-center justify-between gap-3"><span className="text-body">Mutual NDA</span>{mnda.data?.accepted ? <Link href={`/portal/orders/${order.id}/mnda`} className="text-sm font-medium">Signed {formatDate(mnda.data.acceptedAt)}</Link> : <span className="text-sm text-muted">{terminated ? "Not required — order closed" : "Not signed"}</span>}</li>
+              <li className="flex items-center justify-between gap-3"><span className="text-body">Phase I intake</span>{terminated ? <span className="text-sm text-muted">Read-only — order closed</span> : <Link href={`/portal/orders/${order.id}/intake`} className="text-sm font-medium">{intakeStatus === "submitted" ? "View submission" : "Continue"}</Link>}</li>
             </ul>
             {allOrderFiles.length === 0 ? <p className="mt-4 border-t border-line pt-4 text-xs text-muted">No additional customer-visible files have been added yet.</p> : <ul className="mt-4 divide-y divide-line border-t border-line">{allOrderFiles.map((file) => <li key={file.id} className="flex items-center justify-between gap-3 py-3"><div className="min-w-0"><p className="truncate text-sm font-medium text-ink">{file.originalName}</p><p className="mt-0.5 text-xs text-muted">{phaseLabelByKey.get(file.phase) ?? file.phase.replaceAll("_", " ")} · {formatBytes(file.sizeBytes)}</p></div><Button size="sm" variant="outline" busy={downloading === file.id} onClick={() => { setDownloading(file.id); requestDownload.mutate({ fileId: file.id }); }} leadingIcon={<Download className="size-3.5" aria-hidden="true" />}>Download</Button></li>)}</ul>}
           </Card>
@@ -616,20 +622,20 @@ export function OrderDetailPage() {
             <Modal open={renameOpen} onClose={() => setRenameOpen(false)} title="Rename order" description="This changes the project title only. Your unique order number, payment records, workflow, and invoice remain unchanged."><div className="space-y-4"><Input autoFocus label="Order title" value={renameValue} maxLength={190} onChange={(event) => setRenameValue(event.target.value)} placeholder="e.g., Building Mount Olympus" /><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setRenameOpen(false)}>Cancel</Button><Button busy={renameOrder.isPending} disabled={!renameValue.trim()} onClick={() => renameOrder.mutate({ orderId, projectName: renameValue.trim() })}>Save title</Button></div></div></Modal>
 
       <Modal open={cancelOpen}
-        onClose={() => setCancelOpen(false)}
+        onClose={() => { setCancelOpen(false); setCancelConfirmation(""); }}
         title="Request cancellation"
         description="Cancellation is subject to the refund policy. Tell us why so we can process your request correctly."
         footer={
           <>
-            <Button variant="outline" onClick={() => setCancelOpen(false)}>
+            <Button variant="outline" onClick={() => { setCancelOpen(false); setCancelReason(""); setCancelConfirmation(""); }}>
               Keep my order
             </Button>
             <Button
               variant="danger"
               busy={requestCancellation.isPending}
-              disabled={cancelReason.trim().length < 10}
+              disabled={cancelReason.trim().length < 10 || cancelConfirmation !== "REQUEST CANCELLATION"}
               onClick={() =>
-                requestCancellation.mutate({ orderId: order.id, reason: cancelReason.trim() })
+                requestCancellation.mutate({ orderId: order.id, reason: cancelReason.trim(), confirmation: "REQUEST CANCELLATION" })
               }
             >
               Submit request
@@ -647,9 +653,10 @@ export function OrderDetailPage() {
           onChange={(event) => setCancelReason(event.target.value)}
           help="At least 10 characters."
         />
+        <Input className="mt-4" label="Type REQUEST CANCELLATION to confirm" value={cancelConfirmation} onChange={(event) => setCancelConfirmation(event.target.value)} placeholder="REQUEST CANCELLATION" required />
         <Alert tone="info" className="mt-4">
           Requesting cancellation does not cancel the order immediately. A member of the team will
-          review your request against the refund policy and reply within one business day.
+          review your request against the refund policy and reply within one business day. If the request is approved, the order is closed and cannot be changed or paid again.
         </Alert>
       </Modal>
     </>

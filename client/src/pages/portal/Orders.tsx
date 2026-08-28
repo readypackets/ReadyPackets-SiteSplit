@@ -161,16 +161,23 @@ export function OrdersListPage() {
       key: "go",
       header: <span className="sr-only">View</span>,
       align: "right",
-      cell: (order) => (
-        <Link
-          href={order.paymentStatus === "paid" ? `/portal/orders/${order.id}` : `/portal/checkout?order=${order.id}`}
-          className="inline-flex items-center gap-1 text-sm font-semibold text-teal-dark no-underline hover:text-teal"
-          aria-label={order.paymentStatus === "paid" ? `View order ${order.orderNumber}` : `Complete payment for order ${order.orderNumber}`}
-        >
-          {order.paymentStatus === "paid" ? "View" : "Complete payment"}
-          <ArrowRight className="size-4" aria-hidden="true" />
-        </Link>
-      ),
+      cell: (order) => {
+        const terminal = ["cancelled", "refunded", "closed"].includes(order.status) || order.paymentStatus === "refunded";
+        const settledOrClosed = ["paid", "partially_refunded", "refunded"].includes(order.paymentStatus) || terminal;
+        const activeWorkspace = !terminal && order.paymentStatus === "paid" && order.currentPhaseKey
+          ? `/portal/orders/${order.id}/workflow/${order.currentPhaseKey}?focus=documents`
+          : `/portal/orders/${order.id}`;
+        return (
+          <Link
+            href={settledOrClosed ? activeWorkspace : `/portal/checkout?order=${order.id}`}
+            className="inline-flex items-center gap-1 text-sm font-semibold text-teal-dark no-underline hover:text-teal"
+            aria-label={settledOrClosed ? `${terminal ? "View closed" : "Open active"} order ${order.orderNumber}` : `Complete payment for order ${order.orderNumber}`}
+          >
+            {settledOrClosed ? (terminal ? "View closed order" : "Open workspace") : "Complete payment"}
+            <ArrowRight className="size-4" aria-hidden="true" />
+          </Link>
+        );
+      },
     },
   ];
 

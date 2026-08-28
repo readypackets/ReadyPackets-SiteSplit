@@ -543,6 +543,7 @@ const BACKUP_CONTROL_SOCKET = "/run/readypackets/backup-control.sock";
 const BACKUP_DIR = "/var/backups/readypackets";
 const BACKUP_EXPORT_DIR = "/var/lib/readypackets/storage/admin-exports";
 const BACKUP_FILENAME = /^readypackets-[0-9TZ-]+\.tar\.gz(?:\.(?:age|gpg))?$/;
+const SCOPED_RECOVERY_FILENAME = /^readypackets-(?:identities|orders)-recovery-[0-9TZ-]+\.rprecovery$/;
 
 function parseBackupControl(output: string) {
   return Object.fromEntries(output.split("\n").map((line) => line.split("=", 2)).filter(([key, value]) => Boolean(key) && value !== undefined));
@@ -582,7 +583,7 @@ async function availableBackupFiles() {
 }
 
 async function readProtectedExport(filename: string) {
-  if (!BACKUP_FILENAME.test(filename) && !/^readypackets-config-[0-9TZ-]+\.rpconfig$/.test(filename)) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid protected export filename." });
+  if (!BACKUP_FILENAME.test(filename) && !/^readypackets-config-[0-9TZ-]+\.rpconfig$/.test(filename) && !SCOPED_RECOVERY_FILENAME.test(filename)) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid protected export filename." });
   const location = path.join(BACKUP_EXPORT_DIR, filename);
   const details = await stat(location);
   if (details.size > 50 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "This protected export exceeds the 50 MB browser download limit. Retrieve it from the server console instead." });
@@ -645,6 +646,15 @@ const systemBackupsRouter = router({
     const result = parseBackupControl(await runBackupControl(["test-target", input.destination]));
     void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "backup.cloud_target_tested", entityType: "backup", entityId: 0, summary: `Administrator tested cloud backup target ${input.destination}`, ipAddress: ctx.clientIp });
     return { reachable: result.reachable === "true", destination: result.destination ?? input.destination };
+  }),
+  exportScopedRecovery: adminProcedure.input(z.object({ scope: z.enum(["identities", "orders"]), passphrase: z.string().min(16).max(512).regex(/^[^\r\n]+$/, "Use a single-line recovery passphrase.") })).mutation(async ({ ctx, input }) => {
+    const filename = (await runBackupControl(["export-scoped-recovery", input.scope], `${input.passphrase}\n`)).trim();
+    if (!SCOPED_RECOVERY_FILENAME.test(filename)) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The protected recovery helper did not return a valid encrypted archive name. Review the backup-control service log before retrying." });
+    }
+    const payload = await readProtectedExport(filename);
+    void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: `backup.${input.scope}_recovery_exported`, entityType: "backup", entityId: 0, severity: "warning", summary: `Administrator exported an encrypted ${input.scope} recovery archive`, ipAddress: ctx.clientIp });
+    return { ...payload, scope: input.scope };
   }),
   exportConfiguration: adminProcedure.input(z.object({ passphrase: z.string().min(16).max(512) })).mutation(async ({ ctx, input }) => {
     const filename = (await runBackupControl(["export-config"], `${input.passphrase}\n`)).trim();

@@ -3910,3 +3910,52 @@ The companion native-mobile source now has matching SwiftUI and Jetpack Compose 
 **Repair:** Replaced the nonstandard migration file with `drizzle/migrations/0052_mobile_native_schema_compat.sql`, in the sole authoritative migration path. The migration idempotently creates the five native-mobile tables (`mobile_devices`, device sessions, authorization codes, refresh tokens, and idempotency keys) for fresh deployments and conditionally adds the encrypted push-token column to a legacy `mobile_devices` table when absent. The critical startup schema contract now checks the columns needed by all five mobile tables, so an incomplete mobile upgrade fails before serving routes instead of failing on the first device registration request. Fresh-install documentation now reflects the current expected checkpoint of 48 migrations and 16 critical tables.
 
 **Validation:** A clean disposable MySQL database applied all 48 migrations and verified all 16 contract tables. A separate pre-existing `mobile_devices` table without `push_token_enc` received only the additive encrypted-token column successfully. The full application suite passed 211/211; TypeScript, production client/server build, and whitespace validation passed.
+
+---
+
+## 64. Customer workflow, terminal-order, login-audit, and selective recovery hardening — August 28, 2026
+
+### 64.1 Requests
+
+The operator requested dollar-denominated coupon administration, validated MNDA signing, complete sign-in tracking including magic links, terminal closure of refunded and cancelled orders, an improved customer order workflow that takes the customer directly to the document area, and independently restorable user-account and order-plus-file backup scopes.
+
+One cancellation request sentence was incomplete. It was implemented conservatively as a customer **request** requiring a reason and a typed confirmation, not as an immediate unilateral cancellation. A staff member remains responsible for applying the policy decision and any refund.
+
+### 64.2 Commerce, agreement, and authentication changes
+
+The coupon interface now accepts fixed discounts and fixed cart prices as dollar-and-cent inputs such as `25.00`; it converts the value to an exact integer-cent amount before it reaches the server. Existing persisted cents, Stripe amounts, invoices, and audit records were not converted or rewritten.
+
+MNDA acceptance now normalizes whitespace and compares the typed electronic signature with the first and last name stored for the signed-in customer. The form explains the matching requirement. The acceptance record continues to retain the agreement version, timestamp, client IP, and user-agent evidence. This is an application data-integrity check, not legal advice about enforceability in a particular jurisdiction.
+
+Successful magic-link authentication now updates the account last-sign-in fields and records an explicit successful-login audit method, alongside the existing password and SAML paths. This resolves the portal/customer list showing `never` after a successful magic-link sign-in.
+
+### 64.3 Cancellation and refund closure
+
+Customers must now enter a reason of at least ten characters and type `REQUEST CANCELLATION` before the portal submits a cancellation request; the server independently enforces that confirmation. The portal clearly explains that a request is not an immediate cancellation and is reviewed against the refund policy.
+
+A cancellation or a Stripe-confirmed full refund now transitions the order to a terminal read-only outcome. Server-side guards reject new uploads, file deletion, workflow advancement, intake editing/submission, MNDA acceptance, question answers, messages, sharing changes, project-title changes, new checkout sessions, and repeat cancellation requests. Historical records, order history, invoices, and downloads remain viewable. A partial refund intentionally retains active workflow capability because a partial financial adjustment does not necessarily cancel delivery.
+
+### 64.4 Customer workflow navigation
+
+The customer order-list action now opens a paid active order at its current workflow phase with a short-lived `focus=documents` query instruction. The workflow page waits for content, smoothly scrolls the document-upload section into view, moves accessible focus there, and removes the temporary query from the browser location. Refunded, cancelled, and otherwise closed orders remain read-only and use a clearly labelled closed-order view rather than a payment or upload call to action.
+
+### 64.5 Scoped encrypted recovery archives
+
+Added administrator-only **Scoped recovery archives** in Backup management. The identity archive contains users, encrypted profile values, password hashes, MFA enrollment and recovery-code material, role/access values, and no plaintext passwords or sessions. The order archive contains order/workflow/financial/acceptance evidence and only files referenced by orders, including file-version metadata. It excludes unrelated user data, platform configuration, payment credentials, TLS material, and unrelated storage.
+
+Both scopes use a new root-only `scoped-recovery.sh` helper behind the existing root backup Unix-socket controller. The daemon validates an exact scope, passphrase length, staged filename, and typed restore phrase before it permits the helper to run. Archives use PBKDF2-HMAC-SHA512 key derivation (600,000 iterations), AES-256-CBC encryption, a separate HMAC-SHA256 integrity check, allowlisted archive members, checksum verification, and a non-secret data-encryption-key fingerprint. Every restore creates a root-only full database safety dump before merging only the selected scope. Identity restoration revokes all active sessions; order restoration rehydrates only referenced files.
+
+During isolated recovery testing, the first selective restore failed because `mysqldump` emitted `LOCK TABLES`/`DISABLE KEYS` directives, while the intentionally least-privileged application database account does not have `LOCK TABLES`. The export now uses `--skip-add-locks --skip-disable-keys`, preserving least privilege rather than broadening the database grant. Full encrypted identity and order export, integrity inspection, restore, row rehydration, and cleanup then passed on a disposable migrated database.
+
+### 64.6 Verification
+
+| Check | Result |
+| --- | --- |
+| TypeScript | `pnpm exec tsc --noEmit` passed after all changes. |
+| Production build | Vite client and esbuild server builds passed. The existing client bundle-size advisory remains non-blocking. |
+| Full isolated test suite | `211/211` tests passed across 26 files against a newly migrated and seeded disposable MySQL database. |
+| Focused regression checks | Schema contract, upload security, Safari audio format, and order lifecycle tests passed (`30` database-independent tests plus `8` lifecycle assertions). |
+| Root helper checks | `bash -n` passed for the scoped recovery helper, backup control helper, and installer; backup control daemon syntax passed; `git diff --check` passed. |
+| Scoped recovery integration | A disposable least-privilege MySQL database successfully exported, inspected, restored, and verified encrypted **identities** and **orders** scopes. |
+
+The procedures and constraints are documented in `docs/FULL_BACKUP_RESTORE.md`. No secrets, passphrases, passwords, private keys, or production database values were placed in source or this session record.

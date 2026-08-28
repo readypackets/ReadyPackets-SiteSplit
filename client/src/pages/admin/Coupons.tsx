@@ -39,6 +39,26 @@ const emptyForm = {
   active: true,
 };
 
+/** Avoid floating-point rounding: fixed coupon values are stored as integer cents. */
+function centsToDollarInput(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
+function dollarInputToCents(value: string): number | null {
+  const normalized = value.trim();
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(normalized);
+  if (!match) return null;
+  const whole = Number(match[1]);
+  if (!Number.isSafeInteger(whole) || whole > 10_000_000) return null;
+  const fractional = (match[2] ?? "").padEnd(2, "0");
+  const cents = whole * 100 + Number(fractional || "0");
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
+function isFixedAmount(discountType: string): boolean {
+  return discountType === "fixed" || discountType === "cart_price";
+}
+
 export function AdminCouponsPage() {
   const toast = useToast();
   const utils = trpc.useUtils();
@@ -95,7 +115,7 @@ export function AdminCouponsPage() {
       code: row.code,
       description: row.description ?? "",
       discountType: row.discountType,
-      discountValue: String(row.discountValue),
+      discountValue: isFixedAmount(row.discountType) ? centsToDollarInput(row.discountValue) : String(row.discountValue),
       maxRedemptions: row.maxRedemptions != null ? String(row.maxRedemptions) : "",
       startsAt: row.startsAt ? new Date(row.startsAt).toISOString().slice(0, 10) : "",
       expiresAt: row.expiresAt ? new Date(row.expiresAt).toISOString().slice(0, 10) : "",
@@ -105,12 +125,19 @@ export function AdminCouponsPage() {
   }
 
   function handleSave() {
+    const discountValue = isFixedAmount(form.discountType)
+      ? dollarInputToCents(form.discountValue)
+      : Number(form.discountValue);
+    if (discountValue === null || !Number.isInteger(discountValue) || discountValue < (form.discountType === "cart_price" ? 0 : 1)) {
+      toast.error("Enter a valid discount amount", form.discountType === "percent" ? "Use a whole percentage between 1 and 100." : "Use dollars and cents, for example 25.00.");
+      return;
+    }
     upsertMut.mutate({
       id: form.id ?? undefined,
       code: form.code.trim().toUpperCase(),
       description: form.description.trim() || undefined,
       discountType: form.discountType as "percent" | "fixed" | "cart_price",
-      discountValue: Number(form.discountValue),
+      discountValue,
       maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : undefined,
       startsAt: form.startsAt || undefined,
       expiresAt: form.expiresAt || undefined,
@@ -236,12 +263,15 @@ export function AdminCouponsPage() {
               ]}
             />
             <Input
-              label={form.discountType === "percent" ? "Percent off" : form.discountType === "cart_price" ? "Final cart price (cents)" : "Cents off"}
+              label={form.discountType === "percent" ? "Percent off" : form.discountType === "cart_price" ? "Final cart price (USD)" : "Amount off (USD)"}
               type="number"
-              min={form.discountType === "cart_price" ? 0 : 1}
+              min={form.discountType === "cart_price" ? 0 : isFixedAmount(form.discountType) ? 0.01 : 1}
+              step={isFixedAmount(form.discountType) ? "0.01" : "1"}
+              inputMode={isFixedAmount(form.discountType) ? "decimal" : "numeric"}
               required
               value={form.discountValue}
               onChange={(e) => setForm((f) => ({ ...f, discountValue: e.target.value }))}
+              help={isFixedAmount(form.discountType) ? "Enter dollars and cents, for example 25.00. ReadyPackets stores this securely as cents." : undefined}
             />
           </div>
           <Input

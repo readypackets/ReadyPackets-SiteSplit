@@ -419,11 +419,15 @@ export const authRouter = router({
         void recordSecurityEvent({ eventType: "magic_link.invalid", outcome: "blocked", message: "Magic-link account was not eligible", userId: record.userId, ipAddress: ctx.clientIp, userAgent: ctx.userAgent });
         throw new TRPCError({ code: "UNAUTHORIZED", message: "This sign-in link is no longer available." });
       }
+      // Magic-link authentication is a successful sign-in even when policy requires
+      // a second factor before general portal access. Keep the account’s visible
+      // last-sign-in fields consistent with password and SAML sign-in paths.
+      await recordSuccessfulLogin(user.id, ctx.clientIp);
       const [mfaConfirmed, policy] = await Promise.all([hasConfirmedMfa(user.id), getMfaPolicyForRole(user.role)]);
       const requirement = mfaRequirement(policy, mfaConfirmed);
       await revokePendingMfaSessions(user.id);
       await createSession(ctx.res, { userId: user.id, ipAddress: ctx.clientIp, userAgent: ctx.userAgent, mfaPending: requirement.mfaPending, restricted: requirement.restricted });
-      void recordSecurityEvent({ eventType: requirement.mfaPending ? "login.mfa_required" : requirement.mfaSetupRequired ? "mfa.enrolment_required" : "login.success", message: requirement.mfaPending ? "Magic link accepted; awaiting second factor" : requirement.mfaSetupRequired ? "Magic link accepted; MFA enrolment required by policy" : "Magic link accepted", userId: user.id, ipAddress: ctx.clientIp, userAgent: ctx.userAgent });
+      void recordSecurityEvent({ eventType: requirement.mfaPending ? "login.mfa_required" : requirement.mfaSetupRequired ? "mfa.enrolment_required" : "login.success", message: requirement.mfaPending ? "Magic link accepted; awaiting second factor" : requirement.mfaSetupRequired ? "Magic link accepted; MFA enrolment required by policy" : "Magic link accepted", userId: user.id, ipAddress: ctx.clientIp, userAgent: ctx.userAgent, metadata: { authenticationMethod: "magic_link" } });
       return { ok: true as const, mfaRequired: requirement.mfaRequired, mfaSetupRequired: requirement.mfaSetupRequired, role: user.role };
     }),
 
@@ -566,6 +570,7 @@ export const authRouter = router({
         userId: user.id,
         ipAddress: ctx.clientIp,
         userAgent: ctx.userAgent,
+        metadata: { authenticationMethod: "password" },
       });
 
       return {

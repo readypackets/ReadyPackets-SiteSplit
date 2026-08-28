@@ -13,7 +13,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { fileAccessLog, files, orders, intakeSubmissions, orderPhaseLocks, users } from "../db/schema.js";
 import { recordSecurityEvent, recordActivity } from "../observability/audit.js";
-import { OrderStateError, assertOrderAccess } from "../services/orders.js";
+import { OrderStateError, assertOrderAccess, assertOrderWritableAccess } from "../services/orders.js";
 import { allowedExtensions } from "../services/storage.js";
 import { protectedProcedure, router } from "../trpc/trpc.js";
 
@@ -266,6 +266,14 @@ export const filesRouter = router({
       if (!file) throw new TRPCError({ code: "NOT_FOUND", message: "File not found." });
 
       const isStaff = ctx.session.user.role === "admin" || ctx.session.user.role === "staff";
+      if (file.orderId) {
+        try {
+          await assertOrderWritableAccess(file.orderId, ctx.session.user.id, ctx.session.user.role);
+        } catch (error) {
+          if (error instanceof OrderStateError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+          throw error;
+        }
+      }
       
       // Customers can only delete their own intake attachments before submission
       if (!isStaff) {

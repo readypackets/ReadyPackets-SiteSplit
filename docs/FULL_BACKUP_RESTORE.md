@@ -70,3 +70,31 @@ The portal restore flow is administrator-only and requires an MFA-backed active 
 Run a restore drill periodically against an isolated, nonproduction database and storage location. A backup that has not been verified and tested cannot be relied on for disaster recovery.
 
 A full archive should be encrypted before it is copied off-host. ReadyPackets can create encrypted archives through the root backup procedure when `age` or GPG recovery material is configured. Cloud destinations should also use provider-side encryption, versioning or immutability, and separate least-privilege credentials.
+
+## Scoped recovery archives
+
+The administrator portal also provides two **passphrase-encrypted selective recovery** archives under **Admin → Backup management → Scoped recovery archives**. These are for controlled restoration of one business scope, not a replacement for a tested full-system backup.
+
+| Scope | Included | Deliberately excluded | Restore effect |
+|---|---|---|---|
+| **User accounts** | User accounts, encrypted profile values, one-way password hashes, roles, login policy values, MFA enrollment, and MFA recovery-code material | Plaintext passwords, active sessions, orders, files, platform environment, payment keys, and TLS material | Restored identity rows are merged into the target; all user sessions are revoked. |
+| **Orders and files** | Orders, workflow state, questions/answers, notes/messages, status history, SharePoint sync evidence, invoices, payments, refunds, MNDA/policy acceptance evidence, phase records, file metadata/version history, and only local files referenced by orders | User accounts, plaintext passwords, active sessions, platform environment, unrelated storage, payment keys, and TLS material | Restored order rows and referenced files are merged into the target; unrelated target records are retained. |
+
+Both archive types use an administrator-provided passphrase of at least 16 characters. The passphrase is used for PBKDF2-HMAC-SHA512 key derivation, AES-256-CBC encryption, and a separate HMAC-SHA256 integrity check; it is never stored by ReadyPackets. The archive also carries a non-secret fingerprint of the portal data-encryption key. An archive from a different encryption-key lineage is rejected before restore, protecting encrypted profile/order data from becoming unreadable.
+
+### Administrator procedure
+
+1. Open **Admin → Backup management → Scoped recovery archives**.
+2. Select **Back up user accounts** or **Back up orders and files**.
+3. Enter and confirm a new recovery passphrase; store it separately from the downloaded `.rprecovery` file.
+4. To restore, select **Restore scoped recovery archive**, choose the same recovery type, upload the encrypted `.rprecovery` file, and enter the original passphrase.
+5. Review the verified scope and type `RESTORE IDENTITIES RECOVERY` or `RESTORE ORDERS RECOVERY` exactly. The preflight token is administrator-bound and expires after ten minutes.
+6. Wait for the protected root-controlled recovery operation to complete, then sign in again and verify the restored records. Identity recovery deliberately invalidates every active session.
+
+Each export, preflight, and restore is authenticated, CSRF-protected, audited, staged in a non-listable protected directory, and passed through a root-only fixed-action Unix-socket control boundary. Before selected records are merged, the server creates a root-only full database safety dump. Scoped recovery does not delete unrelated target records and is therefore not a point-in-time whole-platform rollback.
+
+## Current fresh-install verification
+
+The current reviewed release applies **48 forward-only migrations** and verifies **16 critical tables**, including operational UI tables and native-mobile authorization/device tables. Treat the installer's successful schema-contract line—not a manually created table list—as the authoritative fresh-install checkpoint.
+
+> A customer password can never be backed up or restored in plaintext. Identity recovery preserves the existing one-way password hash so users can authenticate with their existing password after a compatible restore; it does not reveal or email that password.

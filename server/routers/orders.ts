@@ -32,6 +32,7 @@ import {
   OrderStateError,
   assertCustomerWorkflowStageAccess,
   assertOrderAccess,
+  assertOrderWritableAccess,
   createOrder,
   getOrderDetail,
   getOrderWorkflowProgress,
@@ -271,7 +272,7 @@ export const ordersRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "Only customers can submit a workflow phase." });
       }
       try {
-        await assertOrderAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
+        await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
       } catch (error) {
         toTrpcError(error);
       }
@@ -320,7 +321,7 @@ export const ordersRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "Only customers can advance a workflow stage." });
       }
       try {
-        await assertOrderAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
+        await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
         const access = await assertCustomerWorkflowStageAccess(input.orderId, input.phaseKey);
         if (access.completed) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This workflow phase has already been completed." });
@@ -376,6 +377,7 @@ export const ordersRouter = router({
   share: protectedProcedure
     .input(z.object({ orderId: z.number().int().positive(), email: z.string().trim().email(), scope: z.enum(["view", "upload_documents", "view_deliverables", "record_business_pitch", "contributor", "manager"]) }))
     .mutation(async ({ ctx, input }) => {
+      try { await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role); } catch (error) { toTrpcError(error); }
       const owner = await db.select({ id: orders.id }).from(orders).where(and(eq(orders.id, input.orderId), eq(orders.userId, ctx.session.user.id), isNull(orders.deletedAt))).limit(1);
       if (!owner[0]) throw new TRPCError({ code: "FORBIDDEN", message: "Only the order owner can share this order." });
       const recipient = await db.select({ id: users.id, role: users.role, deletedAt: users.deletedAt }).from(users).where(eq(users.emailIndex, emailIndex(input.email))).limit(1);
@@ -409,8 +411,9 @@ export const ordersRouter = router({
   }),
 
   shareOrderWithWorkspace: protectedProcedure.input(z.object({ orderId: z.number().int().positive(), workspaceId: z.number().int().positive(), scope: z.enum(["view", "upload_documents", "view_deliverables", "record_business_pitch", "contributor", "manager"]).default("contributor") })).mutation(async ({ ctx, input }) => {
-    const owner = await db.select({ id: orders.id }).from(orders).where(and(eq(orders.id, input.orderId), eq(orders.userId, ctx.session.user.id))).limit(1);
-    const workspace = await db.select({ id: customerWorkspaces.id }).from(customerWorkspaces).where(and(eq(customerWorkspaces.id, input.workspaceId), eq(customerWorkspaces.ownerUserId, ctx.session.user.id))).limit(1);
+          try { await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role); } catch (error) { toTrpcError(error); }
+      const owner = await db.select({ id: orders.id }).from(orders).where(and(eq(orders.id, input.orderId), eq(orders.userId, ctx.session.user.id))).limit(1);
+      const workspace = await db.select({ id: customerWorkspaces.id }).from(customerWorkspaces).where(and(eq(customerWorkspaces.id, input.workspaceId), eq(customerWorkspaces.ownerUserId, ctx.session.user.id))).limit(1);
     if (!owner[0] || !workspace[0]) throw new TRPCError({ code: "FORBIDDEN", message: "Only the order owner and Packet Collective owner can share this order." });
     const members = await db.select({ userId: customerWorkspaceMembers.userId }).from(customerWorkspaceMembers).where(and(eq(customerWorkspaceMembers.workspaceId, input.workspaceId), isNull(customerWorkspaceMembers.revokedAt)));
     for (const member of members.filter((member) => member.userId !== ctx.session.user.id)) await db.insert(orderShares).values({ orderId: input.orderId, sharedWithUserId: member.userId, scope: input.scope, createdByUserId: ctx.session.user.id }).onDuplicateKeyUpdate({ set: { scope: input.scope, revokedAt: null } });
@@ -420,6 +423,7 @@ export const ordersRouter = router({
   revokeShare: protectedProcedure
     .input(z.object({ orderId: z.number().int().positive(), shareId: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
+      try { await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role); } catch (error) { toTrpcError(error); }
       const owner = await db.select({ id: orders.id }).from(orders).where(and(eq(orders.id, input.orderId), eq(orders.userId, ctx.session.user.id))).limit(1);
       if (!owner[0]) throw new TRPCError({ code: "FORBIDDEN", message: "Only the order owner can revoke sharing." });
       await db.update(orderShares).set({ revokedAt: new Date() }).where(and(eq(orderShares.id, input.shareId), eq(orderShares.orderId, input.orderId)));
@@ -430,7 +434,7 @@ export const ordersRouter = router({
     .input(z.object({ orderId: z.number().int().positive(), projectName: z.string().trim().min(1, "Enter an order title.").max(190) }))
     .mutation(async ({ ctx, input }) => {
       try {
-        await assertOrderAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
+        await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
         const rows = await db.select({ userId: orders.userId, projectNameEnc: orders.projectNameEnc }).from(orders).where(and(eq(orders.id, input.orderId), isNull(orders.deletedAt))).limit(1);
         const order = rows[0];
         if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found." });
@@ -551,7 +555,7 @@ export const ordersRouter = router({
       if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found." });
 
       try {
-        await assertOrderAccess(question.orderId, ctx.session.user.id, ctx.session.user.role);
+        await assertOrderWritableAccess(question.orderId, ctx.session.user.id, ctx.session.user.role);
       } catch (error) {
         toTrpcError(error);
       }
@@ -633,11 +637,12 @@ export const ordersRouter = router({
       z.object({
         orderId: z.number().int().positive(),
         reason: z.string().trim().min(10).max(2000),
+        confirmation: z.literal("REQUEST CANCELLATION"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        await assertOrderAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
+        await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
       } catch (error) {
         toTrpcError(error);
       }
@@ -686,7 +691,7 @@ export const ordersRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        await assertOrderAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
+        await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
       } catch (error) {
         toTrpcError(error);
       }

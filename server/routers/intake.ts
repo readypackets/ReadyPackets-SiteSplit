@@ -23,17 +23,27 @@ import {
 import { decryptField, encryptField } from "../security/crypto.js";
 import { recordActivity } from "../observability/audit.js";
 import { getSetting, getSettingNumber } from "../services/settings.js";
-import { OrderStateError, applyOrderAutomationRules, assertOrderAccess, syncOrderWorkflowProgress, transitionOrder } from "../services/orders.js";
+import { OrderStateError, applyOrderAutomationRules, assertOrderAccess, assertOrderWritableAccess, syncOrderWorkflowProgress, transitionOrder } from "../services/orders.js";
 import { exportIntakeMarkdownToPhaseTwo } from "../services/sharepoint.js";
 import { protectedProcedure, router } from "../trpc/trpc.js";
 import { INTAKE_OUTCOMES, INTEGRITY_CHOICES } from "../../shared/domain.js";
 import { insertedId } from "../db/result.js";
+import { getUserById } from "../db/users.js";
 
 /**
  * Question catalogue for Phase I. `minLength` mirrors the guidance in the source
  * form: the deep-dive answers are the raw material for the analysis, so a
  * one-line response is rejected.
  */
+/**
+ * Typed MNDA signing is bound to the authenticated account name.  Unicode
+ * normalization, case folding, and whitespace collapsing permit ordinary
+ * display differences without accepting a different person’s name.
+ */
+function normalizeSignerName(value: string): string {
+  return value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\s+/g, " ");
+}
+
 export const INTAKE_QUESTIONS = [
   {
     key: "concept_summary",
@@ -309,7 +319,7 @@ export const intakeRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        await assertOrderAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
+        await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
       } catch (error) {
         toTrpcError(error);
       }
@@ -387,7 +397,7 @@ export const intakeRouter = router({
       }
 
       try {
-        await assertOrderAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
+        await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
       } catch (error) {
         toTrpcError(error);
       }
@@ -579,9 +589,18 @@ export const intakeRouter = router({
         });
       }
 
+      const signer = await getUserById(ctx.session.user.id);
+      const accountName = [signer?.firstName, signer?.lastName].filter((value): value is string => Boolean(value?.trim())).join(" ");
+      if (!accountName || normalizeSignerName(input.signatureName) !== normalizeSignerName(accountName)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Enter the first and last name recorded on your ReadyPackets account to sign this agreement.",
+        });
+      }
+
       if (input.orderId !== undefined) {
         try {
-          await assertOrderAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
+          await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
         } catch (error) {
           toTrpcError(error);
         }

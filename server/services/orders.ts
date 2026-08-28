@@ -743,7 +743,7 @@ export async function transitionOrder(input: TransitionInput) {
     patch.deliveredAt = new Date();
     patch.completionPercent = 100;
   }
-  if (input.to === "closed") patch.closedAt = new Date();
+  if (input.to === "closed" || input.to === "cancelled" || input.to === "refunded") patch.closedAt = new Date();
 
   await db.update(orders).set(patch).where(eq(orders.id, input.orderId));
 
@@ -1000,6 +1000,29 @@ export async function assertOrderAccess(
 
   // A missing order and a forbidden order are indistinguishable to the caller.
   throw new OrderStateError("Order not found.");
+}
+
+/**
+ * Mutations must call this after ordinary access verification. Terminal orders
+ * remain readable for invoices, history, and customer records, but no party may
+ * add files, messages, answers, shares, or workflow actions after cancellation
+ * or a full refund.
+ */
+export async function assertOrderWritableAccess(
+  orderId: number,
+  userId: number,
+  role: string,
+): Promise<void> {
+  await assertOrderAccess(orderId, userId, role);
+  const [order] = await db
+    .select({ status: orders.status, paymentStatus: orders.paymentStatus })
+    .from(orders)
+    .where(and(eq(orders.id, orderId), isNull(orders.deletedAt)))
+    .limit(1);
+  if (!order) throw new OrderStateError("Order not found.");
+  if (isTerminalOrderStatus(order.status) || order.paymentStatus === "refunded") {
+    throw new OrderStateError("This order is closed and is available only for viewing its records and invoice.");
+  }
 }
 
 export async function getOrderDetail(orderId: number) {

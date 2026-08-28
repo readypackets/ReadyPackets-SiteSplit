@@ -33,7 +33,7 @@ import {
 import { env } from "../config/env.js";
 import { logger } from "../observability/logger.js";
 import { recordActivity, recordSecurityEvent } from "../observability/audit.js";
-import { activatePaidOrder } from "./orders.js";
+import { activatePaidOrder, transitionOrder } from "./orders.js";
 import { getOrCreatePaidOrderInvoice, queueAutomaticCustomerInvoiceEmail } from "./invoices.js";
 
 let _stripe: Stripe | null = null;
@@ -500,6 +500,18 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     .update(orders)
     .set({ paymentStatus: isFullRefund ? "refunded" : "partially_refunded" })
     .where(eq(orders.id, orderId));
+
+  // A full refund is an irreversible customer-work closure, not merely a
+  // payment label. Partial refunds intentionally retain the active workflow.
+  if (isFullRefund) {
+    await transitionOrder({
+      orderId,
+      to: "refunded",
+      actorUserId: 0,
+      actorRole: "system",
+      reason: "Stripe confirmed a full refund",
+    });
+  }
 
   // Complete the reserved portal refund when this webhook corresponds to an
   // administrator-initiated request. Direct Stripe-dashboard refunds retain a
