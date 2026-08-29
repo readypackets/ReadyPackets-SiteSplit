@@ -434,15 +434,31 @@ rebuild_migration_runner() {
     || die "The service account cannot read the database migration runner: $artifact"
 }
 rebuild_migration_runner
+
 grant_runtime_read_access
 
+# The environment file is controlled by this installer and contains shell-quoted
+# values such as SITE_NAME. Loading it in a dedicated service-account shell
+# preserves spaces and other valid values without the unsafe word splitting
+# performed by `env $(... | xargs)`.
+run_app_command() {
+  runuser -u "$APP_USER" -- sh -c '
+    set -a
+    . "$1"
+    set +a
+    shift
+    exec "$@"
+  ' sh "$ENV_FILE" "$@"
+}
+
 log "Applying database migrations"
-runuser -u "$APP_USER" -- env $(grep -v '^#' "$ENV_FILE" | xargs) node "${APP_DIR}/dist/migrate.js"
+run_app_command node "${APP_DIR}/dist/migrate.js"
 
 if [[ "$WANT_SEED" == "true" ]]; then
   log "Seeding catalogue, policies and settings"
-  runuser -u "$APP_USER" -- env $(grep -v '^#' "$ENV_FILE" | xargs) node "${APP_DIR}/dist/seed.js"
+  run_app_command node "${APP_DIR}/dist/seed.js"
 fi
+
 
 # Runtime initialization is complete. Now remove development-only packages while
 # leaving the already verified bundled operational artifacts intact.
@@ -943,8 +959,8 @@ $(printf '\033[1;32m')ReadyPackets Portal is installed.$(printf '\033[0m')
 Next steps:
 
   1. Create the first administrator:
-       sudo runuser -u ${APP_USER} -- env \$(grep -v '^#' ${ENV_FILE} | xargs) \\
-         node ${APP_DIR}/dist/create-admin.js --email you@${DOMAIN#portal.}
+       sudo runuser -u ${APP_USER} -- sh -c 'set -a; . "$1"; set +a; shift; exec "$@"' \\
+         sh ${ENV_FILE} node ${APP_DIR}/dist/create-admin.js --email you@${DOMAIN#portal.}
 
   2. Add SMTP credentials to ${ENV_FILE}, then:
        sudo systemctl restart readypackets

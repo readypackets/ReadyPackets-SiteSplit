@@ -69,6 +69,15 @@ TEMP_FILES=()
 step() { printf '\n\033[1;36m[ReadyPackets install]\033[0m %s\n' "$*"; }
 warn() { printf '\n\033[1;33m[ReadyPackets install warning]\033[0m %s\n' "$*" >&2; }
 fail() { printf '\n\033[1;31m[ReadyPackets install failed]\033[0m %s\n' "$*" >&2; exit 1; }
+run_native_app_command() {
+  runuser -u readypackets -- sh -c '
+    set -a
+    . "$1"
+    set +a
+    shift
+    exec "$@"
+  ' sh /etc/readypackets/portal.env "$@"
+}
 cleanup() {
   unset VAULT_TOKEN VAULT_PASSPHRASE ADMIN_PASSWORD CF_API_TOKEN || true
   for item in "${TEMP_FILES[@]:-}"; do rm -rf -- "$item"; done
@@ -371,9 +380,9 @@ if [[ "$PROVISION_ADMIN" == "yes" ]]; then
   fi
   if [[ "$MODE" == "native" ]]; then
     if [[ "$ADMIN_GENERATE_PASSWORD" == "yes" ]]; then
-      runuser -u readypackets -- env $(grep -v '^#' /etc/readypackets/portal.env | xargs) node /opt/readypackets/dist/create-admin.js "${admin_args[@]}"
+      run_native_app_command node /opt/readypackets/dist/create-admin.js "${admin_args[@]}"
     else
-      printf '%s\n' "$ADMIN_PASSWORD" | runuser -u readypackets -- env $(grep -v '^#' /etc/readypackets/portal.env | xargs) node /opt/readypackets/dist/create-admin.js "${admin_args[@]}"
+      printf '%s\n' "$ADMIN_PASSWORD" | run_native_app_command node /opt/readypackets/dist/create-admin.js "${admin_args[@]}"
     fi
   else
     if [[ "$ADMIN_GENERATE_PASSWORD" == "yes" ]]; then

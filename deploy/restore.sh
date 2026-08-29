@@ -295,8 +295,14 @@ fi
 # ---------------------------------------------------------------------------
 if [[ "$IS_PRODUCTION" == "true" ]]; then
   log "Applying any pending migrations"
-  runuser -u readypackets -- env $(grep -v '^#' "$ENV_FILE" | xargs) \
-    node /opt/readypackets/dist/migrate.js || warn "Migration step failed; review before serving traffic."
+  runuser -u readypackets -- sh -c '
+    set -a
+    . "$1"
+    set +a
+    shift
+    exec "$@"
+  ' sh "$ENV_FILE" node /opt/readypackets/dist/migrate.js \
+    || warn "Migration step failed; review before serving traffic."
 
   log "Starting ${SERVICE}"
   systemctl start "$SERVICE" 2>/dev/null || docker compose start app 2>/dev/null || true

@@ -3959,3 +3959,15 @@ During isolated recovery testing, the first selective restore failed because `my
 | Scoped recovery integration | A disposable least-privilege MySQL database successfully exported, inspected, restored, and verified encrypted **identities** and **orders** scopes. |
 
 The procedures and constraints are documented in `docs/FULL_BACKUP_RESTORE.md`. No secrets, passphrases, passwords, private keys, or production database values were placed in source or this session record.
+
+---
+
+## 2026-08-29 — Installer-safe environment loading for multi-word site names
+
+**Trigger:** A controlled empty-demo deployment at `demo.readypackets.store` built the client and server successfully but stopped before database migration with `env: ‘Demo’: No such file or directory`. The public display name was `ReadyPackets Demo`.
+
+**Root cause:** The native installer, one-click administrator-provisioning path, and restore migration path used `env $(grep ... | xargs)` to load the root-owned environment file. Although the installer correctly serialized `SITE_NAME` with shell quoting, `xargs` split the resulting multi-word value into separate arguments. This made a valid display name break the fresh-install migration command before any schema/data initialization.
+
+**Repair:** Replaced whitespace-splitting environment expansion with a dedicated `runuser` service-account shell wrapper that uses `set -a; . "$ENV_FILE"; set +a; exec "$@"`. The wrapper preserves quoted values without printing the environment or passing secrets through argv. The printed post-install administrator command and the restore migration path use the same safe loading pattern.
+
+**Validation:** A focused regression created a quoted `SITE_NAME=ReadyPackets Demo` environment and confirmed the service-account shell received the exact value with the application URL. `bash -n deploy/install.sh deploy/one-click-install.sh deploy/restore.sh`, `pnpm exec tsc --noEmit`, and `git diff --check` passed. The demo installation is resuming from its safe pre-migration checkpoint with the patched source.
