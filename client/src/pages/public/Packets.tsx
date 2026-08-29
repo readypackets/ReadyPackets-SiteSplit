@@ -47,8 +47,9 @@ const TIER_LABELS: Record<string, string> = {
 
 export function PacketsPage() {
   const catalog = trpc.public.catalog.useQuery();
-  const catalogPriceVisibility = trpc.public.catalogPriceVisibility.useQuery();
-  const pricesVisible = catalogPriceVisibility.data?.visible === true;
+  const presentation = trpc.public.catalogPresentation.useQuery();
+  const pricingMode = presentation.data?.pricingMode ?? "show";
+  const publicDeliveryEstimatesVisible = presentation.data?.publicDeliveryEstimatesVisible ?? true;
   const groups = catalog.data ?? [];
   const tiered = groups.filter((group) => group.groupNumber <= 6);
   const bundle = groups.find((group) => group.groupNumber === 7);
@@ -121,13 +122,17 @@ export function PacketsPage() {
                           ) : null}
                         </div>
 
-                        <p className="mt-4 text-3xl font-semibold tabular-nums text-ink">
-                          {pricesVisible ? formatMoney(product.priceCents) : "Pricing on request"}
-                        </p>
-                        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted">
-                          <Clock className="size-3.5" aria-hidden="true" />
-                          {product.deliveryEstimate}
-                        </p>
+                        {pricingMode !== "hidden" ? (
+                          <p className="mt-4 text-3xl font-semibold tabular-nums text-ink">
+                            {pricingMode === "show" ? formatMoney(product.priceCents) : "Pricing on request"}
+                          </p>
+                        ) : null}
+                        {publicDeliveryEstimatesVisible ? (
+                          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted">
+                            <Clock className="size-3.5" aria-hidden="true" />
+                            {product.deliveryEstimate}
+                          </p>
+                        ) : null}
 
                         <p className="mt-4 text-sm leading-relaxed text-body">
                           {product.description}
@@ -214,10 +219,12 @@ export function PacketsPage() {
                               </li>
                             ))}
                           </ul>
-                          <p className="mt-4 flex items-center gap-1.5 text-xs text-white/60">
-                            <Clock className="size-3.5" aria-hidden="true" />
-                            {product.deliveryEstimate}
-                          </p>
+                          {publicDeliveryEstimatesVisible ? (
+                            <p className="mt-4 flex items-center gap-1.5 text-xs text-white/60">
+                              <Clock className="size-3.5" aria-hidden="true" />
+                              {product.deliveryEstimate}
+                            </p>
+                          ) : null}
                         </div>
                       ))}
                     </div>
@@ -229,7 +236,7 @@ export function PacketsPage() {
                       <ol className="mt-3 space-y-2.5 text-sm text-white/75">
                         <li>1. Choose a tier for each of the six packet groups.</li>
                         <li>2. Commit to all six and a 15% reduction is applied to the total.</li>
-                        <li>3. The programme runs across 30 to 45 business days.</li>
+                        {publicDeliveryEstimatesVisible ? <li>3. The programme runs across 30 to 45 business days.</li> : null}
                       </ol>
                       <LinkButton href="/register?bundle=1" variant="gold" fullWidth className="mt-5">
                         Configure your bundle
@@ -252,8 +259,9 @@ export function PacketsPage() {
 export function PacketDetailPage() {
   const params = useParams<{ slug: string }>();
   const catalog = trpc.public.catalog.useQuery();
-  const catalogPriceVisibility = trpc.public.catalogPriceVisibility.useQuery();
-  const pricesVisible = catalogPriceVisibility.data?.visible === true;
+  const presentation = trpc.public.catalogPresentation.useQuery();
+  const pricingMode = presentation.data?.pricingMode ?? "show";
+  const publicDeliveryEstimatesVisible = presentation.data?.publicDeliveryEstimatesVisible ?? true;
   const group = (catalog.data ?? []).find((item) => item.slug === params.slug);
 
   if (catalog.isLoading) {
@@ -318,13 +326,17 @@ export function PacketDetailPage() {
                   <Badge tone={product.tier === "premium" ? "gold" : product.tier === "standard" ? "teal" : "neutral"}>
                     {TIER_LABELS[product.tier] ?? product.tier}
                   </Badge>
-                  <p className="mt-4 text-3xl font-semibold tabular-nums text-ink">
-                    {pricesVisible ? formatMoney(product.priceCents) : "Pricing on request"}
-                  </p>
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted">
-                    <Clock className="size-3.5" aria-hidden="true" />
-                    {product.deliveryEstimate}
-                  </p>
+                  {pricingMode !== "hidden" ? (
+                    <p className="mt-4 text-3xl font-semibold tabular-nums text-ink">
+                      {pricingMode === "show" ? formatMoney(product.priceCents) : "Pricing on request"}
+                    </p>
+                  ) : null}
+                  {publicDeliveryEstimatesVisible ? (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted">
+                      <Clock className="size-3.5" aria-hidden="true" />
+                      {product.deliveryEstimate}
+                    </p>
+                  ) : null}
                   <p className="mt-1 text-xs text-muted">SKU {product.sku}</p>
                   <p className="mt-4 text-sm leading-relaxed text-body">{product.description}</p>
                   <LinkButton

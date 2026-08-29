@@ -28,6 +28,20 @@ Use the customer-portal switch only for testing the experience assigned to your 
 | **Platform updates** | Connect a private GitHub repository using an encrypted fine-grained token, scan a release, review changed paths/risk indicators, approve, upgrade, and roll back. |
 | **Security Centre and Activity Replay** | Investigate logs using date, severity, event, account, source, text, action, and entity filters. Review individual event records. Block abusive source addresses or ban compromised accounts only after confirming the evidence. |
 
+## Public catalogue presentation
+
+Open **Admin → Catalogue → Public presentation** to control how the public website and customer order configurator present commercial information. The controls are independent of stored product prices, checkout calculation, live customer quotes, order totals, invoices, and Stripe processing.
+
+| Control | Available choices | Effect |
+| --- | --- | --- |
+| **Public pricing** | Show numeric prices; show “Pricing on request”; hide the pricing area | Applies to the public home, catalogue, and packet-detail pages. Signed-in customer quotes remain server calculated. |
+| **Public delivery estimates** | Show or hide | Applies to product delivery estimates and public bundle timelines. |
+| **Customer portal delivery estimates** | Show or hide | Applies separately to the tier-selection view during customer order creation. |
+| **Reviews navigation** | Show or hide | Removes Reviews links from the public desktop/mobile header, footer, and homepage review action. It does not delete reviews or alter review moderation. |
+| **Community navigation** | Show or hide | Removes Community links from the public desktop/mobile header and footer. It does not delete community data or alter moderation. |
+
+Each change is administrator-only and is recorded in the activity log. The public catalogue provides a distinct, keyboard-accessible **View tiers** button on each packet card; it always opens the packet details and never changes selected products or order state.
+
 ## SharePoint connection requirements
 
 The SharePoint application registration needs tenant-admin consent for the appropriate Microsoft Graph application permissions. `Sites.Read.All` is sufficient for site/library discovery; order-folder creation and file synchronization require the least additional write permission appropriate to the deployment, typically `Sites.ReadWrite.All` or a more tightly scoped approved alternative. Do not paste a document-sharing link: use the tenant root, such as `https://contoso.sharepoint.com/`, or the actual site URL, such as `https://contoso.sharepoint.com/sites/Operations`. The discovery flow removes copied query/hash fragments and never returns the client secret to the browser.

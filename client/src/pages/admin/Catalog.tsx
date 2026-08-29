@@ -54,6 +54,100 @@ interface ProductForm {
   sortOrder: number;
 }
 
+function CatalogPresentationPanel({
+  value,
+  loading,
+  saving,
+  onChange,
+  onSave,
+}: {
+  value: {
+    pricingMode: "show" | "on_request" | "hidden";
+    publicDeliveryEstimatesVisible: boolean;
+    customerPortalDeliveryEstimatesVisible: boolean;
+    publicReviewsNavigationVisible: boolean;
+    publicCommunityNavigationVisible: boolean;
+  };
+  loading: boolean;
+  saving: boolean;
+  onChange: (value: {
+    pricingMode: "show" | "on_request" | "hidden";
+    publicDeliveryEstimatesVisible: boolean;
+    customerPortalDeliveryEstimatesVisible: boolean;
+    publicReviewsNavigationVisible: boolean;
+    publicCommunityNavigationVisible: boolean;
+  }) => void;
+  onSave: () => void;
+}) {
+  const disabled = loading || saving;
+  const pricingLabels: Record<typeof value.pricingMode, string> = {
+    show: "Prices shown",
+    on_request: "Pricing on request",
+    hidden: "Pricing hidden",
+  };
+
+  return (
+    <Card>
+      <CardHeader
+        title="Public presentation"
+        description="Control catalog display and public navigation without changing protected checkout pricing, customer quotes, order totals, invoices, or community access rules."
+        actions={<Badge tone={value.pricingMode === "show" ? "success" : value.pricingMode === "on_request" ? "warning" : "neutral"}>{pricingLabels[value.pricingMode]}</Badge>}
+      />
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <Select
+          label="Public pricing"
+          value={value.pricingMode}
+          disabled={disabled}
+          onChange={(event) => onChange({ ...value, pricingMode: event.target.value as typeof value.pricingMode })}
+          options={[
+            { value: "show", label: "Show numeric prices" },
+            { value: "on_request", label: "Show “Pricing on request”" },
+            { value: "hidden", label: "Hide the pricing area" },
+          ]}
+          help="This affects public catalog pages only. Signed-in customers still receive server-calculated quotes before an order is placed."
+        />
+        <div className="grid content-start gap-3 rounded-lg border border-line bg-surface-soft p-4">
+          <p className="text-sm font-semibold text-ink">Delivery estimates</p>
+          <Checkbox
+            label="Show on the public website"
+            checked={value.publicDeliveryEstimatesVisible}
+            disabled={disabled}
+            onChange={(event) => onChange({ ...value, publicDeliveryEstimatesVisible: event.target.checked })}
+          />
+          <Checkbox
+            label="Show in the customer portal"
+            checked={value.customerPortalDeliveryEstimatesVisible}
+            disabled={disabled}
+            onChange={(event) => onChange({ ...value, customerPortalDeliveryEstimatesVisible: event.target.checked })}
+          />
+        </div>
+        <div className="grid content-start gap-3 rounded-lg border border-line bg-surface-soft p-4 lg:col-span-2">
+          <p className="text-sm font-semibold text-ink">Public navigation</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Checkbox
+              label="Show Reviews in public navigation"
+              checked={value.publicReviewsNavigationVisible}
+              disabled={disabled}
+              onChange={(event) => onChange({ ...value, publicReviewsNavigationVisible: event.target.checked })}
+            />
+            <Checkbox
+              label="Show Community in public navigation"
+              checked={value.publicCommunityNavigationVisible}
+              disabled={disabled}
+              onChange={(event) => onChange({ ...value, publicCommunityNavigationVisible: event.target.checked })}
+            />
+          </div>
+          <p className="text-xs leading-relaxed text-muted">When hidden, the corresponding public links are removed from both desktop/mobile header navigation and the footer. This does not change feature moderation or direct-link access.</p>
+        </div>
+      </div>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+        <p className="max-w-2xl text-xs leading-relaxed text-muted">All changes are administrator-only and written to the audit trail.</p>
+        <Button busy={saving} disabled={loading} onClick={onSave}>Save presentation settings</Button>
+      </div>
+    </Card>
+  );
+}
+
 const emptyGroup: GroupForm = {
   slug: "",
   groupNumber: 1,
@@ -68,14 +162,22 @@ const emptyGroup: GroupForm = {
 export function AdminCatalogPage() {
   const toast = useToast();
     const catalog = trpc.admin.catalog.useQuery();
-  const publicPriceVisibility = trpc.admin.publicCatalogPriceVisibility.useQuery();
-  const setPublicPriceVisibility = trpc.admin.setPublicCatalogPriceVisibility.useMutation({
-    async onSuccess(result) {
-      await publicPriceVisibility.refetch();
-      toast.success(result.visible ? "Public prices are now visible" : "Public prices are now hidden");
+  const publicPresentation = trpc.admin.publicCatalogPresentation.useQuery();
+  const [presentationDraft, setPresentationDraft] = useState<{
+    pricingMode: "show" | "on_request" | "hidden";
+    publicDeliveryEstimatesVisible: boolean;
+    customerPortalDeliveryEstimatesVisible: boolean;
+    publicReviewsNavigationVisible: boolean;
+    publicCommunityNavigationVisible: boolean;
+  } | null>(null);
+  const setPublicPresentation = trpc.admin.setPublicCatalogPresentation.useMutation({
+    async onSuccess() {
+      setPresentationDraft(null);
+      await publicPresentation.refetch();
+      toast.success("Public presentation settings saved");
     },
     onError(error) {
-      toast.error("Could not update public price visibility", errorMessage(error));
+      toast.error("Could not update public presentation settings", errorMessage(error));
     },
   });
   const [groupForm, setGroupForm] = useState<GroupForm | null>(null);
@@ -135,24 +237,28 @@ export function AdminCatalogPage() {
         }
       />
 
-      <Card>
-        <CardHeader
-          title="Public website price visibility"
-          description="Control whether numeric product prices are displayed on the public website. This never changes checkout pricing, customer portal quotes, order totals, or invoices."
-          actions={<Badge tone={publicPriceVisibility.data?.visible ?? true ? "success" : "neutral"}>{publicPriceVisibility.data?.visible ?? true ? "Prices shown" : "Prices hidden"}</Badge>}
-        />
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
-          <Checkbox
-            label="Show numeric prices on the public website"
-            checked={publicPriceVisibility.data?.visible ?? true}
-            disabled={publicPriceVisibility.isLoading || setPublicPriceVisibility.isPending}
-            onChange={(event) => setPublicPriceVisibility.mutate({ visible: event.target.checked })}
-          />
-          <p className="max-w-xl text-xs leading-relaxed text-muted">
-            When hidden, public packet pages display “Pricing on request” instead. Signed-in customers still see protected live quotes during checkout.
-          </p>
-        </div>
-      </Card>
+      <CatalogPresentationPanel
+        value={presentationDraft ?? {
+          pricingMode: publicPresentation.data?.pricingMode ?? "show",
+          publicDeliveryEstimatesVisible: publicPresentation.data?.publicDeliveryEstimatesVisible ?? true,
+          customerPortalDeliveryEstimatesVisible: publicPresentation.data?.customerPortalDeliveryEstimatesVisible ?? true,
+          publicReviewsNavigationVisible: publicPresentation.data?.publicReviewsNavigationVisible ?? true,
+          publicCommunityNavigationVisible: publicPresentation.data?.publicCommunityNavigationVisible ?? true,
+        }}
+        loading={publicPresentation.isLoading}
+        saving={setPublicPresentation.isPending}
+        onChange={setPresentationDraft}
+        onSave={() => {
+          const value = presentationDraft ?? {
+            pricingMode: publicPresentation.data?.pricingMode ?? "show",
+            publicDeliveryEstimatesVisible: publicPresentation.data?.publicDeliveryEstimatesVisible ?? true,
+            customerPortalDeliveryEstimatesVisible: publicPresentation.data?.customerPortalDeliveryEstimatesVisible ?? true,
+            publicReviewsNavigationVisible: publicPresentation.data?.publicReviewsNavigationVisible ?? true,
+            publicCommunityNavigationVisible: publicPresentation.data?.publicCommunityNavigationVisible ?? true,
+          };
+          setPublicPresentation.mutate(value);
+        }}
+      />
 
       {catalog.isLoading ? (
         <div className="space-y-4">

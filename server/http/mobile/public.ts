@@ -54,8 +54,13 @@ export function createMobilePublicRouter(): Router {
 
   router.get("/catalog", withPublicError(async (req, res) => {
     const caller = publicCaller(req, res);
-    const [items, priceVisibility] = await Promise.all([caller.public.catalog(), caller.public.catalogPriceVisibility()]);
-    res.setHeader("Cache-Control", "public, max-age=300").json({ items, pricesVisible: priceVisibility.visible });
+    const [items, presentation] = await Promise.all([caller.public.catalog(), caller.public.catalogPresentation()]);
+    res.setHeader("Cache-Control", "public, max-age=300").json({
+      items,
+      pricesVisible: presentation.pricingMode === "show",
+      pricingMode: presentation.pricingMode,
+      deliveryEstimatesVisible: presentation.publicDeliveryEstimatesVisible,
+    });
   }));
 
   router.get("/faqs", withPublicError(async (req, res) => {

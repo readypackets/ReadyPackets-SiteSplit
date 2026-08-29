@@ -1,11 +1,11 @@
 import type { Connection, RowDataPacket } from "mysql2/promise";
 
 /**
- * Tables and columns that must exist before the portal can serve order workflow,
- * Phase Kickoff, configuration restore, backup, outbound integration, and native mobile routes.
- * This is deliberately a small operational contract rather than a duplicate of
- * the complete Drizzle schema: it turns a partial or legacy upgrade into a clear
- * startup failure instead of a later generic administrator UI error.
+ * Tables and columns that must exist before the portal can serve its actively
+ * shipped order, configuration, backup, integration, native mobile, Tier 3,
+ * CRM, scheduling, and subscription routes. This operational contract turns a
+ * partial or legacy upgrade into a clear startup failure instead of a later
+ * generic administrator UI error.
  */
 export const criticalSchemaContract: Readonly<Record<string, readonly string[]>> = {
   site_settings: [
@@ -183,6 +183,27 @@ export const criticalSchemaContract: Readonly<Record<string, readonly string[]>>
     "expires_at",
     "created_at",
   ],
+  subscription_plans: ["id", "name", "slug", "price_cents", "interval_days", "is_active", "created_at", "updated_at"],
+  subscription_items: ["id", "user_id", "plan_id", "status", "current_period_start", "current_period_end", "created_at", "updated_at"],
+  billing_events: ["id", "event_type", "amount_cents", "currency", "provider", "created_at"],
+  crm_contacts: ["id", "email_enc", "email_index", "status", "created_at", "updated_at", "deleted_at"],
+  crm_notes: ["id", "contact_id", "author_user_id", "body", "note_type", "created_at", "updated_at"],
+  crm_tags: ["id", "name", "color", "created_at"],
+  ai_sessions: ["id", "model", "status", "token_count", "cost_micro_usd", "created_at", "updated_at"],
+  ai_messages: ["id", "session_id", "role", "content", "token_count", "created_at"],
+  ai_response_logs: ["id", "model", "prompt_tokens", "completion_tokens", "latency_ms", "created_at"],
+  api_key_rate_limits: ["id", "api_key_id", "window_seconds", "max_requests", "updated_at"],
+  api_request_logs: ["id", "method", "path", "status_code", "latency_ms", "created_at"],
+  api_action_logs: ["id", "action", "result", "created_at"],
+  availability_slots: ["id", "owner_user_id", "slot_type", "starts_at", "ends_at", "max_bookings", "current_bookings", "is_available", "created_at"],
+  meeting_bookings: ["id", "slot_id", "customer_user_id", "status", "confirmation_token", "created_at", "updated_at"],
+  pwa_ab_variants: ["id", "experiment_key", "variant_key", "weight", "is_control", "is_active", "created_at"],
+  pwa_ab_events: ["id", "experiment_key", "variant_key", "event_type", "created_at"],
+  admin_nav_preferences: ["id", "user_id", "pinned_items", "collapsed_sections", "updated_at"],
+  pinned_quick_add: ["id", "user_id", "action_key", "label", "href", "sort_order", "created_at"],
+  support_permissions: ["id", "user_id", "can_view_all_tickets", "can_close_tickets", "can_assign_tickets", "can_view_customer_pii", "can_issue_refunds", "granted_by_user_id", "created_at", "updated_at"],
+  feature_toggle_schedules: ["id", "flag_key", "scheduled_value", "scheduled_at", "executed_at", "created_at"],
+  email_automation_rate_limits: ["id", "automation_id", "user_id", "sent_count", "window_start"],
 };
 
 export type SchemaContractConnection = Pick<Connection, "query">;

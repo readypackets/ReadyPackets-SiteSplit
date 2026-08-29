@@ -41,7 +41,7 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
 export function HomePage() {
   const content = trpc.public.homeContent.useQuery();
   const catalog = trpc.public.catalog.useQuery();
-  const catalogPriceVisibility = trpc.public.catalogPriceVisibility.useQuery();
+  const presentation = trpc.public.catalogPresentation.useQuery();
   const reviews = trpc.public.reviews.useQuery({ limit: 3 });
 
   const blocks = content.data ?? [];
@@ -65,7 +65,8 @@ export function HomePage() {
     .flatMap((group) => group.products.map((product) => product.priceCents))
     .filter((price): price is number => typeof price === "number");
   const entryPrice = listedPrices.length > 0 ? Math.min(...listedPrices) : null;
-  const pricesVisible = catalogPriceVisibility.data?.visible === true;
+  const pricingMode = presentation.data?.pricingMode ?? "show";
+  const publicDeliveryEstimatesVisible = presentation.data?.publicDeliveryEstimatesVisible ?? true;
 
   return (
     <>
@@ -116,7 +117,7 @@ export function HomePage() {
                 </LinkButton>
               </div>
 
-              <dl className="mt-10 grid max-w-lg grid-cols-2 gap-6 border-t border-white/12 pt-6 sm:grid-cols-3">
+              <dl className={`mt-10 grid max-w-lg grid-cols-2 gap-6 border-t border-white/12 pt-6 ${pricingMode === "hidden" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-white/50">Packet groups</dt>
                   {/* Derived, not hardcoded: an administrator who lists an eighth
@@ -133,27 +134,31 @@ export function HomePage() {
                     )}
                   </dd>
                 </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-white/50">{pricesVisible ? "From" : "Pricing"}</dt>
-                  <dd className="mt-1 text-2xl font-semibold tabular-nums">
-                    {catalog.isLoading || catalogPriceVisibility.isLoading ? (
-                      <span
-                        className="inline-block h-7 w-24 animate-pulse rounded bg-white/15"
-                        aria-label="Loading pricing preference"
-                      />
-                    ) : !pricesVisible ? (
-                      "On request"
-                    ) : entryPrice === null ? (
-                      "—"
-                    ) : (
-                      formatMoney(entryPrice)
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-white/50">Fastest delivery</dt>
-                  <dd className="mt-1 text-2xl font-semibold">48h</dd>
-                </div>
+                {pricingMode !== "hidden" ? (
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-white/50">{pricingMode === "show" ? "From" : "Pricing"}</dt>
+                    <dd className="mt-1 text-2xl font-semibold tabular-nums">
+                      {catalog.isLoading || presentation.isLoading ? (
+                        <span
+                          className="inline-block h-7 w-24 animate-pulse rounded bg-white/15"
+                          aria-label="Loading pricing preference"
+                        />
+                      ) : pricingMode === "on_request" ? (
+                        "On request"
+                      ) : entryPrice === null ? (
+                        "—"
+                      ) : (
+                        formatMoney(entryPrice)
+                      )}
+                    </dd>
+                  </div>
+                ) : null}
+                {publicDeliveryEstimatesVisible ? (
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-white/50">Fastest delivery</dt>
+                    <dd className="mt-1 text-2xl font-semibold">48h</dd>
+                  </div>
+                ) : null}
               </dl>
             </div>
 
@@ -240,16 +245,18 @@ export function HomePage() {
                       <p className="mt-3 flex-1 text-sm leading-relaxed text-body">
                         {group.summary}
                       </p>
-                      <div className="mt-5 flex items-end justify-between gap-3 border-t border-line pt-4">
-                        <div>
-                          <p className="text-xs text-muted">{pricesVisible ? "From" : "Pricing"}</p>
-                          <p className="text-xl font-semibold tabular-nums text-ink">
-                            {pricesVisible ? formatMoney(cheapest ?? null) : "On request"}
-                          </p>
-                        </div>
+                      <div className={`mt-5 flex items-end gap-3 border-t border-line pt-4 ${pricingMode === "hidden" ? "justify-end" : "justify-between"}`}>
+                        {pricingMode !== "hidden" ? (
+                          <div>
+                            <p className="text-xs text-muted">{pricingMode === "show" ? "From" : "Pricing"}</p>
+                            <p className="text-xl font-semibold tabular-nums text-ink">
+                              {pricingMode === "show" ? formatMoney(cheapest ?? null) : "On request"}
+                            </p>
+                          </div>
+                        ) : null}
                         <Link
                           href={`/packets/${group.slug}`}
-                          className="inline-flex items-center gap-1 text-sm font-semibold text-teal-dark no-underline hover:text-teal"
+                          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-teal/35 bg-teal/5 px-3 text-sm font-semibold text-teal-dark no-underline transition-colors hover:border-teal hover:bg-teal hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal focus-visible:ring-offset-2"
                         >
                           View tiers
                           <ArrowRight className="size-4" aria-hidden="true" />
@@ -269,7 +276,7 @@ export function HomePage() {
                   <p className="mt-2 text-sm leading-relaxed text-white/75">{bundle.summary}</p>
                   <p className="mt-3 text-sm text-white/60">
                     Mix and match tiers across all six packet groups. A full commitment earns a 15%
-                    reduction, with a 30 to 45 business day programme timeline.
+                    reduction{publicDeliveryEstimatesVisible ? ", with a 30 to 45 business day programme timeline." : "."}
                   </p>
                 </div>
                 <LinkButton href="/packets/the-all-in-master-bundle" variant="gold" size="lg">
@@ -360,11 +367,13 @@ export function HomePage() {
               </Card>
             ))}
           </div>
-          <div className="mt-8 text-center">
-            <LinkButton href="/reviews" variant="outline">
-              Read all reviews
-            </LinkButton>
-          </div>
+          {presentation.data?.publicReviewsNavigationVisible !== false ? (
+            <div className="mt-8 text-center">
+              <LinkButton href="/reviews" variant="outline">
+                Read all reviews
+              </LinkButton>
+            </div>
+          ) : null}
         </PageSection>
       ) : null}
 

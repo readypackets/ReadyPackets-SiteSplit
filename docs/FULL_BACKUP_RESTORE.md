@@ -95,6 +95,6 @@ Each export, preflight, and restore is authenticated, CSRF-protected, audited, s
 
 ## Current fresh-install verification
 
-The current reviewed release applies **48 forward-only migrations** and verifies **16 critical tables**, including operational UI tables and native-mobile authorization/device tables. Treat the installer's successful schema-contract line—not a manually created table list—as the authoritative fresh-install checkpoint.
+The current reviewed release applies **49 forward-only migrations** and verifies **37 critical tables**, including operational UI tables, native-mobile authorization/device tables, subscriptions, billing, CRM, scheduling, AI, API, feature scheduling, PWA experiment, and administration preference tables. Treat the installer's successful schema-contract line—not a manually created table list—as the authoritative fresh-install checkpoint.
 
 > A customer password can never be backed up or restored in plaintext. Identity recovery preserves the existing one-way password hash so users can authenticate with their existing password after a compatible restore; it does not reveal or email that password.

@@ -11,6 +11,7 @@ import { Link, useLocation } from "wouter";
 import { LayoutDashboard, LogIn, Menu, X } from "lucide-react";
 import { BRAND, BRAND_ASSETS } from "@shared/brand";
 import { useSession } from "@/lib/session";
+import { trpc } from "@/lib/trpc";
 import { Button, LinkButton } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ export function PublicHeader() {
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
   const { authenticated, user } = useSession();
+  const siteStatus = trpc.public.siteStatus.useQuery();
   const panelRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
 
@@ -70,6 +72,12 @@ export function PublicHeader() {
   }, [open]);
 
   const isActive = (href: string) => location === href || location.startsWith(`${href}/`);
+  const navigation = siteStatus.data?.navigation;
+  const visibleLinks = NAV_LINKS.filter((link) => {
+    if (link.href === "/reviews") return navigation?.reviewsVisible !== false;
+    if (link.href === "/community") return navigation?.communityVisible !== false;
+    return true;
+  });
 
   return (
     <header className="sticky top-0 z-40 border-b border-line/80 bg-white/95 backdrop-blur">
@@ -92,7 +100,7 @@ export function PublicHeader() {
         </Link>
 
         <nav aria-label="Main navigation" className="hidden items-center gap-1 lg:flex">
-          {NAV_LINKS.map((link) => (
+          {visibleLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
@@ -167,7 +175,7 @@ export function PublicHeader() {
             className="fixed inset-x-0 top-16 z-40 max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-line bg-white px-4 pb-6 pt-2 shadow-[var(--shadow-raised)]"
           >
             <nav aria-label="Mobile navigation" className="flex flex-col">
-              {NAV_LINKS.map((link) => (
+              {visibleLinks.map((link) => (
                 <Link
                   key={link.href}
                   href={link.href}

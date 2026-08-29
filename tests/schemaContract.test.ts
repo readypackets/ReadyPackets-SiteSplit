@@ -60,6 +60,24 @@ describe("critical database schema contract", () => {
     );
   });
 
+  it("blocks startup when the active CRM tables are absent", async () => {
+    const incompleteRows = contractRows().filter((row) => row.tableName !== "crm_contacts");
+
+    await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
+      "crm_contacts (table missing)",
+    );
+  });
+
+  it("blocks startup when subscription or scheduling tables are absent", async () => {
+    const incompleteRows = contractRows().filter(
+      (row) => row.tableName !== "subscription_plans" && row.tableName !== "availability_slots",
+    );
+
+    await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
+      "subscription_plans (table missing)",
+    );
+  });
+
   it("uses explicit metadata aliases so MySQL column-name casing cannot hide existing tables", async () => {
     let statement = "";
     const connection = {

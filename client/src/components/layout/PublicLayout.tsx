@@ -10,6 +10,7 @@ import { Link } from "wouter";
 import { Mail, MapPin } from "lucide-react";
 import { BRAND, BRAND_ASSETS } from "@shared/brand";
 import { useSession } from "@/lib/session";
+import { trpc } from "@/lib/trpc";
 import { Alert } from "@/components/ui/Surface";
 import { useCookieConsent } from "@/components/privacy/CookieConsent";
 import { PublicHeader } from "./PublicHeader";
@@ -48,11 +49,21 @@ const FOOTER_SECTIONS = [
 
 export function PublicLayout({ children }: { children: ReactNode }) {
   const { maintenance, businessProfile } = useSession();
+  const publicStatus = trpc.public.siteStatus.useQuery();
   const { openPreferences } = useCookieConsent();
   const showBanner = maintenance?.enabled && maintenance.showOnHomepage;
   const businessAddress = businessProfile
     ? [businessProfile.addressLine1, businessProfile.addressLine2, `${businessProfile.city}, ${businessProfile.state} ${businessProfile.postalCode}`].filter(Boolean).join(", ")
     : BRAND.address;
+  const navigation = publicStatus.data?.navigation;
+  const footerSections = FOOTER_SECTIONS.map((section) => ({
+    ...section,
+    links: section.links.filter((link) => {
+      if (link.href === "/reviews") return navigation?.reviewsVisible !== false;
+      if (link.href === "/community") return navigation?.communityVisible !== false;
+      return true;
+    }),
+  }));
 
   return (
     <div className="flex min-h-screen flex-col bg-white">
@@ -115,7 +126,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               </div>
             </div>
 
-            {FOOTER_SECTIONS.map((section) => (
+            {footerSections.map((section) => (
               <nav key={section.title} aria-label={section.title}>
                 <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-teal-light">
                   {section.title}

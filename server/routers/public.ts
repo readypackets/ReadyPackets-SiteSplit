@@ -25,7 +25,8 @@ import {
 import { blindIndex, encryptField, hashToken, randomToken } from "../security/crypto.js";
 import { decryptUser, displayNameOf } from "../db/users.js";
 import { getCatalog } from "../services/catalog.js";
-import { getMaintenanceState, getSettingBool, isFeatureEnabled } from "../services/settings.js";
+import { getMaintenanceState, isFeatureEnabled } from "../services/settings.js";
+import { getCatalogPresentationSettings } from "../services/catalogPresentation.js";
 import { recordActivity } from "../observability/audit.js";
 import { queueTemplatedEmail, wrapHtmlBody } from "../services/email.js";
 import { publicProcedure, router } from "../trpc/trpc.js";
@@ -36,10 +37,17 @@ const TEASER_LENGTH = 260;
 export const publicRouter = router({
   catalog: publicProcedure.query(async () => getCatalog()),
 
-  /** Public display preference only; server-side checkout pricing remains authoritative. */
-  catalogPriceVisibility: publicProcedure.query(async () => ({
-    visible: await getSettingBool("catalog.public_prices_visible", true),
-  })),
+  /**
+   * Public display preferences only; checkout and protected customer quotes
+   * remain server-authoritative regardless of what the marketing site shows.
+   */
+  catalogPresentation: publicProcedure.query(async () => getCatalogPresentationSettings()),
+
+  /** Legacy response retained for native/mobile compatibility. */
+  catalogPriceVisibility: publicProcedure.query(async () => {
+    const presentation = await getCatalogPresentationSettings();
+    return { visible: presentation.pricingMode === "show", mode: presentation.pricingMode };
+  }),
 
   homeContent: publicProcedure.query(async () => {
     const blocks = await db
@@ -51,15 +59,20 @@ export const publicRouter = router({
   }),
 
   siteStatus: publicProcedure.query(async () => {
-    const [maintenance, forum, reviewsEnabled, changelog] = await Promise.all([
+    const [maintenance, forum, reviewsEnabled, changelog, presentation] = await Promise.all([
       getMaintenanceState(),
       isFeatureEnabled("forum", true),
       isFeatureEnabled("reviews", true),
       isFeatureEnabled("changelog", true),
+      getCatalogPresentationSettings(),
     ]);
     return {
       maintenance,
       features: { forum, reviews: reviewsEnabled, changelog },
+      navigation: {
+        reviewsVisible: presentation.publicReviewsNavigationVisible,
+        communityVisible: presentation.publicCommunityNavigationVisible,
+      },
     };
   }),
 

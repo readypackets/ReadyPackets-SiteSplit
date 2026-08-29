@@ -52,10 +52,10 @@ The installer shows a final review. Confirm the domain, source repository, pinne
 A correct fresh installation prints a migration completion line in this form before it installs/starts ReadyPackets:
 
 ```text
-Applied 48 migration(s); 16 critical tables verified.
+Applied 49 migration(s); 37 critical tables verified.
 ```
 
-The exact number of migrations and verified tables may increase in a later reviewed release. For this release, the expected completion line is **`Applied 48 migration(s); 16 critical tables verified.`** The required invariant is that the installer completes without a schema-contract error. If it prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
+The exact number of migrations and verified tables may increase in a later reviewed release. For this release, the expected completion line is **`Applied 49 migration(s); 37 critical tables verified.`** The required invariant is that the installer completes without a schema-contract error. If it prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
 
 ## 5. Post-install verification
 
@@ -89,12 +89,33 @@ WHERE table_schema = 'readypackets'
     'mobile_device_sessions',
     'mobile_authorization_codes',
     'mobile_refresh_tokens',
-    'mobile_idempotency_keys'
+    'mobile_idempotency_keys',
+    'subscription_plans',
+    'subscription_items',
+    'billing_events',
+    'crm_contacts',
+    'crm_notes',
+    'crm_tags',
+    'ai_sessions',
+    'ai_messages',
+    'ai_response_logs',
+    'api_key_rate_limits',
+    'api_request_logs',
+    'api_action_logs',
+    'availability_slots',
+    'meeting_bookings',
+    'pwa_ab_variants',
+    'pwa_ab_events',
+    'admin_nav_preferences',
+    'pinned_quick_add',
+    'support_permissions',
+    'feature_toggle_schedules',
+    'email_automation_rate_limits'
   );
 "
 ```
 
-Expected results are two JSON health responses, `{"status":"ok"}` and `{"status":"ready"}`, plus `critical_tables = 16`. For a Cloudflare Origin CA deployment, also verify:
+Expected results are two JSON health responses, `{"status":"ok"}` and `{"status":"ready"}`, plus `critical_tables = 37`. For a Cloudflare Origin CA deployment, also verify:
 
 ```bash
 sudo openssl x509 \

@@ -287,6 +287,8 @@ export function NewOrderPage() {
   const toast = useToast();
   const utils = trpc.useUtils();
   const catalog = trpc.public.catalog.useQuery();
+  const presentation = trpc.public.catalogPresentation.useQuery();
+  const customerPortalDeliveryEstimatesVisible = presentation.data?.customerPortalDeliveryEstimatesVisible ?? true;
   const restoredCart = useRef(loadSavedOrderCart()).current;
   const [selections, setSelections] = useState<Record<number, number>>(restoredCart.selections);
   const [projectName, setProjectName] = useState(restoredCart.projectName);
@@ -474,9 +476,11 @@ export function NewOrderPage() {
                               <span className="mt-1 block text-lg font-semibold tabular-nums text-ink">
                                 {formatMoney(product.priceCents)}
                               </span>
-                              <span className="mt-1 block text-xs text-muted">
-                                {product.deliveryEstimate}
-                              </span>
+                              {customerPortalDeliveryEstimatesVisible ? (
+                                <span className="mt-1 block text-xs text-muted">
+                                  {product.deliveryEstimate}
+                                </span>
+                              ) : null}
                             </label>
                           );
                         })}

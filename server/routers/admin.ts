@@ -80,6 +80,7 @@ import {
   transitionOrder,
 } from "../services/orders.js";
 import { getCatalog } from "../services/catalog.js";
+import { getCatalogPresentationSettings } from "../services/catalogPresentation.js";
 import { queueTemplatedEmail, wrapHtmlBody } from "../services/email.js";
 import { adminProcedure, staffProcedure, router } from "../trpc/trpc.js";
 import { ORDER_STATUSES, PRODUCT_TIERS, USER_ROLES } from "../../shared/domain.js";
@@ -1677,18 +1678,60 @@ export const adminRouter = router({
 
   catalog: staffProcedure.query(async () => getCatalog({ includeUnlisted: true })),
 
-  publicCatalogPriceVisibility: adminProcedure.query(async () => ({
-    visible: await getSettingBool("catalog.public_prices_visible", true),
-  })),
+  publicCatalogPresentation: adminProcedure.query(async () => getCatalogPresentationSettings()),
+
+  setPublicCatalogPresentation: adminProcedure
+    .input(z.object({
+      pricingMode: z.enum(["show", "on_request", "hidden"]),
+      publicDeliveryEstimatesVisible: z.boolean(),
+      customerPortalDeliveryEstimatesVisible: z.boolean(),
+      publicReviewsNavigationVisible: z.boolean(),
+      publicCommunityNavigationVisible: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await Promise.all([
+        setSetting("catalog.public_pricing_mode", input.pricingMode, { category: "catalog", valueType: "string", userId: ctx.session.user.id }),
+        // Preserve compatibility for older portal clients during rolling deployments.
+        setSetting("catalog.public_prices_visible", input.pricingMode === "show" ? "true" : "false", { category: "catalog", valueType: "boolean", userId: ctx.session.user.id }),
+        setSetting("catalog.public_delivery_estimates_visible", input.publicDeliveryEstimatesVisible ? "true" : "false", { category: "catalog", valueType: "boolean", userId: ctx.session.user.id }),
+        setSetting("catalog.customer_portal_delivery_estimates_visible", input.customerPortalDeliveryEstimatesVisible ? "true" : "false", { category: "catalog", valueType: "boolean", userId: ctx.session.user.id }),
+        setSetting("public.navigation.reviews_visible", input.publicReviewsNavigationVisible ? "true" : "false", { category: "public", valueType: "boolean", userId: ctx.session.user.id }),
+        setSetting("public.navigation.community_visible", input.publicCommunityNavigationVisible ? "true" : "false", { category: "public", valueType: "boolean", userId: ctx.session.user.id }),
+      ]);
+      void recordActivity({
+        actorUserId: ctx.session.user.id,
+        actorRole: "admin",
+        action: "catalog.public_presentation_updated",
+        entityType: "site_setting",
+        entityId: 0,
+        severity: "notice",
+        summary: "Public catalogue and navigation presentation settings updated",
+        changes: input,
+        ipAddress: ctx.clientIp,
+      });
+      return { ok: true as const, ...input };
+    }),
+
+  publicCatalogPriceVisibility: adminProcedure.query(async () => {
+    const presentation = await getCatalogPresentationSettings();
+    return { visible: presentation.pricingMode === "show", mode: presentation.pricingMode };
+  }),
 
   setPublicCatalogPriceVisibility: adminProcedure
     .input(z.object({ visible: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      await setSetting("catalog.public_prices_visible", input.visible ? "true" : "false", {
-        category: "catalog",
-        valueType: "boolean",
-        userId: ctx.session.user.id,
-      });
+      await Promise.all([
+        setSetting("catalog.public_prices_visible", input.visible ? "true" : "false", {
+          category: "catalog",
+          valueType: "boolean",
+          userId: ctx.session.user.id,
+        }),
+        setSetting("catalog.public_pricing_mode", input.visible ? "show" : "on_request", {
+          category: "catalog",
+          valueType: "string",
+          userId: ctx.session.user.id,
+        }),
+      ]);
       void recordActivity({
         actorUserId: ctx.session.user.id,
         actorRole: "admin",
