@@ -959,7 +959,7 @@ $(printf '\033[1;32m')ReadyPackets Portal is installed.$(printf '\033[0m')
 Next steps:
 
   1. Create the first administrator:
-       sudo runuser -u ${APP_USER} -- sh -c 'set -a; . "$1"; set +a; shift; exec "$@"' \\
+       sudo runuser -u ${APP_USER} -- sh -c 'set -a; . "\$1"; set +a; shift; exec "\$@"' \\
          sh ${ENV_FILE} node ${APP_DIR}/dist/create-admin.js --email you@${DOMAIN#portal.}
 
   2. Add SMTP credentials to ${ENV_FILE}, then:
