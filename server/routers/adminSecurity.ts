@@ -901,7 +901,7 @@ export const adminSecurityRouter = router({
         entityType: "security_policy",
         entityId: "saml_administrator_mfa_source",
         severity: input.source === "local" ? "notice" : "warning",
-        summary: `SAML administrator MFA source set to ${input.source}`,
+        summary: `SAML SSO MFA source set to ${input.source}`,
         changes: { source: input.source, claimName, requiredValue },
         ipAddress: ctx.clientIp,
       });
@@ -909,7 +909,7 @@ export const adminSecurityRouter = router({
         eventType: "settings.changed",
         outcome: "success",
         severity: input.source === "local" ? "notice" : "warning",
-        message: `SAML administrator MFA source changed to ${input.source}`,
+        message: `SAML SSO MFA source changed to ${input.source}`,
         userId: ctx.session.user.id,
         ipAddress: ctx.clientIp,
         metadata: { claimConfigured: Boolean(claimName), assuranceValueConfigured: Boolean(requiredValue) },

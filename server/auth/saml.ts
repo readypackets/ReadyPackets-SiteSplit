@@ -34,6 +34,8 @@ import {
   getSamlAdministratorMfaSourcePolicy,
   hasRequiredSamlMfaAssurance,
   samlMfaAssuranceEvidence,
+  requiresSamlEntraAssurance,
+  bypassesLocalMfaAfterVerifiedSaml,
 } from "./samlMfaSource.js";
 import { getSettingBool, getSettingJson } from "../services/settings.js";
 import { isAdministratorOnlyAccessEnabled, isRoleBlockedByAdministratorOnlyAccess } from "./adminOnlyAccess.js";
@@ -260,17 +262,16 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  // SAML is the primary factor. For administrators, the security console can
-  // select ReadyPackets local MFA, verified Entra MFA, or both. Entra trust is
-  // never inferred from the issuer alone: it requires an explicitly configured
-  // signed assertion claim and value.
+  // SAML is the primary factor. The security console can select ReadyPackets
+  // local MFA, verified Entra MFA, or both for every SAML principal. Entra trust
+  // is never inferred from the issuer alone: it requires an explicitly
+  // configured claim and value from the signed assertion.
   const [mfaConfirmed, roleMfaPolicy, samlMfaPolicy] = await Promise.all([
     hasConfirmedMfa(user.id),
     getMfaPolicyForRole(user.role),
     getSamlAdministratorMfaSourcePolicy(),
   ]);
-  const isAdministrator = user.role === "admin";
-  const requiresEntraAssurance = isAdministrator && samlMfaPolicy.source !== "local";
+  const requiresEntraAssurance = requiresSamlEntraAssurance(samlMfaPolicy);
   const assuranceEvidence = requiresEntraAssurance
     ? samlMfaAssuranceEvidence(profile, samlMfaPolicy)
     : { claimPresent: false, assuranceSatisfied: false };
@@ -296,15 +297,13 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
   // intentionally after all account, access, and Entra-assurance gates pass.
   await recordSuccessfulLogin(user.id, req.ip ?? null);
 
-  // Dual mode always requires a local administrator MFA factor in addition to
-  // the signed Entra assurance assertion, even if the generic role policy was
-  // relaxed later. Entra-only mode intentionally skips the local MFA prompt only
-  // after the configured assurance claim has passed the validation above.
-  const effectiveLocalPolicy = isAdministrator && samlMfaPolicy.source === "both"
-    ? "required"
-    : roleMfaPolicy;
+  // Dual mode always requires a local MFA factor in addition to the signed
+  // Entra assurance assertion, even if the generic role policy was relaxed.
+  // Entra-only mode intentionally skips the redundant local prompt only after
+  // the configured assurance claim has passed the validation above.
+  const effectiveLocalPolicy = samlMfaPolicy.source === "both" ? "required" : roleMfaPolicy;
   let requirement = mfaRequirement(effectiveLocalPolicy, mfaConfirmed);
-  if (isAdministrator && samlMfaPolicy.source === "entra") {
+  if (bypassesLocalMfaAfterVerifiedSaml(samlMfaPolicy, assuranceEvidence.assuranceSatisfied)) {
     requirement = { mfaPending: false, restricted: false, mfaRequired: false, mfaSetupRequired: false };
   }
 
@@ -319,9 +318,9 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
   await recordSecurityEvent({
     eventType: requirement.mfaPending ? "login.mfa_required" : requirement.mfaSetupRequired ? "mfa.enrolment_required" : "login.success",
     outcome: "success",
-    message: isAdministrator && samlMfaPolicy.source === "entra"
+    message: samlMfaPolicy.source === "entra"
       ? "SAML assertion accepted with configured Entra MFA assurance"
-      : isAdministrator && samlMfaPolicy.source === "both"
+      : samlMfaPolicy.source === "both"
         ? "SAML assertion accepted with Entra MFA assurance; awaiting local MFA"
         : requirement.mfaPending
           ? "SAML assertion accepted; awaiting local second factor"
@@ -334,9 +333,8 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
     metadata: {
       authenticationMethod: "saml",
       identityProvider: config.name,
-      ...(isAdministrator
-        ? { mfaSource: samlMfaPolicy.source, entraAssuranceSatisfied: assuranceEvidence.assuranceSatisfied }
-        : {}),
+      mfaSource: samlMfaPolicy.source,
+      entraAssuranceSatisfied: assuranceEvidence.assuranceSatisfied,
     },
   });
   const relayState = req.body?.RelayState as string | undefined;

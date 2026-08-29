@@ -918,17 +918,17 @@ function SamlPanel() {
         />
 
         <Alert tone="info">
-          New SAML accounts receive this role only when automatic provisioning is enabled. SAML is treated as the primary factor; Administrator accounts use the policy configured below before receiving administrative access.
+          New SAML accounts receive this role only when automatic provisioning is enabled. SAML is treated as the primary factor; every successful SAML account uses the MFA-source policy configured below before receiving portal access.
         </Alert>
 
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="font-semibold text-slate-900 dark:text-white">Administrator SAML MFA source</p>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Choose whether SAML administrators use ReadyPackets MFA, Microsoft Entra MFA assurance, or both. Customers and staff keep their existing MFA policy.</p>
+              <p className="font-semibold text-slate-900 dark:text-white">SAML SSO MFA source</p>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Choose whether every validated SAML SSO sign-in uses ReadyPackets MFA, Microsoft Entra MFA assurance, or both. Password and magic-link sign-ins keep their existing MFA policy.</p>
             </div>
             <Badge tone={mfaForm.source === "local" ? "neutral" : mfaForm.source === "entra" ? "success" : "warning"}>
-              {mfaForm.source === "local" ? "ReadyPackets local MFA" : mfaForm.source === "entra" ? "Entra-managed MFA" : "Entra + local MFA"}
+              {mfaForm.source === "local" ? "ReadyPackets local MFA" : mfaForm.source === "entra" ? "Entra-managed SSO MFA" : "Entra + local MFA"}
             </Badge>
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -937,8 +937,8 @@ function SamlPanel() {
               value={mfaForm.source}
               onChange={(event) => setMfaDraft({ ...mfaForm, source: event.target.value as "local" | "entra" | "both" })}
               options={[
-                { value: "local", label: "ReadyPackets local MFA" },
-                { value: "entra", label: "Microsoft Entra-managed MFA" },
+                { value: "local", label: "ReadyPackets local MFA after SSO" },
+                { value: "entra", label: "Microsoft Entra-managed MFA — no local prompt" },
                 { value: "both", label: "Require both Entra and local MFA" },
               ]}
             />
@@ -958,7 +958,7 @@ function SamlPanel() {
           {mfaForm.source === "entra" || mfaForm.source === "both" ? (
             <>
               <Alert tone="warning" className="mt-4">
-                Entra trust is accepted only for a validated signed SAML assertion containing the configured assurance claim. Configure Microsoft Entra Conditional Access to require MFA for this enterprise application and retain a separate local break-glass administrator before enabling this mode.
+                Entra trust is accepted only for a validated signed SAML assertion containing the configured assurance claim. Configure Microsoft Entra Conditional Access to require MFA for this enterprise application and retain a separate local break-glass administrator before enabling this mode. This policy applies to every SAML SSO user.
               </Alert>
               <Input
                 className="mt-4"
@@ -982,7 +982,7 @@ function SamlPanel() {
               });
             }}
           >
-            Save administrator MFA source
+            Save SAML SSO MFA source
           </Button>
         </div>
 

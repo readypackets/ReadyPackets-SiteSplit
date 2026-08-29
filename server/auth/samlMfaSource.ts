@@ -1,5 +1,7 @@
 import { getSetting } from "../services/settings.js";
 
+// The historic type name is retained for configuration and API compatibility;
+// the selected policy now governs every successfully validated SAML SSO user.
 export type SamlAdministratorMfaSource = "local" | "entra" | "both";
 
 export interface SamlAdministratorMfaSourcePolicy {
@@ -16,8 +18,8 @@ function parseSource(value: string | null): SamlAdministratorMfaSource {
 }
 
 /**
- * Fetches the administrator-only SAML MFA source policy. The safe default keeps
- * local ReadyPackets MFA mandatory after SAML authentication.
+ * Fetches the SAML SSO MFA source policy. The safe default keeps local
+ * ReadyPackets MFA mandatory after SAML authentication for every SAML user.
  */
 export async function getSamlAdministratorMfaSourcePolicy(): Promise<SamlAdministratorMfaSourcePolicy> {
   const [sourceValue, claimNameValue, requiredValue] = await Promise.all([
@@ -64,4 +66,23 @@ export function samlMfaAssuranceEvidence(
 ): { claimPresent: boolean; assuranceSatisfied: boolean } {
   const claimPresent = valuesFromProfile(profile, policy.claimName).length > 0;
   return { claimPresent, assuranceSatisfied: hasRequiredSamlMfaAssurance(profile, policy) };
+}
+
+/**
+ * Entra or dual mode is meaningful only when the signed assertion contains the
+ * configured assurance evidence. This applies consistently to all SAML roles.
+ */
+export function requiresSamlEntraAssurance(policy: SamlAdministratorMfaSourcePolicy): boolean {
+  return policy.source !== "local";
+}
+
+/**
+ * A local ReadyPackets prompt is redundant only in Entra-only mode and only
+ * after a signed assertion satisfies the configured Entra MFA assurance claim.
+ */
+export function bypassesLocalMfaAfterVerifiedSaml(
+  policy: SamlAdministratorMfaSourcePolicy,
+  assuranceSatisfied: boolean,
+): boolean {
+  return policy.source === "entra" && assuranceSatisfied;
 }
