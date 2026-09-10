@@ -915,9 +915,16 @@ install -d -m 2750 -o root -g readypackets /var/lib/readypackets/storage/admin-e
 install -d -m 0730 -o root -g readypackets /var/lib/readypackets/storage/config-restore-imports
 install -d -m 0730 -o root -g readypackets /var/lib/readypackets/storage/backup-restore-imports
 systemctl daemon-reload
-systemctl enable --now readypackets-backup-control.service
-systemctl enable --now readypackets-certificate-control.service
-systemctl enable --now readypackets-platform-update-control.service
+# `enable --now` starts an inactive controller but does not restart an already
+# running process. Always restart these fixed-action root controllers after their
+# code or unit files are replaced so an in-place upgrade never retains a stale
+# allowlist or helper implementation in memory.
+systemctl enable readypackets-backup-control.service
+systemctl enable readypackets-certificate-control.service
+systemctl enable readypackets-platform-update-control.service
+systemctl restart readypackets-backup-control.service
+systemctl restart readypackets-certificate-control.service
+systemctl restart readypackets-platform-update-control.service
 systemctl enable --now readypackets-backup.timer
 
 # Run one backup now. An untested backup is not a backup, and discovering that
