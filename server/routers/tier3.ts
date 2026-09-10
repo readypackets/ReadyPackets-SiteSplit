@@ -549,6 +549,28 @@ function parseBackupControl(output: string) {
   return Object.fromEntries(output.split("\n").map((line) => line.split("=", 2)).filter(([key, value]) => Boolean(key) && value !== undefined));
 }
 
+const recoveryHistoryEntrySchema = z.object({
+  operation: z.enum(["backup", "restore"]),
+  runId: z.string().max(128),
+  archive: z.string().max(512),
+  mode: z.string().max(64),
+  status: z.enum(["started", "completed", "failed"]),
+  startedAt: z.string().max(64),
+  completedAt: z.string().max(64).nullable(),
+  detail: z.string().max(500).nullable(),
+});
+
+function parseRecoveryHistory(output: string) {
+  return output.split("\n").flatMap((line) => {
+    try {
+      const result = recoveryHistoryEntrySchema.safeParse(JSON.parse(line));
+      return result.success ? [result.data] : [];
+    } catch {
+      return [];
+    }
+  }).slice(0, 200);
+}
+
 function runBackupControl(args: string[], stdin = ""): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ path: BACKUP_CONTROL_SOCKET });
@@ -709,10 +731,11 @@ const systemBackupsRouter = router({
     const status = parseBackupControl(await runBackupControl(["restore-status"]));
     return { status: status.status ?? "unknown", unit: status.unit ?? null, archive: status.archive ?? null, mode: status.mode ?? null, started: status.started ?? null, result: status.result ?? null };
   }),
+  recoveryHistory: adminProcedure.query(async () => parseRecoveryHistory(await runBackupControl(["recovery-history"]))),
   startRestore: adminProcedure.input(z.object({ filename: z.string().regex(BACKUP_FILENAME, "Invalid backup filename."), confirmation: z.string().max(512) })).mutation(async ({ ctx, input }) => {
     if (input.confirmation !== `RESTORE ${input.filename}`) throw new TRPCError({ code: "BAD_REQUEST", message: `Type RESTORE ${input.filename} to confirm production recovery.` });
     const started = parseBackupControl(await runBackupControl(["start-restore", input.filename], `${input.confirmation}\n`));
-    void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "backup.restore_started", entityType: "backup", entityId: 0, severity: "warning", summary: `Administrator started production restore from ${input.filename}`, changes: { restoreUnit: started.unit ?? null }, ipAddress: ctx.clientIp });
+    void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "backup.restore_started", entityType: "backup", entityId: 0, severity: "warning", summary: `Administrator started portable full-system restore from ${input.filename}`, changes: { restoreUnit: started.unit ?? null }, ipAddress: ctx.clientIp });
     return { unit: started.unit ?? null, archive: started.archive ?? input.filename };
   }),
   record: adminProcedure

@@ -19,8 +19,10 @@
 
 set -Eeuo pipefail
 
+APP_ROOT="${RP_APP_ROOT:-/opt/readypackets}"
 ENV_FILE="${RP_ENV_FILE:-/etc/readypackets/portal.env}"
 DATA_DIR="${RP_DATA_DIR:-/var/lib/readypackets}"
+RECOVERY_HISTORY_FILE="${RP_RECOVERY_HISTORY_FILE:-/var/lib/readypackets/recovery-history.jsonl}"
 OUTPUT_DIR="/var/backups/readypackets"
 RETENTION_DAYS=30
 DB_ONLY="false"
@@ -58,13 +60,38 @@ set -a; source "$ENV_FILE"; set +a
 : "${DB_PASSWORD:?DB_PASSWORD missing from the environment file}"
 
 TIMESTAMP="$(date -u '+%Y%m%dT%H%M%SZ')"
+BACKUP_STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+BACKUP_RUN_ID="backup-${TIMESTAMP}-$$"
+BACKUP_STATUS="failed"
+ARCHIVE=""
 STAGING="$(mktemp -d /tmp/rp-backup.XXXXXXXX)"
 VERIFY_STAGING="$(mktemp -d /tmp/rp-backup-verify.XXXXXXXX)"
 chmod 0700 "$STAGING" "$VERIFY_STAGING"
-# These directories hold plaintext secrets; remove them whatever happens.
-trap 'rm -rf "$STAGING" "$VERIFY_STAGING"' EXIT INT TERM
 
-install -d -m 0750 -o root -g readypackets "$OUTPUT_DIR"
+write_backup_history() {
+  local exit_code=$?
+  rm -rf "$STAGING" "$VERIFY_STAGING"
+  [[ -f "$APP_ROOT/deploy/recovery-history.sh" ]] || return 0
+  # shellcheck disable=SC1090
+  source "$APP_ROOT/deploy/recovery-history.sh" || return 0
+  local archive_name status detail
+  archive_name="${ARCHIVE:+$(basename "$ARCHIVE")}"
+  status="$BACKUP_STATUS"
+  detail="Verified full backup archive retained locally."
+  if [[ "$exit_code" -ne 0 || "$BACKUP_STATUS" != "completed" ]]; then
+    status="failed"
+    detail="Backup job failed; review the protected root backup journal for details."
+  fi
+  recovery_history_append backup "$BACKUP_RUN_ID" "$archive_name" full "$status" "$BACKUP_STARTED_AT" "$detail"
+  return 0
+}
+trap 'write_backup_history' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# The installer provisions this as root:readypackets with set-group-ID. No
+# ownership-changing syscall is needed from a hardened controller invocation.
+install -d -m 2750 "$OUTPUT_DIR"
 
 # ---------------------------------------------------------------------------
 # Database
@@ -214,6 +241,7 @@ find "$OUTPUT_DIR" -maxdepth 1 -type f -name 'readypackets-*.tar.gz*' \
 
 REMAINING="$(find "$OUTPUT_DIR" -maxdepth 1 -type f -name 'readypackets-*' | wc -l)"
 
+BACKUP_STATUS="completed"
 log "Backup complete: ${ARCHIVE} ($(numfmt --to=iec "$(stat -c '%s' "$ARCHIVE")")), ${REMAINING} archive(s) retained"
 
 # A backup that has never been restored is not a backup. Restore into a scratch

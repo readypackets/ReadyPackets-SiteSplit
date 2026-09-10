@@ -884,6 +884,7 @@ log "Installing the nightly backup timer"
 install -d -m 0755 -o root -g root /usr/local/lib/readypackets
 install -m 0750 "${APP_DIR}/deploy/backup.sh" /usr/local/sbin/readypackets-backup
 install -m 0750 "${APP_DIR}/deploy/backup-control.sh" /usr/local/sbin/readypackets-backup-control
+install -m 0750 "${APP_DIR}/deploy/recovery-history.sh" /usr/local/sbin/readypackets-recovery-history
 install -m 0750 "${APP_DIR}/deploy/scoped-recovery.sh" /usr/local/sbin/readypackets-scoped-recovery
 chmod 0750 "${APP_DIR}/deploy/backup-control-daemon.mjs"
 chmod 0750 "${APP_DIR}/deploy/platform-update-control-daemon.mjs"
@@ -905,10 +906,10 @@ rm -f /etc/sudoers.d/readypackets-backup-control
 rm -f /etc/sudoers.d/readypackets-platform-update
 install -d -m 0700 -o root -g root /var/backups/readypackets/platform-upgrades
 install -d -m 0700 -o root -g root /var/lib/readypackets/platform-upgrades
-# The service needs to list/copy archives into its protected download staging area,
-# but the archives remain root-owned and never become world-readable.
-install -d -m 0750 -o root -g readypackets /var/backups/readypackets
-install -d -m 0750 -o root -g readypackets /var/lib/readypackets/storage/admin-exports
+# The set-group-ID directory lets the hardened root controller create exports
+# readable only by the portal service group without a CAP_CHOWN syscall.
+install -d -m 2750 -o root -g readypackets /var/backups/readypackets
+install -d -m 2750 -o root -g readypackets /var/lib/readypackets/storage/admin-exports
 # The portal can create a random encrypted restore upload but cannot list or read
 # the root-controlled staging directory. The backup helper is the only reader.
 install -d -m 0730 -o root -g readypackets /var/lib/readypackets/storage/config-restore-imports

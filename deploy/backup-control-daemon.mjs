@@ -40,7 +40,7 @@ function validateRequest(value) {
   if (typeof action !== "string" || !Array.isArray(args) || args.some((arg) => typeof arg !== "string") || typeof stdin !== "string") deny("Request shape is invalid.");
   if (Buffer.byteLength(stdin, "utf8") > 24 * 1024) deny("Request body is too large.");
   switch (action) {
-    case "start": case "status": case "restore-status":
+    case "start": case "status": case "restore-status": case "recovery-history":
       if (args.length !== 0 || stdin) deny("This action accepts no arguments."); break;
     case "schedule":
       if (args.length !== 1 || !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(args[0]) || stdin) deny("Invalid schedule."); break;

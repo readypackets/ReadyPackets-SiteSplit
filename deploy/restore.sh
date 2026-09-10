@@ -21,6 +21,7 @@
 
 set -Eeuo pipefail
 
+APP_ROOT="${RP_APP_ROOT:-/opt/readypackets}"
 ENV_FILE="${RP_ENV_FILE:-/etc/readypackets/portal.env}"
 DATA_DIR="${RP_DATA_DIR:-/var/lib/readypackets}"
 ARCHIVE=""
@@ -28,6 +29,9 @@ TARGET_DB=""
 RESTORE_FILES="true"
 ASSUME_YES="false"
 RESTORE_PLATFORM_SECRETS="false"
+RECOVERY_HISTORY_FILE=""
+RESTORE_UNIT=""
+RESTORE_STARTED_AT=""
 SERVICE="readypackets"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -41,6 +45,9 @@ while [[ $# -gt 0 ]]; do
     --no-files)  RESTORE_FILES="false"; shift ;;
     --yes)       ASSUME_YES="true"; shift ;;
     --restore-platform-secrets) RESTORE_PLATFORM_SECRETS="true"; shift ;;
+    --history-file) RECOVERY_HISTORY_FILE="${2:?}"; shift 2 ;;
+    --restore-unit) RESTORE_UNIT="${2:?}"; shift 2 ;;
+    --restore-started-at) RESTORE_STARTED_AT="${2:?}"; shift 2 ;;
     --env-file)  ENV_FILE="${2:?}"; shift 2 ;;
     -h|--help)   sed -n '2,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)           die "Unknown option: $1" ;;
@@ -62,7 +69,26 @@ IS_PRODUCTION="false"
 
 STAGING="$(mktemp -d /tmp/rp-restore.XXXXXXXX)"
 chmod 0700 "$STAGING"
-trap 'rm -rf "$STAGING"' EXIT INT TERM
+
+write_restore_history() {
+  local exit_code=$?
+  rm -rf "$STAGING"
+  [[ -n "$RECOVERY_HISTORY_FILE" && -n "$RESTORE_UNIT" && -f "$APP_ROOT/deploy/recovery-history.sh" ]] || return 0
+  # shellcheck disable=SC1090
+  source "$APP_ROOT/deploy/recovery-history.sh" || return 0
+  local started_at archive_name
+  started_at="${RESTORE_STARTED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+  archive_name="$(basename "$ARCHIVE")"
+  if [[ "$exit_code" -eq 0 ]]; then
+    recovery_history_append restore "$RESTORE_UNIT" "$archive_name" portable_full completed "$started_at" "Full system restore completed; the target hostname, TLS, network, database connection, storage paths, and SAML activation setting were preserved."
+  else
+    recovery_history_append restore "$RESTORE_UNIT" "$archive_name" portable_full failed "$started_at" "Full system restore failed; review the protected root restore journal for details."
+  fi
+  return 0
+}
+trap 'write_restore_history' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # ---------------------------------------------------------------------------
 # Unpack
@@ -149,7 +175,7 @@ prepare_platform_secret_restore() {
 
   # These values identify and connect the replacement host. They must remain
   # local even when restoring source application and integration secrets.
-  local preserve_keys=(DB_NAME DB_USER DB_PASSWORD DATABASE_URL PORT BIND_HOST APP_URL ALLOWED_ORIGINS TRUST_PROXY_HOPS BEHIND_CLOUDFLARE STORAGE_LOCAL_ROOT RP_ENV_FILE RP_DATA_DIR)
+  local preserve_keys=(DB_NAME DB_USER DB_PASSWORD DATABASE_URL PORT BIND_HOST APP_URL ALLOWED_ORIGINS TRUST_PROXY_HOPS BEHIND_CLOUDFLARE STORAGE_LOCAL_ROOT RP_ENV_FILE RP_DATA_DIR SAML_ENABLED)
   local preserve_regex key replacement
   preserve_regex="^($(IFS='|'; echo "${preserve_keys[*]}"))="
   replacement="${STAGING}/portal.env.recovered"
@@ -160,7 +186,8 @@ prepare_platform_secret_restore() {
   grep -q '^DATA_ENCRYPTION_KEY=' "$replacement" || die "Recovered portal environment lacks DATA_ENCRYPTION_KEY."
   grep -q '^EMAIL_INDEX_KEY=' "$replacement" || die "Recovered portal environment lacks EMAIL_INDEX_KEY."
   install -m 0640 -o root -g readypackets "$replacement" "$ENV_FILE"
-  log "Applied archived application and integration secrets; target host settings preserved (previous file: $TARGET_ENV_BACKUP)"
+  log "Applied archived application and integration secrets; target hostname, TLS/network settings, and SAML activation state preserved (previous file: $TARGET_ENV_BACKUP)"
+  warn "SAML remains in the target host's prior activation state. Reconfigure and validate the target reply URL before enabling SSO after a hostname migration."
 }
 
 if [[ -f "${STAGING}/portal.env" ]]; then

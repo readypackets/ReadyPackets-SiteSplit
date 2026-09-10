@@ -11,14 +11,18 @@ CONFIG_IMPORT_DIR="${RP_CONFIG_IMPORT_DIR:-/var/lib/readypackets/storage/config-
 BACKUP_IMPORT_DIR="${RP_BACKUP_IMPORT_DIR:-/var/lib/readypackets/storage/backup-restore-imports}"
 TARGETS_FILE="${RP_BACKUP_SYNC_TARGETS_FILE:-/etc/readypackets/backup-sync-targets.conf}"
 RESTORE_STATUS_FILE="${RP_BACKUP_RESTORE_STATUS_FILE:-/var/lib/readypackets/backup-restore-status.conf}"
+RECOVERY_HISTORY_FILE="${RP_RECOVERY_HISTORY_FILE:-/var/lib/readypackets/recovery-history.jsonl}"
 TIMER_UNIT="readypackets-backup.timer"
 SERVICE_UNIT="readypackets-backup.service"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "Must run as root" >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "systemctl is unavailable" >&2; exit 1; }
-# The daemon runs as root with the portal service group. New protected files use
-# restrictive modes; do not call chown inside the hardened daemon namespace.
-install -d -m 0750 "$BACKUP_DIR" "$EXPORT_DIR"
+# The daemon is deliberately denied CAP_CHOWN. These set-group-ID directories
+# are provisioned root:readypackets by the installer, so newly-created exports
+# inherit the service group without a forbidden ownership-changing syscall.
+install -d -m 2750 "$BACKUP_DIR" "$EXPORT_DIR"
+# shellcheck disable=SC1090
+source "$APP_ROOT/deploy/recovery-history.sh"
 # These two staging directories are created by the root installer. The daemon
 # intentionally runs without CAP_CHOWN, so it must never attempt an ownership
 # change on every browser request. The service group needs write/traverse but
@@ -75,7 +79,6 @@ export_scoped_recovery() {
   printf '%s\n' "$passphrase" > "$passfile"; chmod 0600 "$passfile"
   output="$EXPORT_DIR/readypackets-${scope}-recovery-$(date -u +%Y%m%dT%H%M%SZ).rprecovery"
   RP_APP_ROOT="$APP_ROOT" RP_EXPORT_DIR="$EXPORT_DIR" bash "$APP_ROOT/deploy/scoped-recovery.sh" export "$scope" "$output" "$passfile" >/dev/null
-  chown root:readypackets "$output"
   chmod 0640 "$output"
   basename "$output"
 }
@@ -201,18 +204,31 @@ start_restore_import() {
   [[ "$confirmation" == "RESTORE BACKUP" ]] || { echo "Type RESTORE BACKUP to confirm production recovery." >&2; exit 1; }
   verify_archive_source "$source" "$filename" >/dev/null
   destination="$BACKUP_DIR/readypackets-$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N3 -tu4 /dev/urandom | tr -d ' ').tar.gz"
-  install -m 0600 -o root -g root "$source" "$destination"
-  rm -f -- "$source"
   unit="readypackets-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+  # GNU install may invoke chown when run as root. The hardened daemon is
+  # intentionally denied CAP_CHOWN, so make a new root-owned copy without
+  # ownership preservation and set only its mode inside the fixed backup path.
+  if ! cp --no-preserve=mode,ownership "$source" "$destination" || ! chmod 0600 "$destination"; then
+    rm -f -- "$destination"
+    recovery_history_append restore "$unit" "$(basename "$destination")" portable_full failed "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "Verified uploaded archive could not be staged in protected backup storage."
+    echo "Verified uploaded archive could not be staged in protected backup storage." >&2
+    exit 1
+  fi
+  rm -f -- "$source"
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   cat > "$RESTORE_STATUS_FILE" <<EOF
 unit=$unit
 archive=$(basename "$destination")
-mode=production
-started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+mode=portable_full
+started=$started_at
 EOF
   chmod 0600 "$RESTORE_STATUS_FILE"
-  systemd-run --unit "$unit" --collect --property=Type=oneshot --property=Nice=15 --property=IOSchedulingClass=idle \
-    "$APP_ROOT/deploy/restore.sh" --archive "$destination" --yes >/dev/null
+  if ! systemd-run --unit "$unit" --collect --property=Type=oneshot --property=Nice=15 --property=IOSchedulingClass=idle \
+    "$APP_ROOT/deploy/restore.sh" --archive "$destination" --yes --restore-platform-secrets --history-file "$RECOVERY_HISTORY_FILE" --restore-unit "$unit" --restore-started-at "$started_at" >/dev/null; then
+    recovery_history_append restore "$unit" "$(basename "$destination")" portable_full failed "$started_at" "Protected restore job could not be started."
+    exit 1
+  fi
+  recovery_history_append restore "$unit" "$(basename "$destination")" portable_full started "$started_at" "Verified uploaded full-system archive queued; target hostname, TLS, network, database connection, and storage paths will be preserved."
   printf 'unit=%s\narchive=%s\n' "$unit" "$(basename "$destination")"
 }
 
@@ -308,7 +324,8 @@ token = $dropbox_token"
   tmp="$(mktemp)"; trap 'rm -f "$tmp"' RETURN
   [[ -r "$TARGETS_FILE" ]] && grep -Fv "|${target}" "$TARGETS_FILE" > "$tmp" || true
   printf '%s|%s\n' "$provider" "$target" >> "$tmp"
-  install -m 0640 -o root -g readypackets "$tmp" "$TARGETS_FILE"
+    cat "$tmp" > "$TARGETS_FILE"
+    chmod 0640 "$TARGETS_FILE"
   printf 'provider=%s\ndestination=%s\n' "$provider" "$target"
 }
 
@@ -395,19 +412,27 @@ EOF
     confirmation="$(head -n 1 | tr -d '\r\n')"
     [[ "$confirmation" == "RESTORE $filename" ]] || { echo "Type RESTORE $filename to confirm production recovery." >&2; exit 1; }
     unit="readypackets-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+    started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     cat > "$RESTORE_STATUS_FILE" <<EOF
 unit=$unit
 archive=$filename
-mode=production
-started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+mode=portable_full
+started=$started_at
 EOF
     chmod 0600 "$RESTORE_STATUS_FILE"
-    systemd-run --unit "$unit" --collect --property=Type=oneshot --property=Nice=15 --property=IOSchedulingClass=idle \
-      "$APP_ROOT/deploy/restore.sh" --archive "$source" --yes >/dev/null
+    if ! systemd-run --unit "$unit" --collect --property=Type=oneshot --property=Nice=15 --property=IOSchedulingClass=idle \
+      "$APP_ROOT/deploy/restore.sh" --archive "$source" --yes --restore-platform-secrets --history-file "$RECOVERY_HISTORY_FILE" --restore-unit "$unit" --restore-started-at "$started_at" >/dev/null; then
+      recovery_history_append restore "$unit" "$filename" portable_full failed "$started_at" "Protected restore job could not be started."
+      exit 1
+    fi
+    recovery_history_append restore "$unit" "$filename" portable_full started "$started_at" "Verified full-system archive queued; target hostname, TLS, network, database connection, and storage paths will be preserved."
     printf 'unit=%s\narchive=%s\n' "$unit" "$filename"
     ;;
   restore-status)
     restore_status
+    ;;
+  recovery-history)
+    recovery_history_list
     ;;
   inspect-archive-import)
     inspect_archive_import "${2:-}"
@@ -442,7 +467,6 @@ EOF
       output="$EXPORT_DIR/readypackets-config-$(date -u +%Y%m%dT%H%M%SZ).rpconfig"
       RP_APP_ROOT="$APP_ROOT" RP_CONFIG_BACKUP_DIR="$EXPORT_DIR" bash "$APP_ROOT/deploy/config-migration.sh" export --output "$output" --passphrase-file "$passfile" >/dev/null
     fi
-    chown root:readypackets "$output"
     chmod 0640 "$output"
     basename "$output"
     ;;
@@ -455,11 +479,12 @@ EOF
     safe_name "${2:-}"
     source="$(archive_path "$2")"
     output="$EXPORT_DIR/$2"
-    cp --preserve=mode "$source" "$output"; chown root:readypackets "$output"; chmod 0640 "$output"
+    cp --preserve=mode "$source" "$output"
+    chmod 0640 "$output"
     basename "$output"
     ;;
   *)
-    echo "Usage: $0 {start|status|schedule HH:MM|configure-remote|test-target DESTINATION|configure-targets|verify-archive FILENAME|start-restore FILENAME|restore-status|export-scoped-recovery identities|orders|inspect-scoped-recovery-import identities|orders FILENAME|restore-scoped-recovery-import identities|orders FILENAME|inspect-config FILENAME|restore-config FILENAME|export-config|export-config-secrets|delete-export FILENAME|prepare-download FILENAME}" >&2
+    echo "Usage: $0 {start|status|schedule HH:MM|configure-remote|test-target DESTINATION|configure-targets|verify-archive FILENAME|start-restore FILENAME|restore-status|recovery-history|export-scoped-recovery identities|orders|inspect-scoped-recovery-import identities|orders FILENAME|restore-scoped-recovery-import identities|orders FILENAME|inspect-config FILENAME|restore-config FILENAME|export-config|export-config-secrets|delete-export FILENAME|prepare-download FILENAME}" >&2
     exit 2
     ;;
 esac

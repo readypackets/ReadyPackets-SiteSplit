@@ -23,22 +23,22 @@ A **database-only** archive intentionally excludes files and environment materia
 
 | Recovery mode | Database and accounts | Order files | Application settings | Platform secrets | Backup cloud credentials | Target hostname and TLS |
 |---|---:|---:|---:|---:|---:|---:|
-| **Portal full restore** | Yes | Yes | Database-backed settings | Preserved on target | Preserved on target | Preserved on target |
-| **Root-console replacement-server restore** with `--restore-platform-secrets` | Yes | Yes | Yes | Restored from archive | Restored when `platform-runtime.tar` is present | Preserved on target; issue a certificate for the target hostname |
+| **Portal full restore** | Yes | Yes | Yes | Restored from archive, except target-host identity values | Restored when `platform-runtime.tar` is present | Preserved on target; issue or retain a certificate for the target hostname |
+| **Root-console replacement-server restore** with `--restore-platform-secrets` | Yes | Yes | Yes | Restored from archive, except target-host identity values | Restored when `platform-runtime.tar` is present | Preserved on target; issue a certificate for the target hostname |
 | **`.rpconfig` configuration restore** | No | No | Secret-free configuration only | Preserved on target | Preserved on target | Preserved on target |
 
-The administrator portal defaults to the first mode. This prevents a browser upload from automatically replacing encryption keys or cloud-backup credentials. A complete replacement-server recovery is intentionally available only at the root console with an explicit flag.
+The administrator portal’s full-restore flow performs a verified **portable full recovery** through the restricted root restore controller. It restores the archived application and integration secrets necessary to decrypt and operate the recovered data, while preserving the target server’s database connection, hostname, allowed origins, network binding, storage location, TLS materials, and SAML activation setting. The target certificate/private key is deliberately never restored from the archive. A root-console recovery remains available for larger or offline archives using the same target-identity safeguards.
 
 ## Administrator portal restore
 
-Use this method to recover a server from a trusted archive while retaining the target server’s environment credentials and TLS material.
+Use this method to recover a server from a trusted archive, including a backup created on a different ReadyPackets hostname. The target server keeps its own public hostname, allowed origins, database connection, network settings, storage location, TLS certificate/private key, and SAML activation state; recovered application and integration secrets are restored so encrypted backup data remains usable.
 
 1. Open **Admin → Backup management**.
 2. Select either a listed archive’s **Restore** action or **Upload and restore backup file**.
 3. Run the archive preflight. The portal verifies the gzip archive, allowlisted members, link/path safety, manifest, checksums, and database payload before any data changes.
 4. Review the archive summary and type the exact phrase `RESTORE BACKUP`.
-5. Start recovery and wait for the protected restore job to restart ReadyPackets.
-6. Sign in again after the readiness status is successful. Existing sessions are invalidated by the restored database state.
+5. Start recovery and wait for the protected restore job to restart ReadyPackets. The Backup management page records the attempt as queued, completed, or failed with the archive name, scope, start/completion time, and safe diagnostic detail.
+6. Sign in again after the readiness status is successful. Existing sessions are invalidated by the restored database state. If moving to a different hostname, validate the target TLS certificate and target SAML reply URL before enabling SSO.
 
 Preflight is bound to the fully authenticated administrator and expires after ten minutes. Full-backup uploads are limited to 512 MB; larger archives should be recovered through the root-console procedure.
 
@@ -53,7 +53,7 @@ sudo /opt/readypackets/deploy/restore.sh \
   --restore-platform-secrets
 ```
 
-The command first validates archive structure and checksums, creates a pre-restore database snapshot, restores the database and files, restores archived application/integration secrets while preserving target database connection, hostname, network, storage-path, Cloudflare, and TLS settings, restores root-owned backup-sync runtime if available, reruns forward-only migrations and the database schema contract, and starts the service only after readiness succeeds.
+The command first validates archive structure and checksums, creates a pre-restore database snapshot, restores the database and files, restores archived application/integration secrets while preserving the target database connection, hostname, allowed origins, network binding, storage path, Cloudflare/TLS materials, and SAML activation setting, restores root-owned backup-sync runtime if available, reruns forward-only migrations and the database schema contract, and starts the service only after readiness succeeds.
 
 The prior target environment is retained as a root-only file beside `portal.env` with a `.pre-full-restore-<timestamp>` suffix. The target must issue or install a valid certificate for its own public hostname; Cloudflare Origin CA material is intentionally never included in the backup archive.
 
@@ -65,7 +65,7 @@ For a new VPS, install the desired reviewed release first, confirm the installer
 
 ## Safeguards and operations
 
-The portal restore flow is administrator-only and requires an MFA-backed active session, CSRF validation, typed confirmation, strict archive-member checks, path/link rejection, checksums, protected staging, audit records, and a narrowly scoped root backup-control helper. The helper accepts only fixed archive names and action types; it cannot execute arbitrary user-controlled commands.
+The portal restore flow is administrator-only and requires an MFA-backed active session, CSRF validation, typed confirmation, strict archive-member checks, path/link rejection, checksums, protected staging, audit records, and a narrowly scoped root backup-control helper. The helper accepts only fixed archive names and action types; it cannot execute arbitrary user-controlled commands. Every full backup and restore attempt is also retained in a root-owned, append-only recovery history with a start/completion/failure status and bounded non-sensitive diagnostic; it survives database replacement so an attempted restore is still visible after recovery.
 
 Run a restore drill periodically against an isolated, nonproduction database and storage location. A backup that has not been verified and tested cannot be relied on for disaster recovery.
 
