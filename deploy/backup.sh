@@ -89,9 +89,18 @@ trap 'write_backup_history' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# The installer provisions this as root:readypackets with set-group-ID. No
-# ownership-changing syscall is needed from a hardened controller invocation.
-install -d -m 2750 "$OUTPUT_DIR"
+# The installer and the service pre-start hook provision the default location as
+# root:readypackets with set-group-ID. The hardened backup service must only
+# verify that precondition; attempting `install -d` from its sandbox can invoke
+# a prohibited ownership or mode-changing operation. An alternate output path is
+# supported only for an explicit root-console backup invocation.
+if [[ "$OUTPUT_DIR" == "/var/backups/readypackets" ]]; then
+  [[ -d "$OUTPUT_DIR" ]] || die "The protected backup directory is missing; rerun the ReadyPackets installer."
+  [[ "$(stat -c '%U:%G:%a' "$OUTPUT_DIR")" == "root:readypackets:2750" ]] || \
+    die "The protected backup directory has unsafe ownership or permissions; rerun the ReadyPackets installer."
+else
+  install -d -m 0700 "$OUTPUT_DIR"
+fi
 
 # ---------------------------------------------------------------------------
 # Database
