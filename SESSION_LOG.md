@@ -4005,3 +4005,18 @@ The procedures and constraints are documented in `docs/FULL_BACKUP_RESTORE.md`. 
 **Backup-path follow-up correction:** Final demo deployment validation revealed the backup service pre-start hook still forced `/var/backups/readypackets` to `root:root:0700`; the hardened backup script then correctly failed when it attempted to reset that directory to the inherited portal-group mode. The backup unit now provisions the fixed path once, outside the sandbox, as `root:readypackets:2750`; the restricted backup script verifies that precondition rather than changing directory ownership or mode. Explicit alternate output directories remain available only to an operator-run root backup. Shell syntax and a focused regression for the matching unit/script permission contract passed.
 
 **Final deployed verification:** The demo was updated to the backup-path correction and an actual hardened full backup completed successfully. It dumped the isolated database, archived uploaded storage, created and checksum-verified a ReadyPackets backup archive, and wrote a durable `backup/completed` history record. A portal-equivalent socket request under the unprivileged `readypackets` account returned the safe recovery-history entries, including historical failed attempts and the new successful backup. Application, backup, certificate, and platform-update controllers were active; public health and readiness passed. The owner-selected nightly timer was disabled again after the installer’s validation run. No production records, keys, or TLS material were used.
+
+
+---
+
+## 2026-09-23 — Fictionalized customer-story advertising concept
+
+**User request:**
+
+> I want to create a believeable story for a customer who uses our site because i want to use this as a video or audio ad
+
+**Response and decision:** A complete ReadyPackets customer-story campaign script was created at `docs/marketing/FICTIONAL_CUSTOMER_STORY_AD.md`. The creative direction deliberately uses a **fictionalized composite** rather than an invented testimonial presented as fact. The protagonist, Maya Thompson, is a fictional founder whose business materials are scattered across notes and files until she uses ReadyPackets to organize a business plan, operating framework, and execution materials through the customer portal.
+
+The package includes a timed 60-second video storyboard, continuous voiceover master copy, an audio-only adaptation with sound cues, 30- and 15-second cutdowns, social captions, visual/voice direction, and an approval checklist. The narrative expressly avoids claims of guaranteed funding, revenue, legal protection, investment approval, contract awards, or other business outcomes. It directs the operator to label all publication surfaces “Dramatized customer story. Individual circumstances and results vary,” use only seeded demo or motion-graphic portal footage, keep real customer data off camera, verify the public call to action before publishing, and generate captions and transcript assets for accessibility.
+
+**GitHub synchronization:** The campaign script and this session-log entry are queued for the required private GitHub main-branch publication after source hygiene validation.
