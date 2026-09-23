@@ -4020,3 +4020,23 @@ The procedures and constraints are documented in `docs/FULL_BACKUP_RESTORE.md`. 
 The package includes a timed 60-second video storyboard, continuous voiceover master copy, an audio-only adaptation with sound cues, 30- and 15-second cutdowns, social captions, visual/voice direction, and an approval checklist. The narrative expressly avoids claims of guaranteed funding, revenue, legal protection, investment approval, contract awards, or other business outcomes. It directs the operator to label all publication surfaces “Dramatized customer story. Individual circumstances and results vary,” use only seeded demo or motion-graphic portal footage, keep real customer data off camera, verify the public call to action before publishing, and generate captions and transcript assets for accessibility.
 
 **GitHub synchronization:** The campaign script and this session-log entry are queued for the required private GitHub main-branch publication after source hygiene validation.
+
+
+---
+
+## 2026-09-23 — Homepage redesign previews before implementation
+
+**User request:**
+
+> I want to redesign the home page so that it is more welcoming and tells a story to attract the customer move the packets to a different page. give me some previous before applying it
+
+**Response and boundary:** No production homepage code was changed. The existing `/packets` route already provides a dedicated catalogue and packet-detail experience, so the proposed redesign removes the duplicated catalogue grid only from the home page after design approval. Three 2560×1440 visual previews and a documented comparison were produced under `docs/marketing/`:
+
+- `homepage-preview-01-founders-moment.png` — a warm, editorial founder-story home page;
+- `homepage-preview-02-guided-path.png` — a stage-based, self-selection home page;
+- `homepage-preview-03-prepared-together.png` — a narrative-led transformation from ideas to organized business materials and portal experience;
+- `HOMEPAGE_REDESIGN_PREVIEWS.md` — the comparison, recommended direction, proposed information architecture, implementation guardrails, and decision options.
+
+**Recommendation:** “Prepared, Together” is the recommended base direction because it most clearly tells the ReadyPackets story while maintaining a deliberate call to explore the full catalogue on the dedicated Packets page. A hybrid may pair its narrative hero/process with the Guided Path’s three visitor-stage choices. Any approved implementation must retain the current public-presentation controls, use only fictional or seeded visual material, maintain accessibility and performance, and avoid guarantees of funding, revenue, legal protection, or customer outcomes.
+
+**GitHub synchronization:** The preview images, comparison guide, and this session-log entry are queued for the required private GitHub main-branch publication after final file validation. No homepage implementation is included in this change.
