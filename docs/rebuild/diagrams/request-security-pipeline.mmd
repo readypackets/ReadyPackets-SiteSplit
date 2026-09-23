@@ -1,0 +1,23 @@
+flowchart TD
+    R[Incoming request] --> IP[Resolve client IP<br/>configured trusted proxy hops only]
+    IP --> BL{Blocked IP or CIDR?}
+    BL -->|Yes| X403[Reject 403]
+    BL -->|No| RL{Category rate limit<br/>and progressive penalty}
+    RL -->|Exceeded| X429[Reject 429]
+    RL -->|Allowed| H[Set security headers<br/>and per-response CSP nonce]
+    H --> B{Within body-size cap?}
+    B -->|No| X413[Reject 413]
+    B -->|Yes| C{Unsafe request passes<br/>Host, Origin, and CSRF checks?}
+    C -->|No| XCSRF[Reject 403]
+    C -->|Yes| S[Resolve signed host-only cookie<br/>and server-side session]
+    S --> P{Procedure guard<br/>public · protected · verified<br/>MFA · admin}
+    P -->|Denied| XAUTH[Reject 401 or 403]
+    P -->|Allowed| Z[Strict Zod validation<br/>domain authorization and audit]
+    Z --> D[(Drizzle / MySQL)]
+
+    classDef reject fill:#FAECEC,stroke:#B54141,color:#4A1616;
+    classDef control fill:#EAF5F3,stroke:#2A9D8F,color:#0D2036;
+    classDef data fill:#0D2036,stroke:#C9A84C,color:#FFFFFF;
+    class X403,X429,X413,XCSRF,XAUTH reject;
+    class IP,BL,RL,H,B,C,S,P,Z control;
+    class D data;

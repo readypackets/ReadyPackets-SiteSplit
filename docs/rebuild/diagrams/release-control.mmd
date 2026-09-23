@@ -1,0 +1,27 @@
+flowchart TD
+    Commit[Reviewed immutable Git commit]
+    Scan[Platform update scan<br/>changed paths and risk indicators]
+    Approve[Administrator approves<br/>the exact commit]
+    Phrase[Typed upgrade confirmation]
+    Snapshot[Root controller snapshot<br/>application and database]
+    Build[Build client and server]
+    Migrate[Apply forward-only migrations]
+    Contract[Verify schema contract<br/>49 migrations · 37 critical tables]
+    Restart[Restart application and every<br/>changed root controller]
+    Health{Health, readiness, and<br/>security checks pass?}
+    Release[Record successful release]
+    Rollback[Controlled rollback<br/>to snapshot]
+
+    Commit --> Scan --> Approve --> Phrase --> Snapshot --> Build --> Migrate --> Contract --> Restart --> Health
+    Health -->|Pass| Release
+    Health -->|Fail| Rollback
+
+    classDef approval fill:#F8F4EC,stroke:#C9A84C,color:#0D2036;
+    classDef root fill:#FAECEC,stroke:#B54141,color:#4A1616;
+    classDef verification fill:#EAF5F3,stroke:#2A9D8F,color:#0D2036;
+    classDef success fill:#EAF6EC,stroke:#43885A,color:#1E4D2B;
+    classDef failure fill:#FAECEC,stroke:#B54141,color:#4A1616;
+    class Commit,Scan,Approve,Phrase approval;
+    class Snapshot,Restart,Rollback root;
+    class Build,Migrate,Contract,Health verification;
+    class Release success;

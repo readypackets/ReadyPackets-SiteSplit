@@ -1,0 +1,27 @@
+flowchart TB
+    User[Public visitor / customer / staff / administrator]
+    CF[Cloudflare proxy<br/>optional; Full strict when Origin CA is used]
+    Nginx[nginx TLS boundary<br/>80→443 redirect · HSTS · static assets]
+    App[Node.js 22 / Express / tRPC<br/>loopback 127.0.0.1:3000]
+    DB[(MySQL 8<br/>loopback / private container network)]
+    Files[Encrypted file storage<br/>outside web root]
+    Root[Constrained root controllers<br/>backup/restore · certificate · platform update]
+    External[Operator-enabled services only<br/>SMTP · Stripe · Entra/SAML · Graph · S3 · approved webhooks]
+
+    User -->|HTTPS| CF
+    User -->|HTTPS if no proxy| Nginx
+    CF -->|HTTPS| Nginx
+    Nginx -->|proxy_pass| App
+    App -->|parameterized queries| DB
+    App -->|authorized stream only| Files
+    App <-->|validated Unix sockets only| Root
+    App -. opt-in server egress .-> External
+
+    classDef edge fill:#F8F4EC,stroke:#C9A84C,color:#0D2036;
+    classDef core fill:#0D2036,stroke:#2A9D8F,color:#FFFFFF;
+    classDef data fill:#EAF5F3,stroke:#2A9D8F,color:#0D2036;
+    classDef root fill:#FAECEC,stroke:#B54141,color:#4A1616;
+    class User,CF,Nginx edge;
+    class App core;
+    class DB,Files,External data;
+    class Root root;

@@ -1,0 +1,23 @@
+flowchart TB
+    Admin[Authenticated administrator<br/>MFA + CSRF] --> UI[Admin Backup Management]
+    UI --> Preflight[Archive preflight<br/>gzip · allowlist · path/link safety<br/>manifest · checksums · DB payload]
+    Preflight --> Confirm[Typed confirmation<br/>time-bound, administrator-bound]
+    Confirm --> Socket[Fixed-action Unix socket request<br/>archive name and action allowlisted]
+    Socket --> Root[Root backup / restore controller]
+    Root --> Safety[Create safety snapshot<br/>retain prior target env root-only]
+    Root --> Restore[Restore DB + storage + portable secrets]
+    Restore --> Preserve[Preserve target identity<br/>hostname · origins · DB connection<br/>network · storage path · TLS · SAML activation]
+    Preserve --> Migrate[Run forward migrations<br/>and schema contract]
+    Migrate --> Ready{Readiness passes?}
+    Ready -->|Yes| Record[Append-only root-owned recovery history<br/>completed]
+    Ready -->|No| Failure[Append-only root-owned recovery history<br/>failed with safe diagnostic]
+    Record --> Signin[Sessions invalidated; sign in again]
+
+    classDef control fill:#EAF5F3,stroke:#2A9D8F,color:#0D2036;
+    classDef root fill:#FAECEC,stroke:#B54141,color:#4A1616;
+    classDef success fill:#EAF6EC,stroke:#43885A,color:#1E4D2B;
+    classDef failure fill:#FAECEC,stroke:#B54141,color:#4A1616;
+    class Admin,UI,Preflight,Confirm,Socket,Preserve,Migrate control;
+    class Root,Safety,Restore root;
+    class Record,Signin success;
+    class Failure failure;

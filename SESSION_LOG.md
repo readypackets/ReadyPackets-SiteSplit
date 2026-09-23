@@ -4040,3 +4040,22 @@ The package includes a timed 60-second video storyboard, continuous voiceover ma
 **Recommendation:** “Prepared, Together” is the recommended base direction because it most clearly tells the ReadyPackets story while maintaining a deliberate call to explore the full catalogue on the dedicated Packets page. A hybrid may pair its narrative hero/process with the Guided Path’s three visitor-stage choices. Any approved implementation must retain the current public-presentation controls, use only fictional or seeded visual material, maintain accessibility and performance, and avoid guarantees of funding, revenue, legal protection, or customer outcomes.
 
 **GitHub synchronization:** The preview images, comparison guide, and this session-log entry are queued for the required private GitHub main-branch publication after final file validation. No homepage implementation is included in this change.
+
+
+---
+
+## 2026-09-23 — Complete rebuild dossier, architecture diagrams, and master prompt
+
+**User request:**
+
+> Give me a file with all the context, detailed architecture with diagrams and all the changes and fixes for the application as well as a master prompt to rebuild the application.
+
+**Response and deliverable:** A self-contained rebuild handoff was created at `docs/rebuild/READYPACKETS_COMPLETE_REBUILD_DOSSIER_AND_MASTER_PROMPT.md`. It consolidates the current product mandate, self-hosted/no-Manus constraint, runtime topology, technology stack, security architecture, data/migration model, feature scope, order and commerce behavior, administration, integrations, deployment modes, certificate posture, backup/recovery, protected root-controller boundaries, detailed repair register, rebuild phases, release verification gates, operator decisions, and a copy-ready master rebuild prompt.
+
+The dossier renders and embeds four reviewed diagrams from version-controlled Mermaid sources under `docs/rebuild/diagrams/`: runtime topology, request-security pipeline, portable recovery trust boundary, and controlled platform-update/release flow. It expressly marks the selected Git release/migration ledger/schema contract as the source of truth where older documents contain historical table, migration, installation-path, or test-count values. The current reviewed baseline cited in the dossier is 49 migrations and 37 critical schema tables; historical test figures are identified as evidence to re-run rather than reused as a current release claim.
+
+**Current-context corrections included:** The handoff includes the more recent schema compatibility repair for 21 active feature tables, durable portable full-recovery history, target-identity preservation during cross-domain recovery, constrained root Unix-socket controllers, explicit restarts of changed controllers, Safari audio media fallback and validation, verified SAML assurance policy for Entra-managed MFA, terminal order lock-down, invoice/commerce and SharePoint workflow improvements, catalog presentation controls, and the historical-only Security Centre alerts after the schema repair. It also preserves the requirement to use fictional/seeded material for the approved story-led home-page redesign and not misrepresent invented testimonial/outcome content as fact.
+
+**Validation:** Mermaid sources were rendered successfully to PNG. The dossier was checked for all four image references, contains 455 lines and 8,212 words, references the complete version-controlled session record, and passed `git diff --check`. The live source confirms 49 migration files and `scripts/schemaContract.ts` declares 37 critical tables. No source code, deployment, customer data, secrets, TLS material, or environment settings were altered by this documentation change.
+
+**GitHub synchronization:** The complete dossier, diagram sources/renders, and this session entry are included in the required private GitHub main-branch publication for this documentation release.
