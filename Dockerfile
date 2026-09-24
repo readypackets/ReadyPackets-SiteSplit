@@ -37,6 +37,7 @@ COPY shared ./shared
 COPY server ./server
 COPY client ./client
 COPY scripts ./scripts
+COPY drizzle ./drizzle
 
 ENV NODE_ENV=production
 
@@ -75,9 +76,12 @@ RUN pnpm prune --prod
 # ---------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS runtime
 
-# curl is required only for the container health check.
+# Native converters are installed explicitly and pinned as part of the
+# self-hosted runtime contract. The application invokes fixed executable paths
+# with argument arrays; it does not discover host binaries or run shell input.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates tini ffmpeg antiword poppler-utils \
+ && apt-get install -y --no-install-recommends curl ca-certificates tini ffmpeg antiword poppler-utils pandoc ghostscript libreoffice-writer python3-pip \
+ && python3 -m pip install --no-cache-dir --break-system-packages "pdf2docx==0.5.8" \
  && rm -rf /var/lib/apt/lists/* \
  && apt-get purge -y --auto-remove
 
@@ -93,7 +97,7 @@ ENV NODE_ENV=production \
 COPY --from=prod-deps --chown=root:root /build/node_modules ./node_modules
 COPY --from=build     --chown=root:root /build/dist ./dist
 COPY --from=build     --chown=root:root /build/client/dist ./client/dist
-COPY --from=build     --chown=root:root /build/scripts/migrations ./scripts/migrations
+COPY --from=build     --chown=root:root /build/drizzle/migrations ./drizzle/migrations
 COPY --chown=root:root package.json ./package.json
 
 # Storage is a mounted volume; the mount point must be writable by the runtime

@@ -1,0 +1,148 @@
+name: ReadyPackets Portal CI
+
+# Runs the same three gates that were used throughout development: a type
+# check, the unit suite, and the black-box security probe against a real
+# instance. The security probe is the important one, because a policy header or
+# an authorisation guard can regress without producing a type error.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Type check, tests, security probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root_password
+          MYSQL_DATABASE: readypackets_ci
+          MYSQL_USER: rpci
+          MYSQL_PASSWORD: ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci_root_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      NODE_ENV: development
+      PORT: 8080
+      BIND_HOST: 127.0.0.1
+      APP_URL: http://localhost:8080
+      ALLOWED_ORIGINS: http://localhost:8080
+      DATABASE_URL: mysql://rpci:ci_password@127.0.0.1:3306/readypackets_ci
+      DB_NAME: readypackets_ci
+      DB_USER: rpci
+      DB_PASSWORD: ci_password
+      # Test-only values. Real deployments generate their own; the application
+      # refuses to start in production if a development default is detected.
+      SESSION_SECRET: ci_session_secret_value_at_least_32_chars_long
+      DATA_ENCRYPTION_KEY: 1111111111111111111111111111111111111111111111111111111111111111
+      EMAIL_INDEX_KEY: 2222222222222222222222222222222222222222222222222222222222222222
+      TRUST_PROXY_HOPS: 1
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_ROOT: ./var/storage
+      LOG_LEVEL: warn
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Wait for MySQL
+        run: |
+          for i in $(seq 1 30); do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -urpci -pci_password --silent; then
+              echo "MySQL is ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MySQL did not become ready"; exit 1
+
+      - name: Apply migrations
+        run: pnpm exec tsx scripts/migrate.ts
+
+      - name: Seed the catalogue and settings
+        run: pnpm exec tsx scripts/seed.ts
+
+      - name: Unit tests
+        run: pnpm exec vitest run --reporter=verbose
+
+      - name: Build the client
+        run: pnpm exec vite build
+
+      - name: Bundle the server
+        run: |
+          pnpm exec esbuild server/index.ts --bundle --platform=node \
+            --target=node22 --format=esm --packages=external --outfile=dist/server.js
+
+      - name: Start the application
+        run: |
+          mkdir -p var/storage
+          node dist/server.js > /tmp/ci-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS -H "Host: localhost:8080" http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
+              echo "Application is ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "Application did not start:"; cat /tmp/ci-server.log; exit 1
+
+      - name: Security verification
+        run: pnpm exec tsx scripts/verify-security.ts http://127.0.0.1:8080
+
+      - name: Server log on failure
+        if: failure()
+        run: cat /tmp/ci-server.log || true
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile=false
+      # Reported rather than enforced, so that a newly published advisory in a
+      # transitive dependency does not block an unrelated change. Review the
+      # output on every run.
+      - run: pnpm audit --audit-level moderate || true

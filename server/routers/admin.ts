@@ -34,6 +34,8 @@ import {
   orderItems,
   orderPhaseLocks,
   orderWorkflows,
+  conversionProfiles,
+  sharepointTargetBindings,
   workflowStageRuns,
   workflowCompletionJobs,
   orderAutomationRules,
@@ -172,6 +174,12 @@ const workflowStageSchema = z.object({
   }).optional(),
   sharePointDestination: z.string().trim().min(1).max(240).regex(/^(?!.*\.\.)(?:[A-Za-z0-9 _().-]+)(?:\/[A-Za-z0-9 _().-]+)*$/, "Use a safe relative SharePoint folder path without dot segments.").optional(),
   sharePointAudioDestination: z.string().trim().min(1).max(240).regex(/^(?!.*\.\.)(?:[A-Za-z0-9 _().-]+)(?:\/[A-Za-z0-9 _().-]+)*$/, "Use a safe relative SharePoint folder path without dot segments.").optional(),
+  conversionRouting: z.object({
+    conversionProfileIds: z.array(z.number().int().positive()).max(9).optional(),
+    originalsTargetBindingId: z.number().int().positive().optional(),
+    stagingTargetBindingId: z.number().int().positive().optional(),
+    intakeTargetBindingId: z.number().int().positive().optional(),
+  }).optional(),
   actions: workflowStageActionsSchema,
 });
 
@@ -200,6 +208,20 @@ async function validateWorkflowStageReferences(stages: WorkflowStageInput[]): Pr
       const [endpoint] = await db.select({ id: webhookEndpoints.id }).from(webhookEndpoints).where(and(eq(webhookEndpoints.id, stage.actions.webhookEndpointId), eq(webhookEndpoints.enabled, true))).limit(1);
       if (!endpoint) throw new TRPCError({ code: "BAD_REQUEST", message: `Select an enabled webhook endpoint for ${stage.label}.` });
     }
+    const routing = stage.conversionRouting;
+    if (routing?.conversionProfileIds?.length) {
+      const profiles = await db.select({ id: conversionProfiles.id }).from(conversionProfiles).where(and(inArray(conversionProfiles.id, routing.conversionProfileIds), eq(conversionProfiles.active, true)));
+      if (profiles.length !== new Set(routing.conversionProfileIds).size) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Select only active conversion profiles for ${stage.label}.` });
+      }
+    }
+    const targetIds = [routing?.originalsTargetBindingId, routing?.stagingTargetBindingId, routing?.intakeTargetBindingId].filter((value): value is number => typeof value === "number");
+    if (targetIds.length) {
+      const targets = await db.select({ id: sharepointTargetBindings.id }).from(sharepointTargetBindings).where(and(inArray(sharepointTargetBindings.id, targetIds), eq(sharepointTargetBindings.enabled, true)));
+      if (targets.length !== new Set(targetIds).size) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Select only active SharePoint targets for ${stage.label}.` });
+      }
+    }
   }
 }
 
@@ -209,6 +231,10 @@ function portableWorkflowStages(rawStages: unknown): Record<string, unknown>[] {
     const source = stage && typeof stage === "object" ? stage as Record<string, unknown> : {};
     const actions = source.actions && typeof source.actions === "object" ? { ...(source.actions as Record<string, unknown>) } : {};
     delete actions.webhookEndpointId;
+    // Selected-site connection and conversion profile ids are local to one
+    // self-hosted environment. Portable workflow exports retain folder rules
+    // but deliberately require operators to select local targets after import.
+    delete source.conversionRouting;
     return { ...source, actions };
   });
 }

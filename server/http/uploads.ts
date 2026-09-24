@@ -21,6 +21,7 @@ import { putObject, validateUpload } from "../services/storage.js";
 import { buildOrderFileName } from "../services/fileNaming.js";
 import { probeAudioDurationSeconds } from "../services/audioDuration.js";
 import { queueOrderFileSharePointSync } from "../services/sharepoint.js";
+import { getStageConversionPolicy, queueStageFileProcessing } from "../services/conversionPipeline.js";
 import { logger } from "../observability/logger.js";
 import { recordActivity, recordSecurityEvent } from "../observability/audit.js";
 import { assertCustomerWorkflowStageAccess, assertOrderWritableAccess, OrderStateError } from "../services/orders.js";
@@ -213,6 +214,10 @@ export function createUploadRouter(): Router {
         return;
       }
 
+      // Configuration is resolved once and snapshotted into every subsequent job.
+      // A failed optional conversion/sync queue must never roll back a valid upload.
+      const conversionPolicy = await getStageConversionPolicy(orderId, phase);
+
       const results: {
         fileId: number;
         originalName: string;
@@ -253,7 +258,7 @@ export function createUploadRouter(): Router {
             return;
           }
         } else if (prerecordedAudio) {
-          allowedExtensions = [".webm", ".mp3", ".m4a", ".wav", ".ogg"];
+          allowedExtensions = [".webm", ".mp3", ".m4a", ".wav", ".ogg", ".opus", ".aac", ".flac", ".aiff", ".mp4"];
         } else {
           const allowedTypesSetting = await getSetting("intake.allowed_document_types");
           if (allowedTypesSetting) allowedExtensions = allowedTypesSetting.split(",").map(s => s.trim().toLowerCase());
@@ -375,6 +380,7 @@ export function createUploadRouter(): Router {
               });
 
               void queueOrderFileSharePointSync(existing.id).catch((error) => logger.warn("SharePoint file sync could not be queued", { fileId: existing.id, error }));
+              void queueStageFileProcessing(existing.id, conversionPolicy).catch((error) => logger.warn("Configured file processing could not be queued", { fileId: existing.id, error: String(error) }));
               void recordActivity({
                 actorUserId: session.user.id,
                 actorRole: session.user.role,
@@ -437,6 +443,7 @@ export function createUploadRouter(): Router {
           } else existingDocumentCount += 1;
 
           void queueOrderFileSharePointSync(fileId).catch((error) => logger.warn("SharePoint file sync could not be queued", { fileId, error }));
+          void queueStageFileProcessing(fileId, conversionPolicy).catch((error) => logger.warn("Configured file processing could not be queued", { fileId, error: String(error) }));
           void recordActivity({
             actorUserId: session.user.id,
             actorRole: session.user.role,

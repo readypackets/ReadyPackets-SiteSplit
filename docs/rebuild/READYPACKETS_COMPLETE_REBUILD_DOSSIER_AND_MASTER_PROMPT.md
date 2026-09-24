@@ -16,7 +16,7 @@ ReadyPackets is not a brochure site with a login screen. It is a security-sensit
 
 The rebuild must retain the existing security model rather than treating it as optional hardening. In particular, it must preserve strict browser protections, server-side authorization, administrator MFA, encrypted sensitive records, safe file handling, forward-only database migrations, a startup-blocking schema contract, and narrowly bounded host-level control paths. The target is a self-contained deployment that an operator can run on infrastructure they control, with external services enabled only when the operator deliberately configures them.[1] [2]
 
-The current release baseline contains **49 forward-only migrations** and verifies **37 critical schema tables** before the application serves traffic. The installer’s successful schema-contract result is the authoritative fresh-install checkpoint. Earlier documents cite different table inventories and test totals because they describe earlier points in the build; do not reuse those historical values as current acceptance criteria.[3] [4]
+The immutable pre-conversion baseline contained **49 forward-only migrations** and **37 critical schema tables**. The current conversion-enabled release adds reviewed migration `0054_conversion_pipeline_and_sharepoint_targets.sql` and verifies **50 migrations / 44 critical schema tables** before serving traffic. The installer’s successful schema-contract result is authoritative; do not reuse earlier table inventories as current acceptance criteria.[3] [4]
 
 ## 1. How to use this dossier
 
@@ -196,13 +196,13 @@ Customer-facing identifiers must be opaque and unique. New customer identifiers 
 
 External connections are optional, server-side, explicit, and operationally logged. They include SMTP, Stripe, Microsoft Graph/SharePoint, SAML identity provider metadata, S3-compatible storage, approved external webhooks, optional cloud backup synchronization, and Cloudflare Origin CA issuance. The platform must work without them except for the functionality they specifically enable.
 
-SharePoint integration must use a configured folder structure rather than blindly creating an extra “Customers” folder. Preserve a tested mapping for customer and order folder creation, phase-specific admin uploads, recorded audio, retries, outbound/inbound sync events, structured sync logs, and retry controls. Never truncate stored values during an order sync. OAuth/Graph credentials stay in protected configuration and must not be committed to Git.[6]
+SharePoint integration must use a configured folder structure rather than blindly creating an extra “Customers” folder. Preserve a tested mapping for customer and order folder creation, phase-specific admin uploads, recorded audio, retries, outbound/inbound sync events, structured sync logs, and retry controls. The conversion pipeline uses app-only `Sites.Selected` connections and named original/staging/intake target bindings with immutable `CustomerName-CustomerID/OrderNumber` locations. Never truncate stored values during an order sync. OAuth/Graph credentials stay in protected configuration and must not be committed to Git.[6]
 
 ## 6. Database, migrations, and schema contract
 
 The schema is forward-only. Migrations are numbered SQL files and recorded idempotently in `schema_migrations`. Rebuilders must not paper over an incomplete database by adding runtime `CREATE TABLE` operations in a request handler or making an administrator page silently ignore a missing table.
 
-The current schema contract deliberately checks active feature tables and required columns before the portal starts. It covers operational UI tables, webhook and phase operations, native mobile authorization/device records, subscriptions, billing, CRM, AI/session records, API auditing, scheduling, PWA experimentation, administration preferences, support permissions, feature schedules, and automation rate limits. The testable code summary is **37 critical tables verified**.[3] [8]
+The current schema contract deliberately checks active feature tables and required columns before the portal starts. It covers operational UI tables, webhook and phase operations, native mobile authorization/device records, subscriptions, billing, CRM, AI/session records, API auditing, scheduling, PWA experimentation, administration preferences, support permissions, feature schedules, automation rate limits, selected-site SharePoint connections/targets, conversion profiles/jobs, derivative provenance, and transfer outbox state. The testable code summary is **44 critical tables verified**.[3] [8]
 
 A critical repair added migration `0053_tier3_feature_schema_compat.sql`. It creates 21 tables that were declared in the runtime schema and queried by administration features but were missing from the authoritative migration ledger. The repair prevents fresh installs or upgrades from appearing healthy and then failing with missing-table errors in subscription, billing, CRM, or scheduling views. Keep this type of schema-to-runtime contract as a permanent release gate.[8] [9]
 
@@ -381,7 +381,7 @@ SECURITY INVARIANTS
 
 DATABASE AND RELEASE CONTRACT
 - Use forward-only numbered SQL migrations recorded idempotently in schema_migrations.
-- Build a startup-blocking schema contract. The current acceptance target is 49 migrations and 37 critical tables; recreate the feature-table compatibility coverage for subscription, billing, CRM, scheduling, mobile, API, PWA, administration preference, operational, and integration tables.
+- Build a startup-blocking schema contract. Preserve the 49-migration/37-table pre-conversion baseline and the current 50-migration/44-table release including selected-site SharePoint, conversion profiles/jobs, derivative provenance, and transfer outbox coverage.
 - Never hide a missing table with a runtime workaround. Fail before serving traffic and provide an actionable error.
 - Keep internal numeric IDs private and create opaque public customer IDs in the RP-CUS style. Never display legacy sequential customer identifiers as the current public identity.
 - Money is integer cents internally. Display dollar-friendly values in administration where appropriate, but never use floating point for price, discount, refund, or invoice calculations.
@@ -392,9 +392,9 @@ FUNCTIONAL REQUIREMENTS
 3. Customer portal: dashboard, account/security settings, orders, order status/progress/phase, workflow actions, messages, documents/files, audio playback, policy/MNDA acceptance, invoice download, order history, notifications, support, and controlled data/account requests.
 4. Orders: explicit server-enforced lifecycle. Intake and MNDA gates apply before advancement; delivery needs at least one customer-visible deliverable; cancelled/refunded are terminal and locked. Track separate status, percentage, and phase. Preserve audited order history.
 5. Staff workspace: phase-separated files, workflow phase unlocks, order messages, refund action, MNDA tab, order history tab, SharePoint sync status, invoices, rename controls, and authorized phase downloads.
-6. Workflow designer: static completion or bounded dynamic range with configured delay, instruction/announcement content and preview, next-button or submit-lock progression, email/webhook actions, and explicit SharePoint folder template/kickoff settings.
+6. Workflow designer: static completion or bounded dynamic range with configured delay, instruction/announcement content and preview, next-button or submit-lock progression, email/webhook actions, explicit SharePoint folder template/kickoff settings, and append-only document/PDF/audio conversion profile plus original/staging/intake selected-site target routing.
 7. Finance: Stripe Checkout and signed webhooks are optional; manual invoicing works without Stripe. Create branded invoice PDFs automatically per order and include customer, items, discounts, price paid, and order origin. Support customer/order lookup for refunds.
-8. Integrations: SMTP, Stripe, SharePoint/Graph, SAML, approved webhooks, storage, cloud backup sync, and Cloudflare Origin CA are optional and encrypted/configured through safe administrative/host controls. Provide test, log, retry, and safe-disable behavior.
+8. Integrations: SMTP, Stripe, SharePoint/Graph, SAML, approved webhooks, storage, cloud backup sync, and Cloudflare Origin CA are optional and encrypted/configured through safe administrative/host controls. For conversion routing, use only app-only `Sites.Selected` identities, fixed native local converters, durable lease/idempotency records, no-overwrite transfer behavior, and safe retry/disable behavior.
 9. Browser audio: capability-detect WebM first, M4A/AAC MP4 container on Safari where supported, then Ogg fallback. Validate accepted formats server-side.
 10. Administration: customers/roles, catalogue/presentation, public content, policies, workflows, orders, finance, tickets/messages, reviews/community, security center, backups/recovery, certificates, maintenance, integrations, and platform updates. Destructive operations require typed/dialog confirmation and audit history.
 11. Backup/recovery: provide a root-created full backup containing database, storage, checksums/manifest, environment secrets needed to decrypt data, and optional backup-sync runtime; explicitly exclude TLS private keys. Full portable restore preserves target hostname/origins/TLS/network/storage/DB connection/SAML activation while restoring portable secrets/data. Add preflight, typed confirmation, safety snapshot, forward migrations, schema contract, readiness, and root-owned append-only recovery history. Add passphrase-encrypted scoped identity and orders/files recovery with merge semantics and encryption-key fingerprint checks.
@@ -410,7 +410,7 @@ DEPLOYMENT REQUIREMENTS
 TEST AND ACCEPTANCE GATES
 - Test the compiled production bundle, not only the development server.
 - Use automated tests for crypto non-determinism, tamper rejection, AAD row binding, blind-index behavior, password policy, client-IP/CIDR parsing, Host/Origin/CSRF, rate-limit classification and category-scoped penalties, authorization/ownership, terminal order state, integer pricing, hostile uploads, traversal names, ticket reuse/expiry/IP binding, Markdown/link injection, audit redaction/severity, and schema-contract failure.
-- Use a seeded isolated MySQL test environment to run all migrations and verify the schema contract. The fresh release must report 49 migrations and 37 critical tables verified unless a reviewed new migration intentionally changes both code and documentation.
+- Use a seeded isolated MySQL test environment to run all migrations and verify the schema contract. The fresh conversion-enabled release must report 50 migrations and 44 critical tables verified unless a reviewed new migration intentionally changes both code and documentation.
 - Run type checking, linting, full tests, client/server production build, shell syntax checks, git diff --check, black-box security checks against a running compiled instance, browser walkthroughs for public/customer/admin flows, and an isolated backup/restore drill.
 - Test an expired-session login flow, SAML MFA policy, Safari audio formats, Stripe/webhook safe failure modes, SharePoint retry logging, full cross-domain recovery target-identity preservation, and root-controller restart behavior.
 - Maintain a complete SESSION_LOG.md. Commit and push every meaningful source, documentation, migration, test, installer, and deployment change to the private GitHub main branch without secrets.
@@ -427,7 +427,7 @@ The exact number of tests evolves. Historical evidence includes a final isolated
 | --- | --- |
 | Source integrity | Clean working tree, immutable reviewed commit, no secrets in tracked files, `git diff --check`. |
 | Static checks | TypeScript typecheck and ESLint with no warnings. |
-| Schema | Fresh isolated MySQL applies all migrations and reports the current schema-contract total; baseline is 49 migrations / 37 critical tables. |
+| Schema | Fresh isolated MySQL applies all migrations and reports the current schema-contract total; pre-conversion baseline is 49 migrations / 37 tables and the current conversion-enabled release is 50 migrations / 44 tables. |
 | Automated behavior | Full suite passes with seeded/isolated database where required. |
 | Production build | Client and server production bundles build and the compiled server serves correctly. |
 | Black-box security | Headers, CSP, Host validation, CSRF, sessions, authorization, traversal/dotfile defense, and rate-limit checks pass against the built app and canonical HTTPS hostname. |

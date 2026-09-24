@@ -52,10 +52,10 @@ The installer shows a final review. Confirm the domain, source repository, pinne
 A correct fresh installation prints a migration completion line in this form before it installs/starts ReadyPackets:
 
 ```text
-Applied 49 migration(s); 37 critical tables verified.
+Applied 50 migration(s); 44 critical tables verified.
 ```
 
-The exact number of migrations and verified tables may increase in a later reviewed release. For this release, the expected completion line is **`Applied 49 migration(s); 37 critical tables verified.`** The required invariant is that the installer completes without a schema-contract error. If it prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
+The exact number of migrations and verified tables may increase in a later reviewed release. For this release, the expected completion line is **`Applied 50 migration(s); 44 critical tables verified.`** The required invariant is that the installer completes without a schema-contract error. If it prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
 
 ## 5. Post-install verification
 
@@ -110,12 +110,19 @@ WHERE table_schema = 'readypackets'
     'pinned_quick_add',
     'support_permissions',
     'feature_toggle_schedules',
-    'email_automation_rate_limits'
+    'email_automation_rate_limits',
+    'sharepoint_connections',
+    'sharepoint_target_bindings',
+    'order_sharepoint_locations',
+    'conversion_profiles',
+    'conversion_jobs',
+    'file_derivatives',
+    'sharepoint_transfer_jobs'
   );
 "
 ```
 
-Expected results are two JSON health responses, `{"status":"ok"}` and `{"status":"ready"}`, plus `critical_tables = 37`. For a Cloudflare Origin CA deployment, also verify:
+Expected results are two JSON health responses, `{"status":"ok"}` and `{"status":"ready"}`, plus `critical_tables = 44`. For a Cloudflare Origin CA deployment, also verify:
 
 ```bash
 sudo openssl x509 \

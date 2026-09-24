@@ -78,6 +78,14 @@ describe("critical database schema contract", () => {
     );
   });
 
+  it("blocks startup when append-only conversion and selected-site tables are absent", async () => {
+    const incompleteRows = contractRows().filter((row) => row.tableName !== "conversion_jobs");
+
+    await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
+      "conversion_jobs (table missing)",
+    );
+  });
+
   it("uses explicit metadata aliases so MySQL column-name casing cannot hide existing tables", async () => {
     let statement = "";
     const connection = {

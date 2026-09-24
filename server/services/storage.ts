@@ -55,10 +55,14 @@ const ALLOWED_TYPES: Record<string, { mime: string[]; magicless?: boolean }> = {
   },
   zip: { mime: ["application/zip"] },
   mp3: { mime: ["audio/mpeg"] },
+  aac: { mime: ["audio/aac"] },
+  flac: { mime: ["audio/flac"] },
+  aiff: { mime: ["audio/aiff"] },
   m4a: { mime: ["audio/x-m4a", "audio/mp4"] },
   wav: { mime: ["audio/wav", "audio/x-wav"] },
   webm: { mime: ["audio/webm", "video/webm"] },
   ogg: { mime: ["audio/ogg", "video/ogg", "application/ogg"] },
+  opus: { mime: ["audio/ogg", "audio/ogg; codecs=opus"] },
   mp4: { mime: ["video/mp4"] },
 };
 

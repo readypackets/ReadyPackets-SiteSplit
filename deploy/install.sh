@@ -177,7 +177,10 @@ if [[ "$SKIP_PACKAGES" == "false" ]]; then
   fi
   apt-get install -y --no-install-recommends \
     ca-certificates curl gnupg git build-essential python3 \
-    mysql-server nginx nginx-extras ufw fail2ban unzip ffmpeg antiword poppler-utils
+    mysql-server nginx nginx-extras ufw fail2ban unzip ffmpeg antiword poppler-utils pandoc ghostscript libreoffice-writer python3-pip
+  # PDF-to-Word conversion is a documented application dependency. Pin it on
+  # installation so the worker never relies on an untracked host package.
+  python3 -m pip install --no-cache-dir --break-system-packages "pdf2docx==0.5.8"
 
   if ! command -v node >/dev/null 2>&1 || \
      [[ "$(node --version | sed 's/v\([0-9]*\).*/\1/')" -lt "$NODE_MAJOR" ]]; then
@@ -198,6 +201,10 @@ fi
 
 command -v node >/dev/null 2>&1 || die "Node.js is not installed."
 command -v pnpm >/dev/null 2>&1 || die "pnpm is not installed."
+for native_converter in ffmpeg pdftotext pandoc gs libreoffice; do
+  command -v "$native_converter" >/dev/null 2>&1 || die "Required self-hosted conversion tool '$native_converter' is not installed. Re-run without --skip-packages."
+done
+python3 -c 'import pdf2docx' >/dev/null 2>&1 || die "Required Python package pdf2docx is not installed. Re-run without --skip-packages."
 
 # ---------------------------------------------------------------------------
 # Service account and directories

@@ -1,5 +1,5 @@
 /**
- * Drizzle schema — 62 tables across ten domains.
+ * Drizzle schema — 69 tables across eleven domains.
  *
  * Conventions:
  *  - MySQL table names are snake_case; TypeScript exports are camelCase.
@@ -681,6 +681,207 @@ export const sharepointSyncLog = mysqlTable(
   (table) => ({
     orderIdx: index("sharepoint_sync_log_order_idx").on(table.orderId),
     statusIdx: index("sharepoint_sync_log_status_idx").on(table.status),
+  }),
+);
+
+/**
+ * An app-only Microsoft Graph identity scoped to selected SharePoint sites.
+ * Credentials are encrypted with a row-bound AAD after insertion; never return
+ * clientSecretEnc through a procedure.
+ */
+export const sharepointConnections = mysqlTable(
+  "sharepoint_connections",
+  {
+    id: id(),
+    name: varchar("name", { length: 120 }).notNull(),
+    tenantId: varchar("tenant_id", { length: 190 }).notNull(),
+    clientId: varchar("client_id", { length: 64 }).notNull(),
+    clientSecretEnc: text("client_secret_enc").notNull(),
+    siteId: varchar("site_id", { length: 512 }).notNull(),
+    driveId: varchar("drive_id", { length: 512 }).notNull(),
+    siteUrl: varchar("site_url", { length: 512 }),
+    rootFolderPath: varchar("root_folder_path", { length: 240 }).notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    lastTestedAt: timestamp("last_tested_at"),
+    lastTestOk: boolean("last_test_ok"),
+    lastError: varchar("last_error", { length: 800 }),
+    createdByUserId: int("created_by_user_id"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    nameUnique: uniqueIndex("sharepoint_connections_name_unique").on(table.name),
+    enabledIdx: index("sharepoint_connections_enabled_idx").on(table.enabled),
+  }),
+);
+
+/**
+ * Maps a workflow policy to one selected-site Graph identity. A target is a
+ * named role, not a client-provided URL, keeping all transfers contained.
+ */
+export const sharepointTargetBindings = mysqlTable(
+  "sharepoint_target_bindings",
+  {
+    id: id(),
+    name: varchar("name", { length: 120 }).notNull(),
+    targetRole: varchar("target_role", { length: 24 }).notNull(),
+    connectionId: int("connection_id").notNull(),
+    relativeRootPath: varchar("relative_root_path", { length: 240 }),
+    enabled: boolean("enabled").notNull().default(true),
+    createdByUserId: int("created_by_user_id"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    nameUnique: uniqueIndex("sharepoint_target_bindings_name_unique").on(table.name),
+    connectionIdx: index("sharepoint_target_bindings_connection_idx").on(table.connectionId),
+    roleEnabledIdx: index("sharepoint_target_bindings_role_enabled_idx").on(table.targetRole, table.enabled),
+  }),
+);
+
+/** A persisted, immutable external location prevents name changes from moving customer material. */
+export const orderSharepointLocations = mysqlTable(
+  "order_sharepoint_locations",
+  {
+    id: id(),
+    orderId: int("order_id").notNull(),
+    targetBindingId: int("target_binding_id").notNull(),
+    customerNameSnapshot: varchar("customer_name_snapshot", { length: 180 }).notNull(),
+    customerIdSnapshot: varchar("customer_id_snapshot", { length: 24 }).notNull(),
+    orderNumberSnapshot: varchar("order_number_snapshot", { length: 64 }).notNull(),
+    resolvedPath: varchar("resolved_path", { length: 1024 }).notNull(),
+    remoteFolderId: varchar("remote_folder_id", { length: 512 }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    orderTargetUnique: uniqueIndex("order_sharepoint_locations_order_target_unique").on(table.orderId, table.targetBindingId),
+    targetIdx: index("order_sharepoint_locations_target_idx").on(table.targetBindingId),
+  }),
+);
+
+/** Administrators choose closed, versioned conversion profiles rather than command strings. */
+export const conversionProfiles = mysqlTable(
+  "conversion_profiles",
+  {
+    id: id(),
+    name: varchar("name", { length: 120 }).notNull(),
+    operation: varchar("operation", { length: 40 }).notNull(),
+    settingsJson: json("settings_json"),
+    revision: int("revision").notNull().default(1),
+    toolFingerprint: varchar("tool_fingerprint", { length: 128 }).notNull(),
+    active: boolean("active").notNull().default(true),
+    createdByUserId: int("created_by_user_id"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    nameUnique: uniqueIndex("conversion_profiles_name_unique").on(table.name),
+    operationActiveIdx: index("conversion_profiles_operation_active_idx").on(table.operation, table.active),
+  }),
+);
+
+/** Immutable source snapshot plus durable lease state for a requested conversion. */
+export const conversionJobs = mysqlTable(
+  "conversion_jobs",
+  {
+    id: id(),
+    orderId: int("order_id").notNull(),
+    sourceFileId: int("source_file_id").notNull(),
+    sourceFileVersion: int("source_file_version").notNull(),
+    sourceStorageKey: varchar("source_storage_key", { length: 128 }).notNull(),
+    sourceSha256: char("source_sha256", { length: 64 }).notNull(),
+    sourceOriginalName: varchar("source_original_name", { length: 255 }).notNull(),
+    sourcePhase: varchar("source_phase", { length: 64 }).notNull(),
+    conversionProfileId: int("conversion_profile_id").notNull(),
+    profileRevision: int("profile_revision").notNull(),
+    profileOperation: varchar("profile_operation", { length: 40 }).notNull(),
+    profileSettingsJson: json("profile_settings_json"),
+    toolFingerprint: varchar("tool_fingerprint", { length: 128 }).notNull(),
+    targetBindingsJson: json("target_bindings_json"),
+    artifactFileId: int("artifact_file_id"),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    idempotencyKey: char("idempotency_key", { length: 64 }).notNull(),
+    correlationId: char("correlation_id", { length: 36 }).notNull(),
+    attempts: int("attempts").notNull().default(0),
+    runAfter: timestamp("run_after").notNull().defaultNow(),
+    leaseToken: char("lease_token", { length: 36 }),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    lastError: varchar("last_error", { length: 800 }),
+    completedAt: timestamp("completed_at"),
+    cancelledAt: timestamp("cancelled_at"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    idempotencyUnique: uniqueIndex("conversion_jobs_idempotency_unique").on(table.idempotencyKey),
+    claimIdx: index("conversion_jobs_claim_idx").on(table.status, table.runAfter, table.leaseExpiresAt),
+    sourceIdx: index("conversion_jobs_source_idx").on(table.sourceFileId, table.sourceFileVersion),
+    orderIdx: index("conversion_jobs_order_idx").on(table.orderId),
+  }),
+);
+
+/** A conversion output is an explicit file record linked to its immutable source snapshot. */
+export const fileDerivatives = mysqlTable(
+  "file_derivatives",
+  {
+    id: id(),
+    sourceFileId: int("source_file_id").notNull(),
+    sourceFileVersion: int("source_file_version").notNull(),
+    sourceStorageKey: varchar("source_storage_key", { length: 128 }).notNull(),
+    sourceSha256: char("source_sha256", { length: 64 }).notNull(),
+    conversionProfileId: int("conversion_profile_id").notNull(),
+    conversionProfileRevision: int("conversion_profile_revision").notNull(),
+    artifactFileId: int("artifact_file_id").notNull(),
+    outputSha256: char("output_sha256", { length: 64 }).notNull(),
+    outputMime: varchar("output_mime", { length: 128 }).notNull(),
+    outputExtension: varchar("output_extension", { length: 16 }).notNull(),
+    toolFingerprint: varchar("tool_fingerprint", { length: 128 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => ({
+    sourceProfileUnique: uniqueIndex("file_derivatives_source_profile_unique").on(table.sourceFileId, table.sourceFileVersion, table.conversionProfileId, table.conversionProfileRevision),
+    artifactIdx: index("file_derivatives_artifact_idx").on(table.artifactFileId),
+    sourceHashIdx: index("file_derivatives_source_hash_idx").on(table.sourceSha256),
+  }),
+);
+
+/** Durable SharePoint transfer outbox using remote identity as retry evidence. */
+export const sharepointTransferJobs = mysqlTable(
+  "sharepoint_transfer_jobs",
+  {
+    id: id(),
+    orderId: int("order_id").notNull(),
+    sourceFileId: int("source_file_id").notNull(),
+    artifactFileId: int("artifact_file_id"),
+    targetBindingId: int("target_binding_id").notNull(),
+    operationType: varchar("operation_type", { length: 32 }).notNull(),
+    storageKeySnapshot: varchar("storage_key_snapshot", { length: 128 }).notNull(),
+    sha256Snapshot: char("sha256_snapshot", { length: 64 }).notNull(),
+    fileNameSnapshot: varchar("file_name_snapshot", { length: 255 }).notNull(),
+    mimeSnapshot: varchar("mime_snapshot", { length: 128 }).notNull(),
+    phaseSnapshot: varchar("phase_snapshot", { length: 64 }).notNull(),
+    idempotencyKey: char("idempotency_key", { length: 64 }).notNull(),
+    correlationId: char("correlation_id", { length: 36 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    attempts: int("attempts").notNull().default(0),
+    runAfter: timestamp("run_after").notNull().defaultNow(),
+    leaseToken: char("lease_token", { length: 36 }),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    remoteItemId: varchar("remote_item_id", { length: 512 }),
+    remoteEtag: varchar("remote_etag", { length: 512 }),
+    remoteSizeBytes: bigint("remote_size_bytes", { mode: "number" }),
+    lastError: varchar("last_error", { length: 800 }),
+    completedAt: timestamp("completed_at"),
+    cancelledAt: timestamp("cancelled_at"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => ({
+    idempotencyUnique: uniqueIndex("sharepoint_transfer_jobs_idempotency_unique").on(table.idempotencyKey),
+    claimIdx: index("sharepoint_transfer_jobs_claim_idx").on(table.status, table.runAfter, table.leaseExpiresAt),
+    orderIdx: index("sharepoint_transfer_jobs_order_idx").on(table.orderId),
+    targetIdx: index("sharepoint_transfer_jobs_target_idx").on(table.targetBindingId),
   }),
 );
 

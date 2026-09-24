@@ -4091,3 +4091,36 @@ To satisfy the self-hosted mandate without external dependencies, conversion wil
 
 **GitHub synchronization:**
 The new design and review documents, alongside this session log entry, are queued for private GitHub main-branch publication.
+
+
+---
+
+## 2026-09-23 — Approved self-hosted conversion and selected-site SharePoint pipeline
+
+**User approval and request:**
+
+> I Approve the 49-migration/37-table baseline and release blockers as the immutable starting point.
+> I Accept that self-hosted conversion prohibits relying on undocumented host tools or Manus-provided AI integration.
+> I Confirm the append-only conversion architecture: originals are never overwritten.
+> I Verify Microsoft Graph Sites.Selected app identities will replace broad delegated user credentials.
+> Add the capabilities and features need to perform the conversion of documents and audio files
+
+**Implemented capability:** The approved immutable **49-migration / 37-critical-table** baseline was retained as the starting point. Forward-only migration `0054_conversion_pipeline_and_sharepoint_targets.sql` adds the reviewed conversion and selected-site delivery domain, producing the new startup checkpoint **`Applied 50 migration(s); 44 critical tables verified.`** It creates `sharepoint_connections`, `sharepoint_target_bindings`, `order_sharepoint_locations`, `conversion_profiles`, `conversion_jobs`, `file_derivatives`, and `sharepoint_transfer_jobs`. It also corrects incomplete legacy pending `dispatch_webhooks` phase jobs to the recognized `notify_webhooks` type without rewriting completed historical evidence.
+
+**Conversion safety model:** `server/services/conversionPipeline.ts` implements a durable, append-only pipeline. A workflow upload snapshots source storage key, source SHA-256, file version, profile revision/settings/tool fingerprint, and selected target identifiers before processing. The original remains unchanged. Each output is a separate private `derived_artifact` file and is linked by `file_derivatives` provenance. Fixed native command arrays, never shell interpolation or administrator-supplied executables, support PDF-to-Word/text, Word-to-PDF/text, text-to-Word/PDF, two PDF compression presets, and approved audio formats to WebM/Opus. Generated artifacts re-enter the existing magic-byte validation before storage.
+
+**SharePoint safety model:** A selected-site connection encrypts its app-only Graph secret using row-bound encryption. Named target bindings are constrained by role (`originals`, `conversion_staging`, or `intake_delivery`); a transfer operation cannot use a mismatched target role. The first transfer writes a durable normalized path snapshot using `CustomerName-CustomerID/OrderNumber`, so a later customer rename does not move historical folders. Remote uploads use conflict-fail behavior, compare an existing object’s size before treating a retry as successful, and never overwrite a nonmatching object. Resumable Graph upload sessions are used for larger files. The Graph test control validates drive-root access without returning a secret.
+
+**Administration and workflow controls:** Admin → Integrations now contains **Conversion Pipeline** controls to create conversion profiles, encrypted selected-site app connections, controlled targets, Graph drive tests, conversion activity, and selected-site transfer activity with bounded retry/cancel controls. Admin → Order Workflows exposes a stage-level **File conversion and selected-site SharePoint routing** configuration panel. It selects fixed profiles and independent originals/staging/intake targets. Policies are snapshotted at upload time; portable workflow export deliberately omits environment-local profile and target IDs.
+
+**Self-hosted deployment and release repairs:** Native VPS and Docker provisioning now explicitly install FFmpeg, Poppler, Pandoc, Ghostscript, LibreOffice Writer, Python/pip, and pinned `pdf2docx==0.5.8`. The VPS installer fails closed if its documented converter inventory is missing, including when `--skip-packages` is used. Docker now copies `drizzle/migrations` to the runtime location required by the migration runner, resolving the documented clean-container migration artifact blocker. The backend CI workflow has been activated as `.github/workflows/portal-ci.yml`.
+
+**Documentation:** Added `docs/rebuild/SELF_HOSTED_CONVERSION_AND_SHAREPOINT_PIPELINE.md` with the configuration sequence, conversion matrix, selected-site Entra least-privilege checklist, recovery/provenance behavior, and production acceptance tests. Updated the conversion design, rebuild dossier/master prompt, clean-room install guide, recovery guide, release-control diagram, and optimization report for the 50/44 release state.
+
+**Validation completed:** TypeScript typecheck passed. The focused conversion-routing and schema-contract suites passed (**12 tests**), including explicit fail-closed coverage for a missing conversion table, path traversal/segment normalization, hierarchy construction, and fixed operation labels. Client production build and server production bundle passed. The full local suite executed 223 tests; **212 passed and 11 `tests/domain.test.ts` cases could not run only because this sandbox has no MySQL service on `127.0.0.1:3306`** (`ECONNREFUSED`). The failures were existing seeded-catalogue database cases, not conversion assertions. CI provisions MySQL and runs migrations/seed before the full suite. The local sandbox intentionally does not have Docker, MySQL server, Pandoc, Ghostscript, LibreOffice conversion tooling, or `pdf2docx`, so native converter and isolated migration smoke execution remain deployment/CI gates rather than falsely claimed local passes.
+
+
+**Audio input compatibility refinement:** The conversion release extends pre-recorded audio intake to magic-validated `.mp3`, `.m4a`, `.wav`, `.webm`, `.ogg`, `.opus`, `.aac`, `.flac`, `.aiff`, and `.mp4` containers for browser and native mobile uploads. It does not weaken the validator or accept arbitrary extensions: each input must still match a fixed permitted type by decoded magic bytes before FFmpeg converts it to WebM/Opus. Focused upload/audio/conversion/schema tests passed after this extension.
+
+
+**Final release check:** The final focused suite completed **37 passing tests** across conversion routing, schema contract, upload validation, and browser audio format behavior. TypeScript, client production build, server production bundle, installer/backup/restore shell syntax, and `git diff --check` passed. Repository inspection confirms **50 migration files** and **44 schema-contract tables**. `pnpm lint` remains unavailable because this repository defines the lint script but does not include an `eslint` package/configuration; this pre-existing toolchain gap is not masked as a passing lint check. The full 223-test local run remained database-limited as described above; GitHub CI provisions MySQL, applies migration/seed, and executes the full suite.

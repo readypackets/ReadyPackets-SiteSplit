@@ -1,57 +1,65 @@
 # Conversion and SharePoint Workflow Implementation Design
 
-This document specifies the technical architecture for the configurable document/audio conversion and multi-site SharePoint synchronization expansion, fulfilling the requirement for a deterministic, self-hosted deployment.
+This document records the architectural design for configurable document/audio conversion and multi-site SharePoint synchronization. The approved first implementation is delivered by `0054_conversion_pipeline_and_sharepoint_targets.sql`; its operator procedure and exact post-release acceptance criteria are in [Self-Hosted Conversion and Selected-Site SharePoint Pipeline](SELF_HOSTED_CONVERSION_AND_SHAREPOINT_PIPELINE.md).
 
-## 1. Multi-Site SharePoint Targeting
+## 1. Multi-site SharePoint targeting
 
-The system will decouple the single global SharePoint configuration into three distinct, administratively selectable logical targets:
+ReadyPackets decouples the earlier global SharePoint configuration from three named, administratively selectable target roles.
 
-*   **Target 1: Originals.** Receives an exact, byte-for-byte copy of the customer's uploaded file.
-*   **Target 2: Conversion Staging.** Receives the converted artifact (e.g., PDF to DOCX) and a provenance manifest detailing the source hash and tool version used.
-*   **Target 3: Intake Delivery.** Receives only the final, approved converted artifact.
+| Target role | Receives | Security boundary |
+|---|---|---|
+| **Original uploads** | Exact original customer or staff upload | App-only selected-site identity and fixed target binding |
+| **Conversion staging** | Newly created conversion artifact | Separate target binding; no source overwrite |
+| **Intake delivery** | Newly created conversion artifact intended for intake use | Separate target binding; customer publishing remains a staff action |
 
-### Immutable Order Locations
-For every selected target, the application resolves an immutable order location path at the time of the first transfer.
-*   **Format:** `{TargetRoot}/{SafeCustomerName}-{CustomerID}/{SafeOrderNumber}/` (e.g., `Acme_Corp-RP-CUS-001A/ORD-1042/`).
-*   **Normalization:** The `SafeCustomerName` is transliterated, stripped of special characters and traversal dot-segments, and combined with the immutable Customer ID to prevent name-change collisions.
-*   **Permissions:** Each target operates using a distinct app-only Microsoft Entra identity constrained by the `Sites.Selected` Graph permission, retiring the broad delegated access previously used.
+### Immutable order locations
 
-## 2. Deterministic Self-Hosted Conversion
+For each selected target, the application resolves and stores an immutable location at the first transfer:
 
-ReadyPackets remains strictly self-hosted; conversion will not rely on Office 365, SaaS APIs, or external AI agents.
+```text
+{TargetRoot}/{SafeCustomerName}-{CustomerID}/{SafeOrderNumber}/
+```
 
-### Toolchain and Sandboxing
-The conversions run in a dedicated, low-privilege background worker container loaded with pinned open-source tools:
-*   **DOCX to PDF:** `libreoffice --headless`
-*   **PDF to TXT:** `pdftotext` (Poppler)
-*   **PDF to DOCX:** A pinned Python `pdf2docx` integration.
-*   **TXT to DOCX/PDF:** `pandoc`
-*   **PDF Compression:** `gs` (Ghostscript) with safe presets.
-*   **Audio to WebM:** `ffmpeg` (already used safely in the codebase).
+For example, `Acme Corp-RP-CUS-001A/ORD-1042/`. The customer name is normalized into a conservative path segment and combined with the immutable customer identifier. The stored `order_sharepoint_locations` record means that a later rename does not move or fork historical customer folders. Each target uses an app-only Microsoft Entra identity constrained through `Sites.Selected`, replacing broad delegated credentials for this new pipeline.
 
-The worker has no network access, operates as an unprivileged user in a `0700` private workspace, and enforces strict file-size, page-count, and CPU/memory limits. Executables are invoked via `execFile` without shell interpolation.
+## 2. Deterministic self-hosted conversion
 
-### Conversion Profiles
-Administrators configure conversion via versioned **Conversion Profiles** rather than arbitrary shell commands.
-A stage might be configured with: "If input is PDF, apply profile `pdf-reflow-docx-v1`".
-The database records the profile version and tool digest at the time of execution.
+Conversion is strictly self-hosted. It does not call Office 365 conversion APIs, SaaS conversion services, external AI agents, or Manus capabilities. Fixed command argument arrays invoke the following explicitly installed tools:
 
-## 3. Append-Only Artifact Derivation
+| Conversion | Tool |
+|---|---|
+| DOCX to PDF | LibreOffice headless |
+| PDF to TXT | Poppler `pdftotext` |
+| PDF to DOCX | Pinned Python `pdf2docx` |
+| DOCX to TXT and TXT to DOCX | Pandoc |
+| TXT to PDF | Pandoc plus LibreOffice headless |
+| PDF compression | Ghostscript safe presets |
+| Audio to WebM/Opus | FFmpeg |
 
-The core invariant of this feature is that **original uploads are never overwritten or deleted**.
+The local converter runs in the existing unprivileged service context, creates a `0700` job workspace under private temporary storage, caps source/output size, validates each result with the existing upload magic-byte controls, and invokes no shell interpolation. The converter itself has no SaaS dependency; the separately queued SharePoint transport makes only constrained Microsoft Graph calls using the selected-site app identity. The installer and Docker image explicitly provision these tools and the installer fails closed if `--skip-packages` leaves one absent.
 
-1.  **Snapshot:** When a conversion job is queued, the system snapshots the source file ID, its active version, its opaque storage key, and its SHA-256 hash.
-2.  **Derivation:** The conversion worker reads the original file, performs the transformation, and writes the output to a *new*, random storage key.
-3.  **Linkage:** A new `file_derivatives` (or `artifact_files`) record is created, capturing the output SHA-256 and referencing the source snapshot.
-4.  **Idempotency:** The transfer to SharePoint is keyed by a hash of the artifact SHA-256, target folder ID, and operation, ensuring retry logic never duplicates files on the remote server.
+### Conversion profiles
 
-## 4. Master Prompt Walkthrough
+Administrators select a versioned **Conversion Profile** instead of entering a command. A profile has a named fixed operation, constrained settings where applicable, active state, revision, and native-tool fingerprint. The conversion job snapshots the profile revision and settings before execution.
 
-When applying the Master Prompt to rebuild ReadyPackets, the LLM will encounter these strict boundaries:
+## 3. Append-only artifact derivation
 
-1.  **"Mandatory Technical Stack"**: Prevents the LLM from substituting AWS Lambda or managed cloud queues for the background conversion worker. It must implement the queue using MySQL and Node.js.
-2.  **"Security Posture as Code"**: Requires the LLM to write the strict `execFile` bindings and AppArmor/seccomp profiles for the conversion tools, preventing shell-injection vulnerabilities.
-3.  **"Strict Schema Validation"**: The LLM must supply additive MySQL migrations (e.g., `0054_conversion_profiles.sql`) that define the `file_derivatives` and outbox tables, passing the 37-table `schemaContract.ts` assertion.
-4.  **"Release and Testing Gates"**: Forces the LLM to fix the Docker migration artifact blocker and provide unit tests for the path normalizer before the new feature can be considered complete.
+The governing invariant is that **original uploads are never overwritten or deleted** by the conversion pipeline.
 
-This design guarantees that ReadyPackets gains powerful enterprise integration while retaining its fundamental security, auditability, and self-hosted isolation.
+1. **Snapshot.** The queue records the source file ID, active version, opaque storage key, SHA-256, source phase, profile revision, and selected target identifiers.
+2. **Derivation.** The worker reads the snapshot, creates an output at a new opaque storage key, and creates a separate private file record.
+3. **Provenance.** `file_derivatives` links the source snapshot to the artifact, including output hash, output MIME type, profile revision, and tool fingerprint.
+4. **Delivery.** `sharepoint_transfer_jobs` carries a separate immutable transfer snapshot. Microsoft Graph transfer uses conflict-fail behavior; an existing remote file is accepted only when its size matches the local immutable snapshot, otherwise the job fails safely.
+5. **Idempotency.** Deterministic idempotency keys and bounded leased retry queues prevent duplicate conversion or transfer side effects.
+
+## 4. Rebuild-master-prompt implications
+
+A rebuild following the ReadyPackets master prompt must preserve these boundaries.
+
+1. **Mandatory technical stack:** Use MySQL-backed durable queue state and Node workers rather than managed queues or runtime cloud conversion dependencies.
+2. **Security posture as code:** Preserve fixed `execFile` bindings, no shell input, minimum tool inventory, row-bound encryption of selected-site secrets, and the unprivileged service account.
+3. **Strict schema validation:** Apply additive migration `0054_conversion_pipeline_and_sharepoint_targets.sql` and pass the updated **44-table** schema contract; the pre-conversion **49-migration / 37-table** baseline remains the immutable starting point.
+4. **Release and testing gates:** Preserve the corrected Docker migration path and regression coverage for path normalization and conversion schema tables.
+5. **SharePoint least privilege:** Keep each selected-site target constrained to a named app-only Graph identity and never allow a workflow or browser client to supply a free-form remote URL.
+
+This design supplies deterministic enterprise conversion and integration behavior while retaining the ReadyPackets security, auditability, and self-hosted isolation principles.

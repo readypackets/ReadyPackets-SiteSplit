@@ -3,7 +3,7 @@ import type { Connection, RowDataPacket } from "mysql2/promise";
 /**
  * Tables and columns that must exist before the portal can serve its actively
  * shipped order, configuration, backup, integration, native mobile, Tier 3,
- * CRM, scheduling, and subscription routes. This operational contract turns a
+ * CRM, scheduling, subscription, selected-site SharePoint, and conversion routes. This operational contract turns a
  * partial or legacy upgrade into a clear startup failure instead of a later
  * generic administrator UI error.
  */
@@ -204,6 +204,13 @@ export const criticalSchemaContract: Readonly<Record<string, readonly string[]>>
   support_permissions: ["id", "user_id", "can_view_all_tickets", "can_close_tickets", "can_assign_tickets", "can_view_customer_pii", "can_issue_refunds", "granted_by_user_id", "created_at", "updated_at"],
   feature_toggle_schedules: ["id", "flag_key", "scheduled_value", "scheduled_at", "executed_at", "created_at"],
   email_automation_rate_limits: ["id", "automation_id", "user_id", "sent_count", "window_start"],
+  sharepoint_connections: ["id", "name", "tenant_id", "client_id", "client_secret_enc", "site_id", "drive_id", "root_folder_path", "enabled", "created_at", "updated_at"],
+  sharepoint_target_bindings: ["id", "name", "target_role", "connection_id", "enabled", "created_at", "updated_at"],
+  order_sharepoint_locations: ["id", "order_id", "target_binding_id", "customer_name_snapshot", "customer_id_snapshot", "order_number_snapshot", "resolved_path", "created_at", "updated_at"],
+  conversion_profiles: ["id", "name", "operation", "settings_json", "revision", "tool_fingerprint", "active", "created_at", "updated_at"],
+  conversion_jobs: ["id", "order_id", "source_file_id", "source_file_version", "source_storage_key", "source_sha256", "conversion_profile_id", "profile_revision", "profile_operation", "target_bindings_json", "status", "idempotency_key", "correlation_id", "attempts", "run_after", "created_at", "updated_at"],
+  file_derivatives: ["id", "source_file_id", "source_file_version", "source_storage_key", "source_sha256", "conversion_profile_id", "artifact_file_id", "output_sha256", "output_mime", "output_extension", "tool_fingerprint", "created_at"],
+  sharepoint_transfer_jobs: ["id", "order_id", "source_file_id", "target_binding_id", "operation_type", "storage_key_snapshot", "sha256_snapshot", "file_name_snapshot", "mime_snapshot", "phase_snapshot", "idempotency_key", "correlation_id", "status", "attempts", "run_after", "created_at", "updated_at"],
 };
 
 export type SchemaContractConnection = Pick<Connection, "query">;

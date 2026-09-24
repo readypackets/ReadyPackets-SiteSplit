@@ -1,14 +1,14 @@
 # ReadyPackets Codebase Optimization and Rebuild Review
 
-This report documents priority optimization findings from the current ReadyPackets codebase (commit `4dea2af`). Before extending the application with a complex conversion and multi-site SharePoint architecture, these foundational corrections—several of which are release-blocking defects—must be applied to ensure the system remains resilient and securely self-hosted.
+This report documents priority optimization findings from the pre-conversion ReadyPackets codebase. The Docker migration artifact defect and pending webhook job-name mismatch were corrected in the conversion release; remaining findings are retained as prioritized follow-up work so the historical reasoning is not lost.
 
 ## 1. Release and Pipeline Blockers
 
-The integrity of the deployment pipeline and operational schema is compromised by three proven gaps:
+The following defects were identified before the conversion implementation:
 
-*   **Docker Migration Artifact Defect (P0):** The `Dockerfile` at line 96 attempts to copy `/build/scripts/migrations`, which does not exist in the source tree (migrations live in `drizzle/migrations`). If an image is built, the runtime `migrate.ts` will fail to find its directory and the application will fail to start. This path must be corrected before any deployment.
-*   **Webhook Job-Name Mismatch (P0):** Order state transitions enqueue a job named `dispatch_webhooks` (in `server/services/orders.ts`), but the phase processor explicitly listens for `notify_webhooks` (in `server/services/sharepoint.ts`). The unrecognized jobs are warned about and instantly marked completed, meaning configured order-transition webhooks are silently skipped. A canonical job-type registry must be created and the pending legacy rows migrated.
-*   **Inactive Backend CI (P0):** The full backend continuous integration definition (`ci/github-actions-ci.yml`) is intentionally parked and inactive. The active `.github/workflows/native-mobile.yml` runs only the mobile contract and typecheck—it does not run the 106 unit tests, build the Docker image, run migrations, or execute the HTTP security probe. This pipeline must be activated to enforce the 37-table schema contract automatically.
+*   **Docker Migration Artifact Defect (P0) — corrected:** The image now copies `drizzle/migrations` to the runtime location expected by `scripts/migrate.ts`.
+*   **Webhook Job-Name Mismatch (P0) — corrected:** Migration `0054` normalizes incomplete legacy `dispatch_webhooks` rows to `notify_webhooks`, preserving completed historic records as audit evidence.
+*   **Inactive Backend CI (P0) — corrected:** The backend workflow is active as `.github/workflows/portal-ci.yml`, enforcing type checks, migrations, the schema contract, tests, production bundles, and the black-box security probe on main and pull requests.
 
 ## 2. Queue Reliability and Idempotency
 

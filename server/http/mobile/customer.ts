@@ -24,6 +24,7 @@ import { assertCustomerWorkflowStageAccess, assertOrderAccess, listOrdersForUser
 import { probeAudioDurationSeconds } from "../../services/audioDuration.js";
 import { buildOrderFileName } from "../../services/fileNaming.js";
 import { queueOrderFileSharePointSync } from "../../services/sharepoint.js";
+import { getStageConversionPolicy, queueStageFileProcessing } from "../../services/conversionPipeline.js";
 import { contentDisposition, getObjectStream, objectExists, putObject, validateUpload } from "../../services/storage.js";
 import { decryptField, encryptField } from "../../security/crypto.js";
 import { getOrCreatePaidOrderInvoice } from "../../services/invoices.js";
@@ -329,10 +330,11 @@ export function createMobileCustomerRouter(): Router {
     const order = (await db.select({ orderNumber: orders.orderNumber, customerPublicId: users.publicId }).from(orders).innerJoin(users, eq(orders.userId, users.id)).where(and(eq(orders.id, orderId), isNull(orders.deletedAt))).limit(1))[0];
     const customerPublicId = order?.customerPublicId;
     if (!order || !customerPublicId) throw new MobileOAuthError("conflict", "The customer tracking reference is unavailable.", 409);
-    const expectedExtensions = recordedAudio ? [".m4a", ".webm"] : prerecordedAudio ? [".m4a", ".webm", ".mp3", ".wav", ".ogg"] : undefined;
+    const expectedExtensions = recordedAudio ? [".m4a", ".webm"] : prerecordedAudio ? [".m4a", ".webm", ".mp3", ".wav", ".ogg", ".opus", ".aac", ".flac", ".aiff", ".mp4"] : undefined;
     const response = await runIdempotent(req, "POST /orders/:publicOrderId/uploads", { order: req.params.publicOrderId, phase, recordedAudio, prerecordedAudio, files: uploaded.map((file) => ({ name: file.originalname, size: file.size })) }, async () => {
       const accepted: Record<string, unknown>[] = [];
       const rejected: Record<string, string>[] = [];
+      const conversionPolicy = await getStageConversionPolicy(orderId, phase);
       for (const candidate of uploaded) {
         const validated = await validateUpload(candidate.originalname, candidate.buffer, { allowedExtensions: expectedExtensions });
         if (!validated.ok || !validated.extension || !validated.mime) { rejected.push({ name: candidate.originalname, reason: validated.reason ?? "The file type is not accepted." }); continue; }
@@ -351,6 +353,7 @@ export function createMobileCustomerRouter(): Router {
         const fileId = insertedId(result);
         accepted.push({ mobileFileRef: sealReference("file", fileId, principal.userId), originalName, sizeBytes: stored.sizeBytes, durationSeconds, detectedMime: validated.mime });
         void queueOrderFileSharePointSync(fileId);
+        void queueStageFileProcessing(fileId, conversionPolicy).catch(() => undefined);
         void recordActivity({ actorUserId: principal.userId, actorRole: "customer", action: audio ? "audio.upload" : "file.upload", entityType: "file", entityId: fileId, summary: "Customer mobile upload accepted", changes: { order: req.params.publicOrderId, phase, audio }, ipAddress: clientIp(res) });
       }
       if (accepted.length === 0) throw new MobileOAuthError("upload_rejected", rejected[0]?.reason ?? "No file was accepted.", 422);

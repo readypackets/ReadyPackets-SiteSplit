@@ -10,6 +10,11 @@ import {
   phaseJobs,
   phaseKickoffConfigs,
   sharepointSyncLog,
+  conversionJobs,
+  conversionProfiles,
+  sharepointConnections,
+  sharepointTargetBindings,
+  sharepointTransferJobs,
   files,
   orders,
   webhookDeliveries,
@@ -23,6 +28,7 @@ import { browseSharePointFolders, DEFAULT_FOLDER_TEMPLATES, discoverSharePointCo
 import { disconnectDelegatedSharePointIdentity, getDelegatedSharePointStatus, startDelegatedSharePointAuthorization } from "../services/sharepointDelegatedAuth.js";
 import { getSetting, setSetting } from "../services/settings.js";
 import { recordActivity } from "../observability/audit.js";
+import { CONVERSION_OPERATIONS, conversionProfileLabel, NATIVE_CONVERTER_FINGERPRINT, saveSharepointConnection, testSelectedSiteConnection } from "../services/conversionPipeline.js";
 
 export const integrationsRouter = router({
   // =========================================================================
@@ -656,6 +662,234 @@ export const integrationsRouter = router({
         ipAddress: ctx.clientIp,
       });
       return { ok: true };
+    }),
+
+  // =========================================================================
+  // Append-only conversion and selected-site SharePoint pipeline
+  // =========================================================================
+
+  conversionProfiles: adminProcedure.query(async () => {
+    const rows = await db.select({
+      id: conversionProfiles.id,
+      name: conversionProfiles.name,
+      operation: conversionProfiles.operation,
+      settingsJson: conversionProfiles.settingsJson,
+      revision: conversionProfiles.revision,
+      toolFingerprint: conversionProfiles.toolFingerprint,
+      active: conversionProfiles.active,
+      createdAt: conversionProfiles.createdAt,
+      updatedAt: conversionProfiles.updatedAt,
+    }).from(conversionProfiles).orderBy(conversionProfiles.name);
+    return rows.map((row) => ({ ...row, operationLabel: conversionProfileLabel(row.operation as (typeof CONVERSION_OPERATIONS)[number]) }));
+  }),
+
+  upsertConversionProfile: adminProcedure
+    .input(z.object({
+      id: z.number().int().positive().optional(),
+      name: z.string().trim().min(2).max(120),
+      operation: z.enum(CONVERSION_OPERATIONS),
+      audioBitrateKbps: z.number().int().min(32).max(128).optional(),
+      active: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const settingsJson = input.operation === "audio_to_webm" ? { bitrateKbps: input.audioBitrateKbps ?? 64 } : {};
+      let id = input.id;
+      if (id) {
+        const [existing] = await db.select({ id: conversionProfiles.id, revision: conversionProfiles.revision }).from(conversionProfiles).where(eq(conversionProfiles.id, id)).limit(1);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Conversion profile not found." });
+        await db.update(conversionProfiles).set({ name: input.name, operation: input.operation, settingsJson, active: input.active, revision: existing.revision + 1, toolFingerprint: NATIVE_CONVERTER_FINGERPRINT }).where(eq(conversionProfiles.id, id));
+      } else {
+        const result = await db.insert(conversionProfiles).values({ name: input.name, operation: input.operation, settingsJson, active: input.active, revision: 1, toolFingerprint: NATIVE_CONVERTER_FINGERPRINT, createdByUserId: ctx.session.user.id });
+        id = Number((result as unknown as { insertId?: number }).insertId ?? 0);
+      }
+      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "conversion.profile_saved", entityType: "conversion_profile", entityId: id ?? 0, summary: `Saved ${conversionProfileLabel(input.operation)} conversion profile ${input.name}.`, changes: { operation: input.operation, active: input.active }, ipAddress: ctx.clientIp });
+      return { id };
+    }),
+
+  selectedSiteConnections: adminProcedure.query(async () => {
+    return db.select({
+      id: sharepointConnections.id,
+      name: sharepointConnections.name,
+      tenantId: sharepointConnections.tenantId,
+      clientId: sharepointConnections.clientId,
+      tenantIdSuffix: sql<string>`CONCAT('…', RIGHT(${sharepointConnections.tenantId}, 8))`,
+      clientIdSuffix: sql<string>`CONCAT('…', RIGHT(${sharepointConnections.clientId}, 8))`,
+      siteId: sharepointConnections.siteId,
+      driveId: sharepointConnections.driveId,
+      siteUrl: sharepointConnections.siteUrl,
+      rootFolderPath: sharepointConnections.rootFolderPath,
+      enabled: sharepointConnections.enabled,
+      lastTestedAt: sharepointConnections.lastTestedAt,
+      lastTestOk: sharepointConnections.lastTestOk,
+      lastError: sharepointConnections.lastError,
+      createdAt: sharepointConnections.createdAt,
+      updatedAt: sharepointConnections.updatedAt,
+    }).from(sharepointConnections).orderBy(sharepointConnections.name);
+  }),
+
+  upsertSelectedSiteConnection: adminProcedure
+    .input(z.object({
+      id: z.number().int().positive().optional(),
+      name: z.string().trim().min(2).max(120),
+      tenantId: z.string().trim().min(3).max(190),
+      clientId: z.string().trim().uuid(),
+      clientSecret: z.string().min(1).max(512).optional(),
+      siteId: z.string().trim().min(1).max(512),
+      driveId: z.string().trim().min(1).max(512),
+      siteUrl: z.string().trim().url().max(512).optional().or(z.literal("")),
+      rootFolderPath: z.string().trim().min(1).max(240),
+      enabled: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const normalizedRoot = normalizeSharePointRootFolderPath(input.rootFolderPath);
+      try {
+        const id = await saveSharepointConnection({ ...input, siteUrl: input.siteUrl || null, rootFolderPath: normalizedRoot, actorUserId: ctx.session.user.id });
+        void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "sharepoint.selected_site_connection_saved", entityType: "sharepoint_connection", entityId: id, summary: `Saved selected-site SharePoint connection ${input.name}.`, changes: { siteId: input.siteId, driveId: input.driveId, rootFolderPath: normalizedRoot, enabled: input.enabled }, ipAddress: ctx.clientIp });
+        return { id };
+      } catch (error) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message.slice(0, 500) : "Could not save the selected-site connection." });
+      }
+    }),
+
+  testSelectedSiteConnection: adminProcedure
+    .input(z.object({ connectionId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await testSelectedSiteConnection(input.connectionId);
+        void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "sharepoint.selected_site_connection_test_succeeded", entityType: "sharepoint_connection", entityId: input.connectionId, summary: `Selected-site SharePoint connection ${input.connectionId} passed a drive-root test.`, ipAddress: ctx.clientIp });
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message.slice(0, 500) : "Selected-site SharePoint connection test failed.";
+        void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "sharepoint.selected_site_connection_test_failed", entityType: "sharepoint_connection", entityId: input.connectionId, severity: "warning", summary: "Selected-site SharePoint connection test failed.", ipAddress: ctx.clientIp });
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message });
+      }
+    }),
+
+  selectedSiteTargets: adminProcedure.query(async () => {
+    return db.select({
+      id: sharepointTargetBindings.id,
+      name: sharepointTargetBindings.name,
+      targetRole: sharepointTargetBindings.targetRole,
+      connectionId: sharepointTargetBindings.connectionId,
+      connectionName: sharepointConnections.name,
+      relativeRootPath: sharepointTargetBindings.relativeRootPath,
+      enabled: sharepointTargetBindings.enabled,
+      createdAt: sharepointTargetBindings.createdAt,
+      updatedAt: sharepointTargetBindings.updatedAt,
+    }).from(sharepointTargetBindings).innerJoin(sharepointConnections, eq(sharepointTargetBindings.connectionId, sharepointConnections.id)).orderBy(sharepointTargetBindings.name);
+  }),
+
+  upsertSelectedSiteTarget: adminProcedure
+    .input(z.object({
+      id: z.number().int().positive().optional(),
+      name: z.string().trim().min(2).max(120),
+      targetRole: z.enum(["originals", "conversion_staging", "intake_delivery"]),
+      connectionId: z.number().int().positive(),
+      relativeRootPath: z.string().trim().max(240).optional().or(z.literal("")),
+      enabled: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const [connection] = await db.select({ id: sharepointConnections.id, enabled: sharepointConnections.enabled }).from(sharepointConnections).where(eq(sharepointConnections.id, input.connectionId)).limit(1);
+      if (!connection?.enabled) throw new TRPCError({ code: "BAD_REQUEST", message: "Select an enabled selected-site SharePoint connection." });
+      let id = input.id;
+      const values = { name: input.name, targetRole: input.targetRole, connectionId: input.connectionId, relativeRootPath: input.relativeRootPath || null, enabled: input.enabled };
+      if (id) {
+        const [existing] = await db.select({ id: sharepointTargetBindings.id }).from(sharepointTargetBindings).where(eq(sharepointTargetBindings.id, id)).limit(1);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "SharePoint target not found." });
+        await db.update(sharepointTargetBindings).set(values).where(eq(sharepointTargetBindings.id, id));
+      } else {
+        const result = await db.insert(sharepointTargetBindings).values({ ...values, createdByUserId: ctx.session.user.id });
+        id = Number((result as unknown as { insertId?: number }).insertId ?? 0);
+      }
+      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "sharepoint.selected_site_target_saved", entityType: "sharepoint_target", entityId: id ?? 0, summary: `Saved ${input.targetRole} SharePoint target ${input.name}.`, changes: { connectionId: input.connectionId, enabled: input.enabled }, ipAddress: ctx.clientIp });
+      return { id };
+    }),
+
+  conversionPipelineActivity: adminProcedure
+    .input(z.object({ page: z.number().int().min(1).default(1), status: z.enum(["pending", "running", "succeeded", "failed", "cancelled"]).optional() }))
+    .query(async ({ input }) => {
+      const offset = (input.page - 1) * 50;
+      const condition = input.status ? eq(conversionJobs.status, input.status) : undefined;
+      const rows = await db.select({
+        id: conversionJobs.id,
+        orderId: conversionJobs.orderId,
+        sourceFileId: conversionJobs.sourceFileId,
+        artifactFileId: conversionJobs.artifactFileId,
+        sourceOriginalName: conversionJobs.sourceOriginalName,
+        operation: conversionJobs.profileOperation,
+        status: conversionJobs.status,
+        attempts: conversionJobs.attempts,
+        lastError: conversionJobs.lastError,
+        completedAt: conversionJobs.completedAt,
+        createdAt: conversionJobs.createdAt,
+        updatedAt: conversionJobs.updatedAt,
+      }).from(conversionJobs).where(condition).orderBy(desc(conversionJobs.updatedAt)).limit(50).offset(offset);
+      const totals = await db.select({ total: sql<number>`count(*)` }).from(conversionJobs).where(condition);
+      return { rows, total: Number(totals[0]?.total ?? 0) };
+    }),
+
+  retryConversionJob: adminProcedure
+    .input(z.object({ jobId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const [job] = await db.select({ id: conversionJobs.id, status: conversionJobs.status }).from(conversionJobs).where(eq(conversionJobs.id, input.jobId)).limit(1);
+      if (!job) throw new TRPCError({ code: "NOT_FOUND", message: "Conversion job not found." });
+      if (!(job.status === "failed" || job.status === "cancelled")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only failed or cancelled conversions can be requeued." });
+      await db.update(conversionJobs).set({ status: "pending", attempts: 0, runAfter: new Date(), leaseToken: null, leaseExpiresAt: null, lastError: null, cancelledAt: null }).where(eq(conversionJobs.id, job.id));
+      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "conversion.requeued", entityType: "conversion_job", entityId: job.id, summary: `Administrator requeued conversion job ${job.id}.`, ipAddress: ctx.clientIp });
+      return { ok: true as const };
+    }),
+
+  cancelConversionJob: adminProcedure
+    .input(z.object({ jobId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await db.update(conversionJobs).set({ status: "cancelled", cancelledAt: new Date(), leaseToken: null, leaseExpiresAt: null, lastError: "Cancelled by administrator" }).where(and(eq(conversionJobs.id, input.jobId), eq(conversionJobs.status, "pending")));
+      if (Number((result as unknown as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only pending conversions can be cancelled." });
+      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "conversion.cancelled", entityType: "conversion_job", entityId: input.jobId, severity: "warning", summary: `Administrator cancelled pending conversion job ${input.jobId}.`, ipAddress: ctx.clientIp });
+      return { ok: true as const };
+    }),
+
+  selectedSiteTransferActivity: adminProcedure
+    .input(z.object({ page: z.number().int().min(1).default(1), status: z.enum(["pending", "running", "succeeded", "failed", "cancelled"]).optional() }))
+    .query(async ({ input }) => {
+      const offset = (input.page - 1) * 50;
+      const condition = input.status ? eq(sharepointTransferJobs.status, input.status) : undefined;
+      const rows = await db.select({
+        id: sharepointTransferJobs.id,
+        orderId: sharepointTransferJobs.orderId,
+        sourceFileId: sharepointTransferJobs.sourceFileId,
+        artifactFileId: sharepointTransferJobs.artifactFileId,
+        operationType: sharepointTransferJobs.operationType,
+        targetName: sharepointTargetBindings.name,
+        fileName: sharepointTransferJobs.fileNameSnapshot,
+        status: sharepointTransferJobs.status,
+        attempts: sharepointTransferJobs.attempts,
+        lastError: sharepointTransferJobs.lastError,
+        remoteItemId: sharepointTransferJobs.remoteItemId,
+        completedAt: sharepointTransferJobs.completedAt,
+        updatedAt: sharepointTransferJobs.updatedAt,
+      }).from(sharepointTransferJobs).innerJoin(sharepointTargetBindings, eq(sharepointTransferJobs.targetBindingId, sharepointTargetBindings.id)).where(condition).orderBy(desc(sharepointTransferJobs.updatedAt)).limit(50).offset(offset);
+      const totals = await db.select({ total: sql<number>`count(*)` }).from(sharepointTransferJobs).where(condition);
+      return { rows, total: Number(totals[0]?.total ?? 0) };
+    }),
+
+  retrySelectedSiteTransfer: adminProcedure
+    .input(z.object({ jobId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const [job] = await db.select({ id: sharepointTransferJobs.id, status: sharepointTransferJobs.status }).from(sharepointTransferJobs).where(eq(sharepointTransferJobs.id, input.jobId)).limit(1);
+      if (!job) throw new TRPCError({ code: "NOT_FOUND", message: "Selected-site transfer job not found." });
+      if (!(job.status === "failed" || job.status === "cancelled")) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only failed or cancelled transfers can be requeued." });
+      await db.update(sharepointTransferJobs).set({ status: "pending", attempts: 0, runAfter: new Date(), leaseToken: null, leaseExpiresAt: null, lastError: null, cancelledAt: null }).where(eq(sharepointTransferJobs.id, job.id));
+      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "sharepoint.selected_site_transfer_requeued", entityType: "sharepoint_transfer", entityId: job.id, summary: `Administrator requeued selected-site SharePoint transfer ${job.id}.`, ipAddress: ctx.clientIp });
+      return { ok: true as const };
+    }),
+
+  cancelSelectedSiteTransfer: adminProcedure
+    .input(z.object({ jobId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await db.update(sharepointTransferJobs).set({ status: "cancelled", cancelledAt: new Date(), leaseToken: null, leaseExpiresAt: null, lastError: "Cancelled by administrator" }).where(and(eq(sharepointTransferJobs.id, input.jobId), eq(sharepointTransferJobs.status, "pending")));
+      if (Number((result as unknown as { affectedRows?: number }).affectedRows ?? 0) !== 1) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only pending transfers can be cancelled." });
+      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "sharepoint.selected_site_transfer_cancelled", entityType: "sharepoint_transfer", entityId: input.jobId, severity: "warning", summary: `Administrator cancelled pending selected-site SharePoint transfer ${input.jobId}.`, ipAddress: ctx.clientIp });
+      return { ok: true as const };
     }),
 
   // =========================================================================

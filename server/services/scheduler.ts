@@ -25,6 +25,7 @@ import { invalidateIpCaches, purgeExpiredBlacklistEntries } from "../security/ip
 import { getSettingNumber, invalidateSettingsCache } from "./settings.js";
 import { processPhaseJobs, processPendingFileSyncs, deliverWebhooks } from "./sharepoint.js";
 import { processWorkflowCompletionJobs } from "./orders.js";
+import { processConversionJobs, processSharepointTransferJobs } from "./conversionPipeline.js";
 
 interface Job {
   name: string;
@@ -189,6 +190,22 @@ const JOBS: Job[] = [
     intervalMs: 60_000,
     initialDelayMs: 25_000,
     run: processPendingFileSyncs,
+  },
+  {
+    name: "conversion_pipeline",
+    intervalMs: 20_000,
+    initialDelayMs: 30_000,
+    run: async () => {
+      await processConversionJobs(2);
+    },
+  },
+  {
+    name: "sharepoint_transfer_outbox",
+    intervalMs: 30_000,
+    initialDelayMs: 35_000,
+    run: async () => {
+      await processSharepointTransferJobs(3);
+    },
   },
   {
     name: "webhook_delivery",
