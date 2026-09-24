@@ -4059,3 +4059,35 @@ The dossier renders and embeds four reviewed diagrams from version-controlled Me
 **Validation:** Mermaid sources were rendered successfully to PNG. The dossier was checked for all four image references, contains 455 lines and 8,212 words, references the complete version-controlled session record, and passed `git diff --check`. The live source confirms 49 migration files and `scripts/schemaContract.ts` declares 37 critical tables. No source code, deployment, customer data, secrets, TLS material, or environment settings were altered by this documentation change.
 
 **GitHub synchronization:** The complete dossier, diagram sources/renders, and this session entry are included in the required private GitHub main-branch publication for this documentation release.
+
+
+---
+
+## 2026-09-23 — Codebase optimization review and conversion workflow architecture
+
+**User request:**
+
+> 1. Add the ability to convert document files from PDF to Word documents or text files and vice versa Word files to PDF or text files and text files to word documents and pdf this can be configured in the admin order workflow designer.
+> 2. Add the ability to reduce PDF sizes also configurable in the admin order workflow designer.
+> 3. Add the ability to convert audio files from any format to a .WEBM audio file this can be configured in the admin workflow.
+> 4. Add the ability to sync orders to a specific sharepoint site for original files uploaded from/to the customer order. It should maintain the folder structure of CustomerName-CustomerID --> OrderNumber. (configurable in the order workflow designer)
+> 5. Add the ability to copy files from the original order files sharepoint site to another sharepoint site for staging and file conversion for document files and audio files. It should maintain the folder structure of CustomerName-CustomerID --> OrderNumber and once the files are converted to the correct format copy them to the intake sharepoint site (configurable in the order workflow designer)
+> 6. Review the 37 critical schema-contract tables and suggest any optimizations before executing the rebuild.
+> 7. Review all the code and suggest any optimizations
+> 8. Generate a slide deck summarizing the ReadyPackets rebuild architecture and master prompt for stakeholder review.
+> 9. Can you walk me through the master prompt to ensure all self-hosted deployment requirements are covered?
+
+**Response and deliverable:** Conducted a comprehensive, read-only workflow, schema, and codebase audit to map the requested file-conversion and multi-site SharePoint architecture against current ReadyPackets capabilities. The findings, self-hosted conversion design, and master-prompt walkthrough were documented in `docs/rebuild/Codebase_Optimization_Report.md` and `docs/rebuild/Conversion_Architecture_Design.md`. A stakeholder presentation deck (`ReadyPackets Rebuild Architecture & Master Prompt`) was authored and delivered to the Slides UI, detailing the strict security, operational, and append-only invariants required to safely implement this expansion.
+
+**Key optimization findings:**
+The review identified three proven release-blocking defects that must be resolved prior to expansion:
+1. The `Dockerfile` attempts to copy a non-existent migration path, breaking fresh deployments.
+2. Order transitions enqueue an unhandled `dispatch_webhooks` job, causing webhooks to be silently dropped.
+3. The backend CI pipeline is deactivated, disabling the automated 37-table schema contract gate.
+Additionally, the current in-memory job polling and unbounded memory upload buffering must be replaced with a durable, lease-based transactional outbox and streaming ingestion to safely handle heavy PDF and audio conversion workloads.
+
+**Conversion architecture design:**
+To satisfy the self-hosted mandate without external dependencies, conversion will be managed via versioned, admin-defined profiles executed by a dedicated, network-disabled worker using pinned native tools (`libreoffice`, `poppler`, `pandoc`, `ghostscript`, `ffmpeg`). It enforces an append-only invariant: originals are never overwritten. A new multi-target routing model uses explicit Microsoft Graph `Sites.Selected` identities to securely transfer the untouched original, the conversion staging artifact/manifest, and the final intake delivery.
+
+**GitHub synchronization:**
+The new design and review documents, alongside this session log entry, are queued for private GitHub main-branch publication.
