@@ -85,7 +85,41 @@ function resolveClientDist(): string {
   return path.resolve(here, "..", "client", "dist");
 }
 
-const clientDist = resolveClientDist();
+const legacyClientDist = resolveClientDist();
+
+/**
+ * The marketing site and the authenticated portal are independently compiled
+ * bundles. A legacy single-bundle install remains supported until PUBLIC_SITE_URL
+ * is configured to a distinct hostname, which makes rollback a configuration
+ * change rather than a source rollback.
+ */
+function resolveSplitClientDist(directory: "dist-public" | "dist-portal", fallback: string): string {
+  const shell = directory === "dist-public" ? "public.html" : "portal.html";
+  const candidates = [
+    process.env[directory === "dist-public" ? "PUBLIC_CLIENT_DIST_PATH" : "PORTAL_CLIENT_DIST_PATH"],
+    path.resolve(here, "..", "client", directory),
+    path.resolve(here, "client", directory),
+    path.resolve(process.cwd(), "client", directory),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => existsSync(path.join(candidate, shell))) ?? fallback;
+}
+
+const publicClientDist = resolveSplitClientDist("dist-public", legacyClientDist);
+const portalClientDist = resolveSplitClientDist("dist-portal", legacyClientDist);
+
+function isPublicSurface(req: Request): boolean {
+  return env.siteSplitEnabled && req.hostname === env.publicHostname;
+}
+
+function clientDistFor(req: Request): string {
+  if (!env.siteSplitEnabled) return legacyClientDist;
+  return isPublicSurface(req) ? publicClientDist : portalClientDist;
+}
+
+function clientShellFor(req: Request): string {
+  if (!env.siteSplitEnabled) return "index.html";
+  return isPublicSurface(req) ? "public.html" : "portal.html";
+}
 
 function escapeXml(value: string): string {
   return value.replace(/[<>&'\"]/g, (character) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", "\"": "&quot;" })[character] ?? character);
@@ -105,12 +139,12 @@ function pageMetadata(req: Request) {
     "/accessibility": { title: "Accessibility | ReadyPackets", description: "Learn about ReadyPackets’ accessibility approach, keyboard support, and how to report an accessibility barrier." },
   };
   const pathName = req.path;
-  const publicPath = Boolean(pages[pathName]) || pathName.startsWith("/packets/") || pathName.startsWith("/legal/") || ["/privacy", "/terms", "/refunds", "/disclaimer", "/changelog"].includes(pathName);
+  const publicPath = isPublicSurface(req) && (Boolean(pages[pathName]) || pathName.startsWith("/packets/") || pathName.startsWith("/legal/") || ["/privacy", "/terms", "/refunds", "/disclaimer", "/changelog"].includes(pathName));
   const page = pages[pathName] ?? (pathName.startsWith("/packets/") ? { title: "Business packet | ReadyPackets", description: "Review a ReadyPackets business packet group and its available service tiers." } : { title: "ReadyPackets", description: "ReadyPackets provides structured business documentation and strategy support." });
   return {
     title: page.title.replaceAll("ReadyPackets", websiteName),
     description: page.description.replaceAll("ReadyPackets", websiteName),
-    canonical: new URL(pathName, `https://${req.hostname}`).toString(),
+    canonical: new URL(pathName, isPublicSurface(req) ? env.publicSiteUrl : env.appUrl).toString(),
     robots: publicPath ? "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" : "noindex, nofollow",
   };
 }
@@ -134,13 +168,14 @@ async function serveIndex(req: Request, res: Response): Promise<void> {
 
     const nonce = (res.locals.cspNonce as string | undefined) ?? "";
     const metadata = pageMetadata(req);
-    const html = await readFile(path.join(clientDist, "index.html"), "utf8");
+    const html = await readFile(path.join(clientDistFor(req), clientShellFor(req)), "utf8");
     const rendered = html
       .replaceAll("__CSP_NONCE__", nonce)
       .replaceAll("__PAGE_TITLE__", escapeXml(metadata.title))
       .replaceAll("__PAGE_DESCRIPTION__", escapeXml(metadata.description))
       .replaceAll("__PAGE_ROBOTS__", metadata.robots)
-      .replaceAll("__CANONICAL_URL__", escapeXml(metadata.canonical));
+      .replaceAll("__CANONICAL_URL__", escapeXml(metadata.canonical))
+      .replaceAll("__PORTAL_ORIGIN__", escapeXml(env.appUrl));
     res
       .status(200)
       .type("text/html; charset=utf-8")
@@ -184,6 +219,28 @@ export function createApp(): Express {
     const hostname = req.hostname || null;
     if (!isAllowedHostname(hostname)) {
       res.status(421).type("text/plain").send("Misdirected request");
+      return;
+    }
+    next();
+  });
+
+  // Keep old bookmarks useful while keeping the anonymous and authenticated
+  // experiences on their intended hosts. Only browser routes cross surfaces;
+  // API routes remain same-origin and are never redirected.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (!env.siteSplitEnabled || req.path.startsWith("/api/")) return next();
+    const portalPath = /^(?:\/login|\/register|\/verify-email|\/forgot-password|\/reset-password|\/portal(?:\/|$)|\/admin(?:\/|$))/.test(req.path);
+    const publicPath = /^(?:\/$|\/packets(?:\/|$)|\/how-it-works$|\/about$|\/reviews$|\/community$|\/changelog$|\/contact$|\/faq$|\/accessibility$|\/privacy$|\/terms$|\/refunds$|\/disclaimer$|\/legal(?:\/|$)|\/sitemap\.xml$|\/robots\.txt$)/.test(req.path);
+    if (!isPublicSurface(req) && req.path === "/") {
+      res.redirect(302, new URL("/login", env.appUrl).toString());
+      return;
+    }
+    if (isPublicSurface(req) && portalPath) {
+      res.redirect(302, new URL(`${req.path}${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`, env.appUrl).toString());
+      return;
+    }
+    if (!isPublicSurface(req) && publicPath) {
+      res.redirect(302, new URL(`${req.path}${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`, env.publicSiteUrl).toString());
       return;
     }
     next();
@@ -392,26 +449,36 @@ export function createApp(): Express {
     res.type("application/xml").setHeader("Cache-Control", "no-cache").send(body);
   });
 
-  // Static assets. Hashed bundle files are immutable; everything else is revalidated.
-  app.use(
-    express.static(clientDist, {
-      index: false,
-      dotfiles: "ignore",
-      etag: true,
-      lastModified: true,
-      maxAge: 0,
-      setHeaders(res, filePath) {
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        if (/\.[0-9a-f]{8,}\.(js|css|woff2?|png|svg|jpg|webp)$/i.test(filePath)) {
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        } else if (/\.(png|svg|jpg|jpeg|webp|ico|woff2?)$/i.test(filePath)) {
-          res.setHeader("Cache-Control", "public, max-age=86400");
-        } else {
-          res.setHeader("Cache-Control", "no-cache");
-        }
-      },
-    }),
-  );
+  // Never serve a compiled HTML shell as a static file: it contains the nonce
+  // placeholder and must pass through serveIndex for a fresh CSP nonce.
+  app.get(["/index.html", "/public.html", "/portal.html"], (_req: Request, res: Response) => {
+    res.status(404).type("text/plain").send("Not found");
+  });
+
+  // Static assets. Each hostname reads only its own build directory. Hashed
+  // files are immutable; non-hashed assets are revalidated.
+  const staticOptions = {
+    index: false,
+    dotfiles: "ignore",
+    etag: true,
+    lastModified: true,
+    maxAge: 0,
+    setHeaders(res: Response, filePath: string) {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      if (/\.[0-9a-f]{8,}\.(js|css|woff2?|png|svg|jpg|webp)$/i.test(filePath)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      } else if (/\.(png|svg|jpg|jpeg|webp|ico|woff2?)$/i.test(filePath)) {
+        res.setHeader("Cache-Control", "public, max-age=86400");
+      } else {
+        res.setHeader("Cache-Control", "no-cache");
+      }
+    },
+  };
+  const publicStatic = express.static(publicClientDist, staticOptions);
+  const portalStatic = express.static(portalClientDist, staticOptions);
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    (isPublicSurface(req) ? publicStatic : portalStatic)(req, res, next);
+  });
 
   // SPA fallback for GET only; a POST to an unknown path is an error, not a page.
   app.get("*", async (req: Request, res: Response) => {

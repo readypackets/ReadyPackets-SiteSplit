@@ -5,6 +5,7 @@ umask 077
 
 MODE=""
 DOMAIN=""
+PUBLIC_DOMAIN=""
 EMAIL=""
 PROJECT_DIR=""
 TLS_PROVIDER=""
@@ -24,7 +25,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   # Interactive: prompts for native VPS, existing Docker, or Docker bootstrap.
-  sudo bash deploy/unified-install.sh --domain portal.example.com --email ops@example.com
+  sudo bash deploy/unified-install.sh --domain portal.example.com --public-domain www.example.com --email ops@example.com
 
   # Non-interactive / automation: explicitly select the install mode.
   sudo bash deploy/unified-install.sh --mode native --domain portal.example.com --email ops@example.com --tls-provider letsencrypt
@@ -59,6 +60,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) MODE="${2:-}"; shift 2 ;;
     --domain) DOMAIN="${2:-}"; shift 2 ;;
+    --public-domain) PUBLIC_DOMAIN="${2:-}"; shift 2 ;;
     --email) EMAIL="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
     --tls-provider) TLS_PROVIDER="${2:-}"; shift 2 ;;
@@ -122,6 +124,8 @@ if [[ -z "$MODE" && -t 0 ]]; then
 fi
 [[ "$MODE" == "native" || "$MODE" == "docker" || "$MODE" == "docker-bootstrap" ]] || fail "Choose --mode native, docker, or docker-bootstrap."
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "A valid --domain is required."
+[[ -z "$PUBLIC_DOMAIN" || "$PUBLIC_DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "--public-domain must be a valid hostname."
+[[ -z "$PUBLIC_DOMAIN" || "$PUBLIC_DOMAIN" != "$DOMAIN" ]] || fail "--public-domain must differ from --domain."
 if [[ -z "$TLS_PROVIDER" && -t 0 ]]; then
   printf '\nTLS certificate provider:\n  1) Let\x27s Encrypt\n  2) Cloudflare Origin CA\n  3) HTTP only / configure later\n'
   read -r -p "Choose [1-3] (default 1): " tls_choice
@@ -142,6 +146,7 @@ fi
 
 if [[ "$MODE" == "native" ]]; then
   args=(--domain "$DOMAIN")
+  [[ -n "$PUBLIC_DOMAIN" ]] && args+=(--public-domain "$PUBLIC_DOMAIN")
   [[ -n "$EMAIL" ]] && args+=(--email "$EMAIL")
   [[ "$TLS_PROVIDER" != "none" ]] && args+=(--tls-provider "$TLS_PROVIDER")
   [[ -n "$CLOUDFLARE_ORIGIN_CERT" ]] && args+=(--cloudflare-origin-cert "$CLOUDFLARE_ORIGIN_CERT")
@@ -178,7 +183,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
   mysql_root_password="$(openssl rand -base64 40 | tr -d '\n=/+' | cut -c1-40)"
   cat > "$ENV_FILE" <<ENV
 APP_URL=https://${DOMAIN}
-ALLOWED_ORIGINS=https://${DOMAIN}
+PUBLIC_SITE_URL=https://${PUBLIC_DOMAIN:-$DOMAIN}
+ALLOWED_ORIGINS=https://${DOMAIN},https://${PUBLIC_DOMAIN:-$DOMAIN}
 HEALTHCHECK_HOST=${DOMAIN}
 MYSQL_DATABASE=readypackets
 MYSQL_USER=readypackets

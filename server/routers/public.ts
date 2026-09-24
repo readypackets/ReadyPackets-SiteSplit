@@ -29,6 +29,7 @@ import { getMaintenanceState, isFeatureEnabled } from "../services/settings.js";
 import { getCatalogPresentationSettings } from "../services/catalogPresentation.js";
 import { recordActivity } from "../observability/audit.js";
 import { queueTemplatedEmail, wrapHtmlBody } from "../services/email.js";
+import { getConsentGatedAnalyticsConfig } from "../services/analyticsConfig.js";
 import { publicProcedure, router } from "../trpc/trpc.js";
 import { POLICY_SLUGS } from "../../shared/domain.js";
 
@@ -36,6 +37,14 @@ const TEASER_LENGTH = 260;
 
 export const publicRouter = router({
   catalog: publicProcedure.query(async () => getCatalog()),
+
+  /**
+   * Optional provider configuration is disclosed only after the requesting
+   * browser has an affirmative analytics preference recorded for this host.
+   * The response contains provider setup values only, never an account, order,
+   * document, or customer identifier.
+   */
+  analyticsConfig: publicProcedure.query(async ({ ctx }) => getConsentGatedAnalyticsConfig(ctx.req)),
 
   /**
    * Public display preferences only; checkout and protected customer quotes

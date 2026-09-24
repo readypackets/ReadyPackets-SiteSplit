@@ -1,6 +1,6 @@
 # ReadyPackets Self-Hosted Conversion and Selected-Site SharePoint Pipeline
 
-**Release baseline:** Migration `0054_conversion_pipeline_and_sharepoint_targets.sql` advances the reviewed platform from **49 migrations / 37 critical tables** to **50 migrations / 44 critical tables**. The migration is forward-only. It does not alter or delete existing files, file versions, legacy SharePoint sync records, customer folders, or portal settings.
+**Release baseline:** Migration `0054_conversion_pipeline_and_sharepoint_targets.sql` advances the reviewed platform from **49 migrations / 37 critical tables** to **50 migrations / 44 critical tables**. The later site-split privacy configuration migration `0055_site_split_privacy_analytics.sql` brings the reviewed platform to **51 migrations / 44 critical tables** without changing conversion records, original files, file versions, legacy SharePoint sync records, customer folders, or portal settings.
 
 ## Purpose and operating model
 

@@ -32,7 +32,7 @@ FROM deps AS build
 
 WORKDIR /build
 
-COPY tsconfig.json vite.config.ts postcss.config.mjs ./
+COPY tsconfig.json vite.config.ts vite.split.config.ts vite.public.config.ts vite.portal.config.ts postcss.config.mjs ./
 COPY shared ./shared
 COPY server ./server
 COPY client ./client
@@ -43,7 +43,7 @@ ENV NODE_ENV=production
 
 # The client bundle and the server bundle. Type checking runs in CI rather than
 # here so a deployment is never blocked by a type error in a test file.
-RUN pnpm exec vite build \
+RUN pnpm run build:client \
  && pnpm exec esbuild server/index.ts \
       --bundle \
       --platform=node \
@@ -97,6 +97,8 @@ ENV NODE_ENV=production \
 COPY --from=prod-deps --chown=root:root /build/node_modules ./node_modules
 COPY --from=build     --chown=root:root /build/dist ./dist
 COPY --from=build     --chown=root:root /build/client/dist ./client/dist
+COPY --from=build     --chown=root:root /build/client/dist-public ./client/dist-public
+COPY --from=build     --chown=root:root /build/client/dist-portal ./client/dist-portal
 COPY --from=build     --chown=root:root /build/drizzle/migrations ./drizzle/migrations
 COPY --chown=root:root package.json ./package.json
 

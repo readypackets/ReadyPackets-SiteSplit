@@ -36,15 +36,22 @@ const PERMISSIONS_POLICY = [
   "xr-spatial-tracking=()",
 ].join(", ");
 
-/** Stripe requires script and frame access; everything else stays self-only. */
+/**
+ * Stripe requires script and frame access. Clarity and PostHog source lists are
+ * present for an optional, consent-gated integration; allowing an origin in CSP
+ * never loads it. The React provider does not inject either script or make an
+ * outbound request until the browser has a recorded affirmative analytics
+ * preference. Nonce + strict-dynamic still prevent an injected script from
+ * exploiting these allowlists.
+ */
 function buildCsp(nonce: string, allowStripe: boolean): string {
   // 'strict-dynamic' propagates trust from the nonce to scripts loaded by
   // trusted scripts (i.e. React's dynamically-imported chunks). Without it,
   // only the initial script tag is trusted and React's event delegation breaks.
   // 'self' is kept for browsers that do not support strict-dynamic.
-  const scriptSrc = ["'strict-dynamic'", `'nonce-${nonce}'`, "'self'"];
+  const scriptSrc = ["'strict-dynamic'", `'nonce-${nonce}'`, "'self'", "https://www.clarity.ms", "https://*.posthog.com"];
   const frameSrc = ["'none'"];
-  const connectSrc = ["'self'"];
+  const connectSrc = ["'self'", "https://www.clarity.ms", "https://*.posthog.com"];
   if (allowStripe) {
     scriptSrc.push("https://js.stripe.com");
     frameSrc.length = 0;

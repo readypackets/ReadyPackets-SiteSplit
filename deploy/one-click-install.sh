@@ -7,7 +7,7 @@
 set -Eeuo pipefail
 umask 077
 
-readonly DEFAULT_REPOSITORY="readypackets/ReadyPackets"
+readonly DEFAULT_REPOSITORY="readypackets/ReadyPackets-SiteSplit"
 SETTINGS_FILE="${RP_SETTINGS_FILE:-}"
 
 # A failed fresh installation can safely reuse a root-owned, non-secret profile
@@ -32,6 +32,7 @@ REPOSITORY="${RP_REPOSITORY:-$DEFAULT_REPOSITORY}"
 REF="${RP_REF:-main}"
 COMMIT="${RP_COMMIT:-}"
 DOMAIN="${RP_DOMAIN:-}"
+PUBLIC_DOMAIN="${RP_PUBLIC_DOMAIN:-}"
 EMAIL="${RP_EMAIL:-}"
 MODE="${RP_MODE:-}"
 SITE_NAME="${RP_SITE_NAME:-ReadyPackets}"
@@ -154,7 +155,8 @@ if [[ "$INTERACTIVE_MODE" == "true" ]]; then
     esac
   fi
 
-  prompt_required "Public website hostname (for example www.example.com)" DOMAIN
+  prompt_required "Customer portal hostname (for example portal.example.com)" DOMAIN
+  prompt_required "Public marketing-site hostname (for example www.example.com)" PUBLIC_DOMAIN
   prompt_value "Website display name" SITE_NAME "ReadyPackets"
 
   if [[ -z "$TLS_PROVIDER" ]]; then
@@ -232,6 +234,8 @@ PROVISION_ADMIN="${PROVISION_ADMIN:-auto}"
 [[ "$REQUIRE_PUBLIC_SOURCE" =~ ^(yes|no)$ ]] || fail "RP_REQUIRE_PUBLIC_SOURCE must be yes or no."
 [[ "$REQUIRE_PUBLIC_SOURCE" == "yes" ]] || fail "This bootstrap only retrieves intentionally public source over anonymous HTTPS. Use the private-repository deploy-key procedure for a private repository."
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "Set a valid public website hostname."
+[[ "$PUBLIC_DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "Set a valid public marketing-site hostname."
+[[ "$PUBLIC_DOMAIN" != "$DOMAIN" ]] || fail "RP_PUBLIC_DOMAIN must differ from RP_DOMAIN."
 [[ "$MODE" =~ ^(native|docker|docker-bootstrap)$ ]] || fail "Installation type must be native, docker, or docker-bootstrap."
 [[ "$TLS_PROVIDER" =~ ^(letsencrypt|cloudflare-origin|cloudflare-origin-ca|none)$ ]] || fail "TLS provider must be letsencrypt, cloudflare-origin, cloudflare-origin-ca, or none."
 [[ "$SITE_NAME" != *$'\n'* && -n "$SITE_NAME" && ${#SITE_NAME} -le 100 ]] || fail "Website display name must be 1 to 100 characters and contain no line breaks."
@@ -328,7 +332,7 @@ else
 fi
 git status --porcelain | grep -q . && fail "Downloaded source is unexpectedly modified."
 
-installer=(bash deploy/unified-install.sh --mode "$MODE" --domain "$DOMAIN" --site-name "$SITE_NAME")
+installer=(bash deploy/unified-install.sh --mode "$MODE" --domain "$DOMAIN" --public-domain "$PUBLIC_DOMAIN" --site-name "$SITE_NAME")
 [[ -n "$EMAIL" ]] && installer+=(--email "$EMAIL")
 case "$TLS_PROVIDER" in
   letsencrypt) installer+=(--tls-provider letsencrypt) ;;

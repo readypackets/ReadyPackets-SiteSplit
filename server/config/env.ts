@@ -142,8 +142,24 @@ if (isProduction && appUrl.protocol !== "https:") {
   problems.push("APP_URL must use https in production");
 }
 
+// APP_URL remains the canonical portal/API origin so existing mail links, SAML
+// callbacks, native clients, and session-facing services remain stable. The
+// optional public origin is a separate, anonymous marketing surface. Leaving it
+// unset retains the legacy one-host deployment behaviour.
+const publicSiteUrlRaw = optional("PUBLIC_SITE_URL") ?? appUrl.origin;
+let publicSiteUrl: URL;
+try {
+  publicSiteUrl = new URL(publicSiteUrlRaw);
+} catch {
+  problems.push(`PUBLIC_SITE_URL must be an absolute URL, received "${publicSiteUrlRaw}"`);
+  publicSiteUrl = appUrl;
+}
+if (isProduction && publicSiteUrl.protocol !== "https:") {
+  problems.push("PUBLIC_SITE_URL must use https in production");
+}
+
 const allowedOrigins = list("ALLOWED_ORIGINS");
-const allowedHostnames = new Set<string>([appUrl.hostname]);
+const allowedHostnames = new Set<string>([appUrl.hostname, publicSiteUrl.hostname]);
 for (const origin of allowedOrigins) {
   try {
     allowedHostnames.add(new URL(origin).hostname);
@@ -162,6 +178,9 @@ export const env = {
   bindHost: str("BIND_HOST", "127.0.0.1"),
   appUrl: appUrl.origin,
   appHostname: appUrl.hostname,
+  publicSiteUrl: publicSiteUrl.origin,
+  publicHostname: publicSiteUrl.hostname,
+  siteSplitEnabled: publicSiteUrl.hostname !== appUrl.hostname,
   allowedHostnames: [...allowedHostnames],
 
   databaseUrl: secret("DATABASE_URL", 12),

@@ -58,7 +58,7 @@ A rebuild following the ReadyPackets master prompt must preserve these boundarie
 
 1. **Mandatory technical stack:** Use MySQL-backed durable queue state and Node workers rather than managed queues or runtime cloud conversion dependencies.
 2. **Security posture as code:** Preserve fixed `execFile` bindings, no shell input, minimum tool inventory, row-bound encryption of selected-site secrets, and the unprivileged service account.
-3. **Strict schema validation:** Apply additive migration `0054_conversion_pipeline_and_sharepoint_targets.sql` and pass the updated **44-table** schema contract; the pre-conversion **49-migration / 37-table** baseline remains the immutable starting point.
+3. **Strict schema validation:** Apply additive migration `0054_conversion_pipeline_and_sharepoint_targets.sql` and the later consent-gated site-split configuration migration `0055_site_split_privacy_analytics.sql`; pass the updated **51-migration / 44-table** schema contract. The pre-conversion **49-migration / 37-table** baseline remains the immutable starting point.
 4. **Release and testing gates:** Preserve the corrected Docker migration path and regression coverage for path normalization and conversion schema tables.
 5. **SharePoint least privilege:** Keep each selected-site target constrained to a named app-only Graph identity and never allow a workflow or browser client to supply a free-form remote URL.
 

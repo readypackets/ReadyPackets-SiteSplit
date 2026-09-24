@@ -55,6 +55,7 @@ import { RATE_LIMIT_CATEGORIES } from "../../shared/domain.js";
 import { affectedRows } from "../db/result.js";
 import { formatBusinessAddress, getBusinessProfile, saveBusinessProfile } from "../services/businessProfile.js";
 import { getConsentConfig, getConsentOverview } from "../services/cookieConsent.js";
+import { analyticsProviderValidation } from "../services/analyticsConfig.js";
 
 const ipPatternSchema = z
   .string()
@@ -626,6 +627,68 @@ export const adminSecurityRouter = router({
         ipAddress: ctx.clientIp,
       });
       return { config: await getConsentConfig(), overview: await getConsentOverview() };
+    }),
+
+  /** Non-secret status only; provider values are configured write-only. */
+  analyticsProviders: adminProcedure.query(async () => {
+    const [clarityEnabled, clarityProjectId, posthogEnabled, posthogProjectKey, posthogHost, crossSiteEnabled] = await Promise.all([
+      getSettingBool("privacy.analytics_clarity_enabled", false),
+      getSetting("privacy.analytics_clarity_project_id"),
+      getSettingBool("privacy.analytics_posthog_enabled", false),
+      getSetting("privacy.analytics_posthog_project_key"),
+      getSetting("privacy.analytics_posthog_host"),
+      getSettingBool("privacy.analytics_cross_site_enabled", false),
+    ]);
+    return {
+      clarityEnabled,
+      clarityConfigured: analyticsProviderValidation.isValidClarityProjectId(clarityProjectId),
+      posthogEnabled,
+      posthogConfigured: analyticsProviderValidation.isValidPostHogProjectKey(posthogProjectKey),
+      posthogHost: analyticsProviderValidation.posthogHosts.includes(posthogHost ?? "") ? posthogHost : "https://us.i.posthog.com",
+      crossSiteEnabled,
+    };
+  }),
+
+  updateAnalyticsProviders: adminProcedure
+    .input(z.object({
+      clarityEnabled: z.boolean(),
+      clarityProjectId: z.string().trim().max(64).optional(),
+      posthogEnabled: z.boolean(),
+      posthogProjectKey: z.string().trim().max(180).optional(),
+      posthogHost: z.enum(["https://us.i.posthog.com", "https://eu.i.posthog.com"]),
+      crossSiteEnabled: z.boolean(),
+      confirm: z.literal("SAVE ANALYTICS CONFIGURATION"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.clarityEnabled && input.clarityProjectId && !analyticsProviderValidation.isValidClarityProjectId(input.clarityProjectId)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a valid Microsoft Clarity project ID." });
+      }
+      if (input.posthogEnabled && input.posthogProjectKey && !analyticsProviderValidation.isValidPostHogProjectKey(input.posthogProjectKey)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a valid PostHog project API key." });
+      }
+      const writes: Promise<void>[] = [
+        setSetting("privacy.analytics_clarity_enabled", String(input.clarityEnabled), { category: "privacy", valueType: "boolean", userId: ctx.session.user.id }),
+        setSetting("privacy.analytics_posthog_enabled", String(input.posthogEnabled), { category: "privacy", valueType: "boolean", userId: ctx.session.user.id }),
+        setSetting("privacy.analytics_posthog_host", input.posthogHost, { category: "privacy", valueType: "string", userId: ctx.session.user.id }),
+        setSetting("privacy.analytics_cross_site_enabled", String(input.crossSiteEnabled), { category: "privacy", valueType: "boolean", userId: ctx.session.user.id }),
+      ];
+      // A blank field preserves the stored value. This prevents reads of a
+      // configured provider key and permits changes without re-entering it.
+      if (input.clarityProjectId) writes.push(setSetting("privacy.analytics_clarity_project_id", input.clarityProjectId, { category: "privacy", valueType: "string", isSecret: true, userId: ctx.session.user.id }));
+      if (input.posthogProjectKey) writes.push(setSetting("privacy.analytics_posthog_project_key", input.posthogProjectKey, { category: "privacy", valueType: "string", isSecret: true, userId: ctx.session.user.id }));
+      await Promise.all(writes);
+      void recordActivity({
+        actorUserId: ctx.session.user.id,
+        actorRole: "admin",
+        action: "privacy.analytics_providers_configured",
+        entityType: "privacy",
+        entityId: "analytics_providers",
+        severity: "warning",
+        summary: `Analytics providers configured: Clarity ${input.clarityEnabled ? "enabled" : "disabled"}; PostHog ${input.posthogEnabled ? "enabled" : "disabled"}; cross-site ${input.crossSiteEnabled ? "enabled" : "disabled"}`,
+        changes: { clarityEnabled: input.clarityEnabled, posthogEnabled: input.posthogEnabled, posthogHost: input.posthogHost, crossSiteEnabled: input.crossSiteEnabled, clarityProjectIdUpdated: Boolean(input.clarityProjectId), posthogProjectKeyUpdated: Boolean(input.posthogProjectKey) },
+        ipAddress: ctx.clientIp,
+      });
+      return { ok: true as const };
     }),
 
   updateBusinessProfile: adminProcedure

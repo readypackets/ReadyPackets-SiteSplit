@@ -73,6 +73,13 @@ describe("security headers", () => {
     expect(csp).toContain("base-uri 'none'");
   });
 
+  it("permits only documented consent-gated analytics endpoints in addition to nonce protection", () => {
+    const csp = runMiddleware().set["Content-Security-Policy"] ?? "";
+    expect(csp).toContain("https://www.clarity.ms");
+    expect(csp).toContain("https://*.posthog.com");
+    expect(csp).toContain("'strict-dynamic'");
+  });
+
   it("allows microphone only for this origin while retaining capture restrictions", () => {
     const policy = runMiddleware().set["Permissions-Policy"] ?? "";
     expect(policy).toContain("microphone=(self)");

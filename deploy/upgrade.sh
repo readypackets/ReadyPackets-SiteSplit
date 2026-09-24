@@ -66,7 +66,7 @@ pnpm install --frozen-lockfile 2>&1 | tail -5
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 info "Building client…"
-./node_modules/.bin/vite build --outDir client/dist 2>&1 | tail -5
+pnpm run build:client 2>&1 | tail -8
 
 info "Building server…"
 ./node_modules/.bin/esbuild server/index.ts \
@@ -92,7 +92,9 @@ info "Staging new build…"
 mkdir -p "$STAGING"
 cp -r dist "$STAGING/"
 cp -r client/dist "$STAGING/client-dist"
-cp -r migrations "$STAGING/"
+cp -r client/dist-public "$STAGING/client-dist-public"
+cp -r client/dist-portal "$STAGING/client-dist-portal"
+cp -r drizzle/migrations "$STAGING/migrations"
 cp -r scripts/data "$STAGING/data" 2>/dev/null || true
 
 # ── Stop service ──────────────────────────────────────────────────────────────
@@ -101,33 +103,25 @@ systemctl stop "$SERVICE" || true
 
 # ── Swap files ────────────────────────────────────────────────────────────────
 info "Installing new build…"
-rm -rf "$APP_DIR/dist" "$APP_DIR/client/dist" "$APP_DIR/migrations" "$APP_DIR/scripts/data"
+rm -rf "$APP_DIR/dist" "$APP_DIR/client/dist" "$APP_DIR/client/dist-public" "$APP_DIR/client/dist-portal" "$APP_DIR/drizzle/migrations" "$APP_DIR/scripts/data"
 cp -r "$STAGING/dist" "$APP_DIR/"
 mkdir -p "$APP_DIR/client"
 cp -r "$STAGING/client-dist" "$APP_DIR/client/dist"
-cp -r "$STAGING/migrations" "$APP_DIR/"
+cp -r "$STAGING/client-dist-public" "$APP_DIR/client/dist-public"
+cp -r "$STAGING/client-dist-portal" "$APP_DIR/client/dist-portal"
+mkdir -p "$APP_DIR/drizzle"
+cp -r "$STAGING/migrations" "$APP_DIR/drizzle/migrations"
 [[ -d "$STAGING/data" ]] && cp -r "$STAGING/data" "$APP_DIR/scripts/"
 
 # Fix permissions
-chown -R readypackets:readypackets "$APP_DIR/dist" "$APP_DIR/client/dist" 2>/dev/null || true
+chown -R root:readypackets "$APP_DIR/dist" "$APP_DIR/client/dist" "$APP_DIR/client/dist-public" "$APP_DIR/client/dist-portal" 2>/dev/null || true
+find "$APP_DIR/dist" "$APP_DIR/client/dist" "$APP_DIR/client/dist-public" "$APP_DIR/client/dist-portal" -type d -exec chmod 0750 {} +
+find "$APP_DIR/dist" "$APP_DIR/client/dist" "$APP_DIR/client/dist-public" "$APP_DIR/client/dist-portal" -type f -exec chmod 0640 {} +
 
 # ── Run migrations ────────────────────────────────────────────────────────────
-info "Running pending migrations…"
-# shellcheck source=/dev/null
-source "$ENV_FILE"
-for migration in "$APP_DIR/migrations"/*.sql; do
-  name=$(basename "$migration")
-  already=$(mysql -u"${DB_USER:-readypackets}" -p"${DB_PASS}" "${DB_NAME:-readypackets}" \
-    -sNe "SELECT COUNT(*) FROM schema_migrations WHERE filename='$name'" 2>/dev/null || echo 0)
-  if [[ "$already" == "0" ]]; then
-    info "  Applying $name…"
-    mysql -u"${DB_USER:-readypackets}" -p"${DB_PASS}" "${DB_NAME:-readypackets}" < "$migration"
-    mysql -u"${DB_USER:-readypackets}" -p"${DB_PASS}" "${DB_NAME:-readypackets}" \
-      -e "INSERT INTO schema_migrations (filename) VALUES ('$name')" 2>/dev/null || true
-  else
-    info "  Skipping $name (already applied)"
-  fi
-done
+info "Running pending migrations and schema contract…"
+cd "$APP_DIR"
+runuser -u readypackets -- sh -c 'set -a; . "$1"; set +a; exec node "$2"' sh "$ENV_FILE" "$APP_DIR/dist/migrate.js"
 
 # ── Start service ─────────────────────────────────────────────────────────────
 info "Starting service…"

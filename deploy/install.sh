@@ -7,10 +7,11 @@
 # anywhere. Safe to re-run: existing secrets and data are preserved.
 #
 # Usage:
-#   sudo ./deploy/install.sh --domain portal.readypackets.com --email ops@readypackets.com
+#   sudo ./deploy/install.sh --domain portal.example.com --public-domain www.example.com --email ops@example.com
 #
 # Options:
-#   --domain <host>     Public hostname (required)
+#   --domain <host>     Canonical portal/API hostname (required)
+#   --public-domain <host> Optional marketing-site hostname; enables separate public and portal bundles
 #   --email <address>   Contact address for Let's Encrypt (required for --tls-provider letsencrypt)
 #   --tls               Compatibility alias for --tls-provider letsencrypt
 #   --tls-provider <p>  letsencrypt, cloudflare-origin, or cloudflare-origin-ca
@@ -37,6 +38,7 @@ readonly NODE_MAJOR="22"
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DOMAIN=""
+PUBLIC_DOMAIN=""
 ALTERNATE_DOMAIN=""
 SERVER_NAMES=""
 HOST_ALLOWLIST_REGEX=""
@@ -69,6 +71,7 @@ trap 'die "Installation failed on line ${LINENO}. No changes were rolled back; r
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain)        DOMAIN="${2:-}"; shift 2 ;;
+    --public-domain) PUBLIC_DOMAIN="${2:-}"; shift 2 ;;
     --email)         CONTACT_EMAIL="${2:-}"; shift 2 ;;
     --tls)           TLS_PROVIDER="letsencrypt"; shift ;;
     --tls-provider)  TLS_PROVIDER="${2:-}"; shift 2 ;;
@@ -132,6 +135,11 @@ fi
 # configuration (origin checks, cookie scope, certificate name).
 [[ "$DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$ ]] \
   || die "'${DOMAIN}' does not look like a valid hostname."
+if [[ -n "$PUBLIC_DOMAIN" ]]; then
+  [[ "$PUBLIC_DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$ ]] \
+    || die "'${PUBLIC_DOMAIN}' does not look like a valid hostname."
+  [[ "$PUBLIC_DOMAIN" != "$DOMAIN" ]] || die "--public-domain must differ from --domain. Omit it for the legacy single-host deployment."
+fi
 
 # Treat a conventional apex/www pair as one public site. This preserves an
 # explicit subdomain deployment (for example portal.example.com), but lets a
@@ -141,15 +149,24 @@ if [[ "$DOMAIN" == www.* ]]; then
 elif [[ "$DOMAIN" =~ ^[^.]+\.[^.]+$ ]]; then
   ALTERNATE_DOMAIN="www.${DOMAIN}"
 fi
+if [[ -n "$PUBLIC_DOMAIN" && "$PUBLIC_DOMAIN" == "$ALTERNATE_DOMAIN" ]]; then
+  die "Use a dedicated portal subdomain with --public-domain (for example --domain portal.example.com --public-domain www.example.com); the canonical apex/www alias cannot simultaneously be the public site."
+fi
 SERVER_NAMES="$DOMAIN"
 if [[ -n "$ALTERNATE_DOMAIN" ]]; then
   SERVER_NAMES+=" ${ALTERNATE_DOMAIN}"
   TLS_ALIAS_PLACEHOLDER="$ALTERNATE_DOMAIN"
 fi
+if [[ -n "$PUBLIC_DOMAIN" ]]; then
+  SERVER_NAMES+=" ${PUBLIC_DOMAIN}"
+fi
 escape_regex() { printf '%s' "$1" | sed 's/[.[\\*^$()+?{|]/\\\\&/g'; }
 HOST_ALLOWLIST_REGEX="$(escape_regex "$DOMAIN")"
 if [[ -n "$ALTERNATE_DOMAIN" ]]; then
   HOST_ALLOWLIST_REGEX+="|$(escape_regex "$ALTERNATE_DOMAIN")"
+fi
+if [[ -n "$PUBLIC_DOMAIN" ]]; then
+  HOST_ALLOWLIST_REGEX+="|$(escape_regex "$PUBLIC_DOMAIN")"
 fi
 
 log "Installing ReadyPackets Portal for https://${DOMAIN}"
@@ -298,12 +315,12 @@ systemctl restart mysql >/dev/null 2>&1 || systemctl restart mysqld
 # ---------------------------------------------------------------------------
 log "Building the application"
 rsync -a --delete \
-  --exclude node_modules --exclude .git --exclude var --exclude client/dist --exclude dist \
+  --exclude node_modules --exclude .git --exclude var --exclude client/dist --exclude client/dist-public --exclude client/dist-portal --exclude dist \
   "${REPO_ROOT}/" "${APP_DIR}/"
 
 cd "$APP_DIR"
 pnpm install --prod=false --frozen-lockfile=false
-pnpm exec vite build
+pnpm run build:client
 pnpm exec esbuild server/index.ts --bundle --platform=node --target=node22 \
   --format=esm --packages=external --outfile=dist/server.js
 for script in migrate seed create-admin; do
@@ -318,6 +335,9 @@ done
 for runtime_artifact in dist/server.js dist/migrate.js dist/seed.js dist/create-admin.js; do
   [[ -s "$runtime_artifact" ]] || die "Required build artifact is missing: ${APP_DIR}/${runtime_artifact}. Re-run after fixing the source build."
   node --check "$runtime_artifact" >/dev/null
+done
+for client_shell in client/dist-public/public.html client/dist-portal/portal.html; do
+  [[ -s "$client_shell" ]] || die "Required split client bundle is missing: ${APP_DIR}/${client_shell}. Re-run after fixing the source build."
 done
 
 # The bundler inlines code, not data. The seed reads the catalogue and the policy
@@ -359,7 +379,8 @@ NODE_ENV=production
 PORT=3000
 BIND_HOST=127.0.0.1
 APP_URL=https://${DOMAIN}
-ALLOWED_ORIGINS=https://${DOMAIN}
+PUBLIC_SITE_URL=https://${PUBLIC_DOMAIN:-$DOMAIN}
+ALLOWED_ORIGINS=https://${DOMAIN},https://${PUBLIC_DOMAIN:-$DOMAIN}
 # Root-owned source checkout used by the controlled platform-update helper.
 RP_SOURCE_DIR=${REPO_ROOT}
 
@@ -540,7 +561,7 @@ server {
     }
 
     location / {
-        return 308 https://${DOMAIN}\$request_uri;
+        return 308 https://\$host\$request_uri;
     }
 }
 TEMP
@@ -563,6 +584,9 @@ write_hardened_site() {
   local host_regex="${DOMAIN//./\\\\.}"
   if [[ -n "$ALTERNATE_DOMAIN" ]]; then
     host_regex+="|${ALTERNATE_DOMAIN//./\\\\.}"
+  fi
+  if [[ -n "$PUBLIC_DOMAIN" ]]; then
+    host_regex+="|${PUBLIC_DOMAIN//./\\\\.}"
   fi
 
   # `more_clear_headers` comes from the headers-more module, present in
@@ -601,6 +625,7 @@ certificate_covers_public_names() {
   local certificate="$1" hostname
   local -a hostnames=("$DOMAIN")
   [[ -n "$ALTERNATE_DOMAIN" ]] && hostnames+=("$ALTERNATE_DOMAIN")
+  [[ -n "$PUBLIC_DOMAIN" ]] && hostnames+=("$PUBLIC_DOMAIN")
   [[ -f "$certificate" ]] || return 1
   for hostname in "${hostnames[@]}"; do
     openssl x509 -in "$certificate" -noout -checkhost "$hostname" 2>/dev/null | grep -q "does match certificate" || return 1
@@ -636,7 +661,7 @@ install_cloudflare_origin_material() {
 }
 
 issue_cloudflare_origin_ca() {
-  local work token api_config csr payload response hostname private_key
+  local work token api_config csr payload response hostname private_key hostnames_json san
   work="$(mktemp -d /root/readypackets-cloudflare-origin.XXXXXX)"
   chmod 0700 "$work"
   token="$(tr -d '\r\n' < "$CLOUDFLARE_API_TOKEN_FILE")"
@@ -657,22 +682,17 @@ issue_cloudflare_origin_ca() {
   openssl genrsa -out "$private_key" 3072 >/dev/null 2>&1
   chmod 0600 "$private_key"
   hostname="$DOMAIN"
-  if [[ -n "$ALTERNATE_DOMAIN" ]]; then
-    openssl req -new -key "$private_key" -out "$csr" \
-      -subj "/CN=${hostname}" -addext "subjectAltName=DNS:${DOMAIN},DNS:${ALTERNATE_DOMAIN}"
-  else
-    openssl req -new -key "$private_key" -out "$csr" \
-      -subj "/CN=${hostname}" -addext "subjectAltName=DNS:${DOMAIN}"
-  fi
-
-  if [[ -n "$ALTERNATE_DOMAIN" ]]; then
-    jq -n --rawfile csr "$csr" --arg canonical "$DOMAIN" --arg alternate "$ALTERNATE_DOMAIN" \
-      --argjson validity "$CLOUDFLARE_ORIGIN_VALIDITY" \
-      '{csr:$csr,hostnames:[$canonical,$alternate],request_type:"origin-rsa",requested_validity:$validity}' > "$payload"
-  else
-    jq -n --rawfile csr "$csr" --arg canonical "$DOMAIN" --argjson validity "$CLOUDFLARE_ORIGIN_VALIDITY" \
-      '{csr:$csr,hostnames:[$canonical],request_type:"origin-rsa",requested_validity:$validity}' > "$payload"
-  fi
+  local -a certificate_hosts=("$DOMAIN")
+  [[ -n "$ALTERNATE_DOMAIN" ]] && certificate_hosts+=("$ALTERNATE_DOMAIN")
+  [[ -n "$PUBLIC_DOMAIN" ]] && certificate_hosts+=("$PUBLIC_DOMAIN")
+  san="$(printf 'DNS:%s,' "${certificate_hosts[@]}")"
+  san="${san%,}"
+  openssl req -new -key "$private_key" -out "$csr" \
+    -subj "/CN=${hostname}" -addext "subjectAltName=${san}"
+  hostnames_json="$(jq -n --args "${certificate_hosts[@]}" '$ARGS.positional')"
+  jq -n --rawfile csr "$csr" --argjson hostnames "$hostnames_json" \
+    --argjson validity "$CLOUDFLARE_ORIGIN_VALIDITY" \
+    '{csr:$csr,hostnames:$hostnames,request_type:"origin-rsa",requested_validity:$validity}' > "$payload"
 
   if ! curl --fail --silent --show-error --config "$api_config" \
       --header 'Content-Type: application/json' --request POST \
@@ -779,6 +799,9 @@ if [[ "$TLS_PROVIDER" == "letsencrypt" && "$HAVE_CERT" == "false" ]]; then
   if [[ -n "$ALTERNATE_DOMAIN" ]]; then
     certbot_domains+=(-d "$ALTERNATE_DOMAIN")
   fi
+  if [[ -n "$PUBLIC_DOMAIN" ]]; then
+    certbot_domains+=(-d "$PUBLIC_DOMAIN")
+  fi
   # Certbot requires an explicit non-interactive expansion when a prior
   # canonical-name certificate is being widened to its apex/www counterpart.
   if [[ -d "/etc/letsencrypt/live/${DOMAIN}" ]]; then
@@ -788,6 +811,7 @@ if [[ "$TLS_PROVIDER" == "letsencrypt" && "$HAVE_CERT" == "false" ]]; then
   webroot_ready="true"
   acme_hostnames=("$DOMAIN")
   [[ -n "$ALTERNATE_DOMAIN" ]] && acme_hostnames+=("$ALTERNATE_DOMAIN")
+  [[ -n "$PUBLIC_DOMAIN" ]] && acme_hostnames+=("$PUBLIC_DOMAIN")
   for acme_hostname in "${acme_hostnames[@]}"; do
     if ! curl --fail --silent --show-error --max-time 5 \
       --resolve "${acme_hostname}:80:127.0.0.1" \

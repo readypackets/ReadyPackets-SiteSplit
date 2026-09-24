@@ -70,7 +70,7 @@ export function AdminSystemPage() {
       <div className="mt-6">
         {tab === "health" ? <HealthPanel /> : null}
         {tab === "settings" ? <><BusinessProfilePanel /><SettingsPanel /></> : null}
-        {tab === "privacy" ? <CookieConsentAdminPanel /> : null}
+        {tab === "privacy" ? <><CookieConsentAdminPanel /><AnalyticsProviderPanel /></> : null}
         {tab === "flags" ? <FlagsPanel /> : null}
         {tab === "keys" ? <ApiKeysPanel /> : null}
         {tab === "saml" ? <SamlPanel /> : null}
@@ -260,6 +260,70 @@ function CookieConsentAdminPanel() {
       <div className="mt-5 max-w-lg"><Input label="Type to confirm" placeholder="UPDATE COOKIE CONSENT SETTINGS" value={confirm} onChange={(event) => setConfirm(event.target.value)} /><p className="mt-2 text-xs text-body">Changing categories is audited. This does not itself activate a tracking script.</p></div>
       <div className="mt-5 flex flex-wrap gap-3"><Button busy={update.isPending} disabled={confirm !== "UPDATE COOKIE CONSENT SETTINGS"} onClick={() => update.mutate({ cookieConsentEnabled, analyticsTrackingEnabled: cookieConsentEnabled && analyticsEnabled, marketingTrackingEnabled: cookieConsentEnabled && marketingEnabled, confirm: "UPDATE COOKIE CONSENT SETTINGS" })} leadingIcon={<Save className="size-4" />}>Save cookie consent settings</Button><a href="/privacy" className="inline-flex items-center rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-ink hover:bg-white/5">Review Privacy Policy</a></div>
     </>}
+  </Card>;
+}
+
+function AnalyticsProviderPanel() {
+  const toast = useToast();
+  const providers = trpc.adminSecurity.analyticsProviders.useQuery();
+  const consent = trpc.adminSecurity.cookieConsent.useQuery();
+  const [clarityEnabled, setClarityEnabled] = useState(false);
+  const [clarityProjectId, setClarityProjectId] = useState("");
+  const [posthogEnabled, setPosthogEnabled] = useState(false);
+  const [posthogProjectKey, setPosthogProjectKey] = useState("");
+  const [posthogHost, setPosthogHost] = useState("https://us.i.posthog.com");
+  const [crossSiteEnabled, setCrossSiteEnabled] = useState(false);
+  const [confirm, setConfirm] = useState("");
+
+  useEffect(() => {
+    if (!providers.data) return;
+    setClarityEnabled(providers.data.clarityEnabled);
+    setPosthogEnabled(providers.data.posthogEnabled);
+    setPosthogHost(providers.data.posthogHost ?? "https://us.i.posthog.com");
+    setCrossSiteEnabled(providers.data.crossSiteEnabled);
+  }, [providers.data]);
+
+  const update = trpc.adminSecurity.updateAnalyticsProviders.useMutation({
+    async onSuccess() {
+      setClarityProjectId("");
+      setPosthogProjectKey("");
+      setConfirm("");
+      await providers.refetch();
+      toast.success("Analytics provider settings saved", "Providers can load only after ReadyPackets records a visitor’s analytics opt-in.");
+    },
+    onError(error) { toast.error("Analytics provider settings were not saved", errorMessage(error)); },
+  });
+  const analyticsAvailable = consent.data?.config.analyticsAvailable === true;
+
+  return <Card className="mb-6">
+    <CardHeader
+      title={<span className="flex items-center gap-2"><Activity className="size-4 text-teal" aria-hidden="true" />Consent-gated analytics providers</span>}
+      description="Optional Microsoft Clarity and PostHog support with local consent enforcement. The application sends only curated path and surface events; it does not send account, order, document, message, form, or e-mail values."
+      actions={<Button size="sm" variant="outline" busy={providers.isFetching} onClick={() => void providers.refetch()} leadingIcon={<RefreshCw className="size-4" />}>Refresh</Button>}
+    />
+    {!analyticsAvailable ? <Alert tone="warning" className="mt-5" title="Analytics consent category is unavailable">First enable the Analytics category above and save it. Provider scripts remain blocked unless each visitor separately selects Analytics.</Alert> : null}
+    <Alert tone="info" className="mt-5" title="Privacy-preserving default">Autocapture and session replay are disabled in the ReadyPackets PostHog client. Cross-site continuity is optional, requires this control plus analytics consent, and uses only a random navigation handoff identifier—never an e-mail address or ReadyPackets account/order identifier.</Alert>
+    <div className="mt-5 grid gap-5 lg:grid-cols-2">
+      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <Checkbox checked={clarityEnabled} onChange={(event) => setClarityEnabled(event.target.checked)} label="Enable Microsoft Clarity after analytics opt-in" disabled={!analyticsAvailable} />
+        <Input className="mt-4" label={providers.data?.clarityConfigured ? "Clarity project ID (configured — leave blank to retain)" : "Clarity project ID"} value={clarityProjectId} onChange={(event) => setClarityProjectId(event.target.value)} placeholder="Example: abc123xyz0" disabled={!clarityEnabled || !analyticsAvailable} />
+        <p className="mt-3 text-xs leading-5 text-body">Configure Clarity’s ConsentV2 requirement and privacy masking in the Microsoft Clarity project as well. The stored project value is write-only in this panel.</p>
+      </section>
+      <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <Checkbox checked={posthogEnabled} onChange={(event) => setPosthogEnabled(event.target.checked)} label="Enable PostHog after analytics opt-in" disabled={!analyticsAvailable} />
+        <Input className="mt-4" label={providers.data?.posthogConfigured ? "PostHog project API key (configured — leave blank to retain)" : "PostHog project API key"} value={posthogProjectKey} onChange={(event) => setPosthogProjectKey(event.target.value)} type="password" placeholder="phc_…" disabled={!posthogEnabled || !analyticsAvailable} />
+        <Select className="mt-4" label="PostHog ingestion region" value={posthogHost} onChange={(event) => setPosthogHost(event.target.value)} disabled={!posthogEnabled || !analyticsAvailable}><option value="https://us.i.posthog.com">United States</option><option value="https://eu.i.posthog.com">European Union</option></Select>
+        <p className="mt-3 text-xs leading-5 text-body">Use the region that matches the organization’s data-residency and legal requirements. Configure IP capture and retention in PostHog’s project settings.</p>
+      </section>
+    </div>
+    <div className="mt-5 rounded-xl border border-amber-400/30 bg-amber-400/5 p-4">
+      <Checkbox checked={crossSiteEnabled} onChange={(event) => setCrossSiteEnabled(event.target.checked)} label="Allow consented analytics continuity between the public site and portal" disabled={!analyticsAvailable || (!clarityEnabled && !posthogEnabled)} />
+      <p className="mt-2 text-xs leading-5 text-body">Use only after the privacy notice is updated for the two-hostname deployment. It passes a random analytics handoff only on a public-to-portal navigation; it does not share ReadyPackets session cookies, authentication, access, or customer data.</p>
+    </div>
+    <div className="mt-5 grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+      <Input label="Type to confirm" placeholder="SAVE ANALYTICS CONFIGURATION" value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+      <Button busy={update.isPending} disabled={!analyticsAvailable || confirm !== "SAVE ANALYTICS CONFIGURATION"} onClick={() => update.mutate({ clarityEnabled, clarityProjectId: clarityProjectId || undefined, posthogEnabled, posthogProjectKey: posthogProjectKey || undefined, posthogHost: posthogHost as "https://us.i.posthog.com" | "https://eu.i.posthog.com", crossSiteEnabled, confirm: "SAVE ANALYTICS CONFIGURATION" })} leadingIcon={<Save className="size-4" />}>Save analytics configuration</Button>
+    </div>
   </Card>;
 }
 

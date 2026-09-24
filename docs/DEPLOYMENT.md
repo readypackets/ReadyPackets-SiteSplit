@@ -146,7 +146,8 @@ Every setting is documented in `.env.example`. Configuration is validated at sta
 
 | Variable | Notes |
 | --- | --- |
-| `APP_URL` | Canonical public URL. Determines allowed origins and cookie scope. |
+| `APP_URL` | Canonical **portal/API** URL. Determines session-facing links, SAML/native callback identity, and the authenticated host. |
+| `PUBLIC_SITE_URL` | Optional anonymous marketing-site URL. Set it to a distinct HTTPS hostname to enable the isolated public and portal bundles; omit it for the legacy one-host deployment. |
 | `DATABASE_URL` | `mysql://user:password@host:3306/database` |
 | `SESSION_SECRET` | At least 32 characters of random data |
 | `DATA_ENCRYPTION_KEY` | Exactly 64 hex characters. **Loss is unrecoverable.** |

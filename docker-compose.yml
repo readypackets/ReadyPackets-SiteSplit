@@ -75,6 +75,7 @@ services:
       # to the host on loopback, so the internet cannot reach it directly.
       BIND_HOST: 0.0.0.0
       APP_URL: ${APP_URL:?APP_URL must be set in .env}
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       DATABASE_URL: mysql://${MYSQL_USER:-readypackets}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE:-readypackets}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in .env}

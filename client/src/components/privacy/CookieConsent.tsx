@@ -118,6 +118,10 @@ export function CookieConsentProvider({ children }: { children: ReactNode }) {
       });
       setPayload((current) => current ? { ...current, preferences: saved.preferences, version: saved.version } : current);
       setDraft(saved.preferences);
+      // Optional analytics providers listen to this state transition so a
+      // withdrawal made in the same page session immediately stops capture and
+      // clears provider cookies where the provider supports it.
+      window.dispatchEvent(new CustomEvent("rp:privacy-consent", { detail: saved.preferences }));
       setOpen(false);
       setCustomize(false);
     } catch (saveError) {

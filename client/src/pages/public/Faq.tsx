@@ -82,7 +82,7 @@ export function FaqPage() {
           <Card className="border-teal/20 bg-teal/5 p-6">
             <h2 className="text-lg font-semibold text-ink">Still need help?</h2>
             <p className="mt-2 text-sm leading-6 text-body">Use the contact page for general questions. Customers can sign in to open a support ticket and receive order-specific assistance.</p>
-            <div className="mt-4 flex flex-wrap gap-4 text-sm font-semibold"><Link href="/contact" className="text-teal underline underline-offset-4">Contact ReadyPackets</Link><Link href="/login" className="text-teal underline underline-offset-4">Sign in to the portal</Link></div>
+            <div className="mt-4 flex flex-wrap gap-4 text-sm font-semibold"><Link href="/contact" className="text-teal underline underline-offset-4">Contact ReadyPackets</Link><a href="/login" className="text-teal underline underline-offset-4">Sign in to the portal</a></div>
           </Card>
         </div>
       </PageSection>
