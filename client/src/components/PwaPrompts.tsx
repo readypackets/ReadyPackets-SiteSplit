@@ -10,6 +10,7 @@
  * Both are registered once in main.tsx and rendered at the root level.
  */
 import { useEffect, useState } from "react";
+import { BRAND_ASSETS } from "@shared/brand";
 import { Button } from "./ui/Button";
 
 // ---------------------------------------------------------------------------
@@ -51,7 +52,7 @@ export function PwaInstallPrompt() {
                  bg-brand-navy text-white rounded-xl shadow-2xl p-4 flex items-start gap-3"
     >
       <div className="shrink-0 mt-0.5">
-        <img src="/brand/icon-192.png" alt="" className="w-10 h-10 rounded-lg" />
+        <img src={BRAND_ASSETS.mark.dark.px256} alt="" className="w-10 h-10 rounded-lg" />
       </div>
       <div className="flex-1 min-w-0">
         <p className="font-semibold text-sm">Add to home screen</p>

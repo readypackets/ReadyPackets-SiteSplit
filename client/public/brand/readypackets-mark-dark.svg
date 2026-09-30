@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="768" viewBox="0 0 768 768" role="img" aria-labelledby="title desc">
+  <title id="title">ReadyPackets compact document-stack mark for dark backgrounds</title>
+  <desc id="desc">A layered finished document packet with teal source-sheet edges, white document lines, and a gold quality point.</desc>
+  <g id="compact-ready-packet-mark">
+      <path d="M104 164L402 106V510L104 572Z" fill="#1A7A6E" opacity="0.96"/>
+      <path d="M142 136L442 84V492L142 544Z" fill="#20A090" opacity="0.98"/>
+      <rect x="220" y="160" width="360" height="390" rx="42" fill="#FFFFFF" stroke="#2EC4B6" stroke-width="20"/>
+      <path d="M292 272H494" stroke="#0D1B2A" stroke-width="28" stroke-linecap="round"/>
+      <path d="M292 348H494" stroke="#0D1B2A" stroke-width="28" stroke-linecap="round"/>
+      <path d="M292 424H438" stroke="#0D1B2A" stroke-width="28" stroke-linecap="round"/>
+      <circle cx="494" cy="472" r="24" fill="#C9A84C"/>
+    </g>
+</svg>

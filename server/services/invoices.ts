@@ -7,6 +7,7 @@ import { insertedId } from "../db/result.js";
 import { button, queueEmail, wrapHtmlBody } from "./email.js";
 import { env } from "../config/env.js";
 import { formatBusinessAddress, getBusinessProfile } from "./businessProfile.js";
+import { BRAND_ASSETS } from "../../shared/brand.js";
 
 export type InvoiceLine = { description: string; quantity: number; unitPriceCents: number; lineTotalCents: number };
 
@@ -169,7 +170,7 @@ export async function getOrCreatePaidOrderInvoice(orderId: number): Promise<Read
     customerVisible: invoice.customerVisible,
     publishedAt: invoice.publishedAt,
     emailQueuedAt: invoice.emailQueuedAt,
-    brand: { companyName: businessProfile.publicName, legalName: businessProfile.legalName, address: formatBusinessAddress(businessProfile), logoPath: "/brand/light/readypackets_light_document.png", supportUrl: "https://www.readypackets.com" },
+    brand: { companyName: businessProfile.publicName, legalName: businessProfile.legalName, address: formatBusinessAddress(businessProfile), logoPath: BRAND_ASSETS.light.wordmark, supportUrl: "https://www.readypackets.com" },
   };
 }
 

@@ -1,6 +1,6 @@
 /**
- * ReadyPackets brand constants — Brand Kit v2.0 (August 2026).
- * Values transcribed from ReadyPackets_Brand_Guidelines.pdf and brand_kit/README.md.
+ * ReadyPackets brand constants — Document-Flow Brand Package (September 2026).
+ * Values are aligned to the verified supplied production-candidate package.
  * These are the single source of truth for colour, naming and legal marks.
  */
 
@@ -42,33 +42,40 @@ export const BRAND_COLORS = {
  */
 export const BRAND_ASSETS = {
   light: {
-    fullres: "/brand/light/readypackets_light_original_fullres.png",
-    printLarge: "/brand/light/readypackets_light_print_large.png",
-    document: "/brand/light/readypackets_light_document.png",
-    emailHeader: "/brand/light/readypackets_light_email_header.png",
-    webStandard: "/brand/light/readypackets_light_web_standard.png",
-    webCompact: "/brand/light/readypackets_light_web_compact.png",
-    thumbnail: "/brand/light/readypackets_light_thumbnail.png",
+    full: "/brand/readypackets-document-flow-light.svg",
+    trademark: "/brand/readypackets-document-flow-light-tm.svg",
+    wordmark: "/brand/readypackets-document-flow-light-wordmark.svg",
+    wordmarkPng: "/brand/readypackets-document-flow-light-wordmark.png",
   },
   dark: {
-    fullres: "/brand/dark/readypackets_dark_original_fullres.png",
-    printLarge: "/brand/dark/readypackets_dark_print_large.png",
-    document: "/brand/dark/readypackets_dark_document.png",
-    emailHeader: "/brand/dark/readypackets_dark_email_header.png",
-    webStandard: "/brand/dark/readypackets_dark_web_standard.png",
-    webCompact: "/brand/dark/readypackets_dark_web_compact.png",
-    thumbnail: "/brand/dark/readypackets_dark_thumbnail.png",
+    full: "/brand/readypackets-document-flow-dark.svg",
+    trademark: "/brand/readypackets-document-flow-dark-tm.svg",
+    wordmark: "/brand/readypackets-document-flow-dark-wordmark.svg",
+    wordmarkPng: "/brand/readypackets-document-flow-dark-wordmark.png",
   },
-  icon: {
-    px1024: "/brand/icon/readypackets_icon_1024.png",
-    px512: "/brand/icon/readypackets_icon_512.png",
-    px256: "/brand/icon/readypackets_icon_256.png",
-    px128: "/brand/icon/readypackets_icon_128.png",
-    px64: "/brand/icon/readypackets_icon_64.png",
-    px32: "/brand/icon/readypackets_icon_32.png",
-    px16: "/brand/icon/readypackets_icon_16.png",
-    master: "/brand/readypackets_icon_master.png",
+  mark: {
+    light: {
+      svg: "/brand/readypackets-mark-light.svg",
+      px1024: "/brand/readypackets-mark-light-1024.png",
+      px512: "/brand/readypackets-mark-light-512.png",
+      px256: "/brand/readypackets-mark-light-256.png",
+      px128: "/brand/readypackets-mark-light-128.png",
+      px64: "/brand/readypackets-mark-light-64.png",
+      px32: "/brand/readypackets-mark-light-32.png",
+      px16: "/brand/readypackets-mark-light-16.png",
+    },
+    dark: {
+      svg: "/brand/readypackets-mark-dark.svg",
+      px1024: "/brand/readypackets-mark-dark-1024.png",
+      px512: "/brand/readypackets-mark-dark-512.png",
+      px256: "/brand/readypackets-mark-dark-256.png",
+      px128: "/brand/readypackets-mark-dark-128.png",
+      px64: "/brand/readypackets-mark-dark-64.png",
+      px32: "/brand/readypackets-mark-dark-32.png",
+      px16: "/brand/readypackets-mark-dark-16.png",
+    },
   },
+  favicon: "/favicon.ico",
 } as const;
 
 /** Brand pillars, used on the public About page. */

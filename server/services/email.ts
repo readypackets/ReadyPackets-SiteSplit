@@ -15,7 +15,7 @@ import { blindIndex, decryptField, encryptField } from "../security/crypto.js";
 import { logger } from "../observability/logger.js";
 import { raiseAlert } from "../observability/audit.js";
 import { getSetting } from "./settings.js";
-import { BRAND, BRAND_COLORS } from "../../shared/brand.js";
+import { BRAND, BRAND_ASSETS, BRAND_COLORS } from "../../shared/brand.js";
 import { isGraphEmailEnabled, sendViaGraph } from "./emailGraph.js";
 import { formatBusinessAddress, getBusinessProfile } from "./businessProfile.js";
 import { invoicePdfFileName, renderInvoicePdf } from "./invoicePdf.js";
@@ -118,7 +118,9 @@ const BUSINESS_PROFILE_ADDRESS_TOKEN = "__RP_BUSINESS_PROFILE_ADDRESS__";
 
 /** Brand-consistent HTML wrapper; the logo is served from the app's own origin. */
 export function wrapHtmlBody(title: string, innerHtml: string): string {
-  const logoUrl = `${env.appUrl}/brand/dark/readypackets_dark_email_header.png`;
+  // E-mail clients do not uniformly support SVG, so use the supplied transparent
+  // PNG wordmark that is designed for the navy transactional-mail header.
+  const logoUrl = `${env.appUrl}${BRAND_ASSETS.dark.wordmarkPng}`;
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
