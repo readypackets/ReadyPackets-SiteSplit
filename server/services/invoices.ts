@@ -170,7 +170,7 @@ export async function getOrCreatePaidOrderInvoice(orderId: number): Promise<Read
     customerVisible: invoice.customerVisible,
     publishedAt: invoice.publishedAt,
     emailQueuedAt: invoice.emailQueuedAt,
-    brand: { companyName: businessProfile.publicName, legalName: businessProfile.legalName, address: formatBusinessAddress(businessProfile), logoPath: BRAND_ASSETS.light.wordmark, supportUrl: "https://www.readypackets.com" },
+    brand: { companyName: businessProfile.publicName, legalName: businessProfile.legalName, address: formatBusinessAddress(businessProfile), logoPath: BRAND_ASSETS.light.wordmarkTrademark, supportUrl: "https://www.readypackets.com" },
   };
 }
 

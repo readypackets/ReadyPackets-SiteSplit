@@ -46,12 +46,16 @@ export const BRAND_ASSETS = {
     trademark: "/brand/readypackets-document-flow-light-tm.svg",
     wordmark: "/brand/readypackets-document-flow-light-wordmark.svg",
     wordmarkPng: "/brand/readypackets-document-flow-light-wordmark.png",
+    wordmarkTrademark: "/brand/readypackets-document-flow-light-wordmark-tm.svg",
+    wordmarkTrademarkPng: "/brand/readypackets-document-flow-light-wordmark-tm.png",
   },
   dark: {
     full: "/brand/readypackets-document-flow-dark.svg",
     trademark: "/brand/readypackets-document-flow-dark-tm.svg",
     wordmark: "/brand/readypackets-document-flow-dark-wordmark.svg",
     wordmarkPng: "/brand/readypackets-document-flow-dark-wordmark.png",
+    wordmarkTrademark: "/brand/readypackets-document-flow-dark-wordmark-tm.svg",
+    wordmarkTrademarkPng: "/brand/readypackets-document-flow-dark-wordmark-tm.png",
   },
   mark: {
     light: {

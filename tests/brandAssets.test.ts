@@ -15,10 +15,14 @@ const brandAssets = [
   BRAND_ASSETS.light.trademark,
   BRAND_ASSETS.light.wordmark,
   BRAND_ASSETS.light.wordmarkPng,
+  BRAND_ASSETS.light.wordmarkTrademark,
+  BRAND_ASSETS.light.wordmarkTrademarkPng,
   BRAND_ASSETS.dark.full,
   BRAND_ASSETS.dark.trademark,
   BRAND_ASSETS.dark.wordmark,
   BRAND_ASSETS.dark.wordmarkPng,
+  BRAND_ASSETS.dark.wordmarkTrademark,
+  BRAND_ASSETS.dark.wordmarkTrademarkPng,
   ...Object.values(BRAND_ASSETS.mark.light),
   ...Object.values(BRAND_ASSETS.mark.dark),
   BRAND_ASSETS.favicon,
@@ -38,9 +42,11 @@ describe("Document-Flow brand package", () => {
       BRAND_ASSETS.light.full,
       BRAND_ASSETS.light.trademark,
       BRAND_ASSETS.light.wordmark,
+      BRAND_ASSETS.light.wordmarkTrademark,
       BRAND_ASSETS.dark.full,
       BRAND_ASSETS.dark.trademark,
       BRAND_ASSETS.dark.wordmark,
+      BRAND_ASSETS.dark.wordmarkTrademark,
       BRAND_ASSETS.mark.light.svg,
       BRAND_ASSETS.mark.dark.svg,
     ]) {
@@ -49,6 +55,14 @@ describe("Document-Flow brand package", () => {
       expect(svg).toContain("<desc");
       expect(svg).not.toMatch(/<script\b|\son[a-z]+\s*=/i);
       expect(svg).not.toMatch(/(?:href|src)\s*=\s*["'](?:https?:|\/\/|data:|javascript:)/i);
+    }
+  });
+
+  it("uses a supplied-style trademark glyph in every wordmark trademark export", () => {
+    for (const asset of [BRAND_ASSETS.light.wordmarkTrademark, BRAND_ASSETS.dark.wordmarkTrademark]) {
+      const svg = readFileSync(publicAssetPath(asset), "utf8");
+      expect(svg).toContain('id="wordmark-trademark"');
+      expect(svg).toContain('aria-label="™"');
     }
   });
 

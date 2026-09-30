@@ -4158,3 +4158,17 @@ The new design and review documents, alongside this session log entry, are queue
 **Brand implementation:** Replaced the legacy August 2026 logo inventory with the ReadyPackets Document-Flow Brand Package (September 2026). The centralized `shared/brand.ts` registry now selects the light wordmark for light public/auth/invoice surfaces, the dark wordmark for navy portal/footer/email surfaces, and context-appropriate compact document-stack marks for administration, browser tabs, Apple touch icons, PWA install prompts, and the web manifest. The supplied favicon replaced the application favicon. The full light lockup is now used for public Organization structured data. Transactional email uses the supplied dark-background PNG wordmark for broad e-mail-client compatibility; browser surfaces use accessible SVG wordmarks with package-provided title/description metadata.
 
 **Validation completed:** TypeScript typecheck passed. The focused brand, invoice-PDF, and security-header suites passed (**12 tests**), including checks that every registered brand asset exists, SVGs remain self-contained/non-executable, and browser/PWA icons resolve to the new compact mark. Legacy, public, and portal production builds completed successfully and each emitted the supplied logo, compact mark, and favicon assets. The server production bundle passed syntax validation. No visual image inspection tool was used on the user-provided attachments after the user requested that restriction.
+
+---
+
+## 2026-09-30 — Trademark symbol on visible Document-Flow wordmarks
+
+**User request:**
+
+> add a TM for trademark to the new logo
+
+**Implementation:** The supplied package already contained full formal `-tm.svg` lockups but not a wordmark-only trademark export suitable for navigation. The official supplied generator was run with its legal-mark option and the platform's self-hosted Inter font assets to create matching `readypackets-document-flow-light-wordmark-tm` and `readypackets-document-flow-dark-wordmark-tm` SVG/PNG assets. No third-party font, image, CDN, or runtime dependency was added. Generated SVG metadata was corrected to describe the trademark wordmark rather than a tagline, then parsed to reject scripts, event handlers, and external/unsafe references.
+
+**Visible placement:** The ™ wordmark is now used on public navigation, sign-in, portal navigation, footer, invoice page, structured-data organization logo, and transactional e-mail. E-mail uses the generated dark-background trademark PNG for client compatibility. The compact app/PWA marks remain intentionally unmarked because they are icons rather than a readable wordmark.
+
+**Validation completed:** TypeScript typecheck passed. The focused brand, invoice-PDF, and security-header suite passed (**13 tests**), including assertion that every trademark wordmark contains the `wordmark-trademark` glyph. Legacy, public, portal, and server production builds completed successfully; every client bundle contains both trademark SVG wordmarks and the dark trademark PNG used by e-mail. `git diff --check` passed.

@@ -88,7 +88,7 @@ export function PublicHeader() {
           aria-label={`${BRAND.companyShortName} home`}
         >
           <img
-            src={BRAND_ASSETS.light.wordmark}
+            src={BRAND_ASSETS.light.wordmarkTrademark}
             alt={`${BRAND.wordmark} logo`}
             width={2300}
             height={760}
