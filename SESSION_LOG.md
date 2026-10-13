@@ -4172,3 +4172,18 @@ The new design and review documents, alongside this session log entry, are queue
 **Visible placement:** The ™ wordmark is now used on public navigation, sign-in, portal navigation, footer, invoice page, structured-data organization logo, and transactional e-mail. E-mail uses the generated dark-background trademark PNG for client compatibility. The compact app/PWA marks remain intentionally unmarked because they are icons rather than a readable wordmark.
 
 **Validation completed:** TypeScript typecheck passed. The focused brand, invoice-PDF, and security-header suite passed (**13 tests**), including assertion that every trademark wordmark contains the `wordmark-trademark` glyph. Legacy, public, portal, and server production builds completed successfully; every client bundle contains both trademark SVG wordmarks and the dark trademark PNG used by e-mail. `git diff --check` passed.
+
+
+---
+
+## 2026-10-13 — Current portal VPS deployment runbook for separate Hostinger marketing
+
+**User request:** Provide the current link and instructions to deploy the updated ReadyPackets portal.
+
+**Verified release target:** The portal continuation repository is `readypackets/ReadyPackets-SiteSplit` (private). At the time of this record, its reviewed `main` revision is `f083ea3d773d94e509c42a0f76796546d00aa09c`, which contains the Document-Flow trademark branding update on top of the conversion, selected-site SharePoint, dual-bundle/privacy, and schema releases. The installer/source contract is **51 forward-only migrations / 44 critical tables**.
+
+**Deployment clarification:** The marketing site is now independently deployed to Hostinger, using `go.readypackets.com` for reviewed staging and reserving `www.readypackets.com` for its future public cutover. The portal must therefore be installed only at a dedicated portal hostname, currently documented as `my.readypackets.com`. The portal-only VPS command deliberately omits `--public-domain`: adding the externally hosted marketing hostname would make the VPS claim and certificate a hostname served by Hostinger. The marketing site links to the portal directly; no session, CSRF cookie, API, customer data, or proxy is shared across hosts.
+
+**New documentation:** Added `docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md` and linked it from the repository overview. It provides guarded preflight requirements, a private-repository read-only deploy-key path, the short temporary-public fallback, Cloudflare Origin CA and Let’s Encrypt choices, an existing-portal Platform Updates path, required `51/44` verification, MFA/backups/recovery follow-up, and strict Hostinger/portal boundary checks. The dual-site topology documentation now explicitly covers an independently hosted marketing site with a portal-only VPS.
+
+**Validation:** Verified the exact repository URL, private visibility, current immutable release SHA, migration count, and schema-contract count. The runbook was checked for stale repository/SHA placeholders; `bash -n` passed for the one-click installer, unified installer, native installer, and post-install connectivity verifier; `git diff --check` passed.

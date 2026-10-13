@@ -32,6 +32,12 @@ Use a dedicated portal hostname and a distinct public hostname. The recommended 
 
 The portal keeps host-only `__Host-` session and CSRF cookies. The public site never receives portal session cookies. A user who follows a public sign-in link is redirected by the server to the portal hostname before the portal shell is rendered.
 
+### Independent external marketing host
+
+ReadyPackets may instead run its independently built static marketing website on a separate host, such as Hostinger, while this repository serves only the portal from a VPS. This is the current deployment direction for the standalone marketing repository. In that model, the marketing host links directly to a dedicated portal hostname such as `my.readypackets.com`; it does not proxy portal APIs, share portal cookies, or run this repository's anonymous bundle.
+
+For a portal-only VPS installation, omit `--public-domain` / `PUBLIC_SITE_URL`. This keeps the portal's TLS certificate, Nginx host allowlist, and health checks scoped to its dedicated portal hostname. Do **not** include the external marketing hostname in the VPS installer: Let’s Encrypt would otherwise try to validate a hostname that points to the external host, and the portal VPS would claim a hostname it does not serve. The separate marketing host remains responsible for its own TLS, security headers, redirects, consent, and SEO controls.
+
 ## Native VPS installation
 
 The guided bootstrap defaults to this continuation repository. It is intended for a repository that is temporarily public for the installation, or for a checked-out private repository with a deploy-key procedure. Always pin a reviewed immutable commit for a production install.

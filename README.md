@@ -139,6 +139,7 @@ Configuration is environment-driven and validated at startup. The process refuse
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, data model, request lifecycle, threat model |
 | [docs/SECURITY.md](docs/SECURITY.md) | Every control, what it defends against, and how it is verified |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS and Docker deployment, TLS, backups, upgrades, troubleshooting |
+| [docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md](docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md) | Current pinned-release deployment for a portal VPS separated from the external Hostinger marketing site |
 | [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md) | Running the business in the portal, day to day |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Customer-facing walkthrough from registration to delivery |
 | [docs/GAP_ANALYSIS_RESPONSE.md](docs/GAP_ANALYSIS_RESPONSE.md) | Point-by-point response to the Batch 39 gap analysis |
