@@ -10,7 +10,15 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { Readable } from "node:stream";
 import path from "node:path";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { fileTypeFromBuffer } from "file-type";
 import { env } from "../config/env.js";
 import { generateStorageKey } from "../security/crypto.js";
@@ -196,6 +204,44 @@ function localPathFor(storageKey: string): string {
   return path.join(env.storage.localRoot, prefixA, prefixB, storageKey);
 }
 
+let s3Client: S3Client | null = null;
+
+/** Keep object-store credentials and endpoint details within server configuration. */
+function getS3Client(): S3Client {
+  if (env.storage.driver !== "s3") throw new Error("S3 storage is not enabled.");
+  if (s3Client) return s3Client;
+  const { endpoint, region, accessKeyId, secretAccessKey, forcePathStyle } = env.storage.s3;
+  if (!region || !accessKeyId || !secretAccessKey) {
+    throw new Error("S3 storage is enabled but its credentials are incomplete.");
+  }
+  s3Client = new S3Client({
+    region,
+    endpoint,
+    forcePathStyle,
+    credentials: { accessKeyId, secretAccessKey },
+  });
+  return s3Client;
+}
+
+function s3Bucket(): string {
+  const bucket = env.storage.s3.bucket;
+  if (!bucket) throw new Error("S3 storage is enabled but S3_BUCKET is not configured.");
+  return bucket;
+}
+
+async function bodyToBuffer(body: unknown): Promise<Buffer> {
+  if (!body) throw new Error("Stored object has no readable body.");
+  if (typeof (body as { transformToByteArray?: unknown }).transformToByteArray === "function") {
+    const bytes = await (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
+    return Buffer.from(bytes);
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of body as AsyncIterable<Buffer | Uint8Array | string>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 export async function putObject(buffer: Buffer, extension: string): Promise<StoredObject> {
   const storageKey = generateStorageKey(extension);
   const sha256 = createHash("sha256").update(buffer).digest("hex");
@@ -206,30 +252,44 @@ export async function putObject(buffer: Buffer, extension: string): Promise<Stor
     // 0o600: readable only by the service account.
     await writeFile(target, buffer, { mode: 0o600 });
   } else {
-    throw new Error(
-      "S3 storage is selected but the S3 driver is not configured in this deployment.",
-    );
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: s3Bucket(),
+      Key: storageKey,
+      Body: buffer,
+      ContentType: "application/octet-stream",
+      ServerSideEncryption: "AES256",
+      Metadata: { sha256 },
+    }));
   }
 
   return { storageKey, sizeBytes: buffer.length, sha256 };
 }
 
 export async function getObjectBuffer(storageKey: string): Promise<Buffer> {
-  if (env.storage.driver !== "local") {
-    throw new Error("S3 storage driver is not configured.");
-  }
-  return readFile(localPathFor(storageKey));
+  if (env.storage.driver === "local") return readFile(localPathFor(storageKey));
+  const result = await getS3Client().send(new GetObjectCommand({ Bucket: s3Bucket(), Key: storageKey }));
+  return bodyToBuffer(result.Body);
 }
 
-export function getObjectStream(storageKey: string, range?: { start: number; end: number }) {
-  if (env.storage.driver !== "local") {
-    throw new Error("S3 storage driver is not configured.");
+export async function getObjectStream(storageKey: string, range?: { start: number; end: number }): Promise<Readable> {
+  if (env.storage.driver === "local") {
+    return range ? createReadStream(localPathFor(storageKey), range) : createReadStream(localPathFor(storageKey));
   }
-  return range ? createReadStream(localPathFor(storageKey), range) : createReadStream(localPathFor(storageKey));
+  const result = await getS3Client().send(new GetObjectCommand({
+    Bucket: s3Bucket(),
+    Key: storageKey,
+    Range: range ? `bytes=${range.start}-${range.end}` : undefined,
+  }));
+  if (!result.Body) throw new Error("Stored object has no readable body.");
+  return result.Body as Readable;
 }
 
 export async function objectExists(storageKey: string): Promise<boolean> {
   try {
+    if (env.storage.driver === "s3") {
+      await getS3Client().send(new HeadObjectCommand({ Bucket: s3Bucket(), Key: storageKey }));
+      return true;
+    }
     const info = await stat(localPathFor(storageKey));
     return info.isFile();
   } catch {
@@ -239,6 +299,10 @@ export async function objectExists(storageKey: string): Promise<boolean> {
 
 export async function deleteObject(storageKey: string): Promise<void> {
   try {
+    if (env.storage.driver === "s3") {
+      await getS3Client().send(new DeleteObjectCommand({ Bucket: s3Bucket(), Key: storageKey }));
+      return;
+    }
     await rm(localPathFor(storageKey), { force: true });
   } catch (error) {
     logger.warn("Failed to delete stored object", { error, storageKey });

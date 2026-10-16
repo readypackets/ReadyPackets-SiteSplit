@@ -42,6 +42,9 @@ export const BRAND_COLORS = {
  */
 export const BRAND_ASSETS = {
   light: {
+    squareLockup: "/brand/readypackets-full-lockup-square-light.webp",
+    squareLockupPng: "/brand/readypackets-full-lockup-square-light.png",
+    compactMark: "/brand/readypackets-full-lockup-square-light-compact-mark.png",
     full: "/brand/readypackets-document-flow-light.svg",
     trademark: "/brand/readypackets-document-flow-light-tm.svg",
     wordmark: "/brand/readypackets-document-flow-light-wordmark.svg",
@@ -50,6 +53,9 @@ export const BRAND_ASSETS = {
     wordmarkTrademarkPng: "/brand/readypackets-document-flow-light-wordmark-tm.png",
   },
   dark: {
+    squareLockup: "/brand/readypackets-full-lockup-square-dark.webp",
+    squareLockupPng: "/brand/readypackets-full-lockup-square-dark.png",
+    compactMark: "/brand/readypackets-full-lockup-square-dark-compact-mark.png",
     full: "/brand/readypackets-document-flow-dark.svg",
     trademark: "/brand/readypackets-document-flow-dark-tm.svg",
     wordmark: "/brand/readypackets-document-flow-dark-wordmark.svg",

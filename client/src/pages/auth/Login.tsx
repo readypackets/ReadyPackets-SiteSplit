@@ -37,11 +37,11 @@ export function AuthShell({
           <div className="text-center">
             <Link href="/" className="inline-block" aria-label={`${BRAND.companyShortName} home`}>
               <img
-                src={BRAND_ASSETS.light.wordmarkTrademark}
+                src={BRAND_ASSETS.light.squareLockup}
                 alt={`${BRAND.wordmark} logo`}
-                width={2300}
-                height={760}
-                className="mx-auto h-12 w-auto"
+                width={2048}
+                height={2048}
+                className="mx-auto size-32 object-contain"
               />
             </Link>
           </div>

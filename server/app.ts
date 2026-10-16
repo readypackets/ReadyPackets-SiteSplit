@@ -35,6 +35,7 @@ import { ipBlacklistMiddleware } from "./security/ipBlacklist.js";
 import { resolveClientIp } from "./security/ipAddress.js";
 import { createDownloadRouter } from "./http/downloads.js";
 import { createInvoiceDownloadRouter } from "./http/invoiceDownloads.js";
+import { singleRouteParam } from "./http/routeParam.js";
 import { createUploadRouter } from "./http/uploads.js";
 import { createPolicyImportRouter } from "./http/policyImports.js";
 import { createConfigurationRestoreRouter } from "./http/configRestore.js";
@@ -418,7 +419,7 @@ export function createApp(): Express {
   // session, user-agent, or other visitor-identifying data. Campaign destinations
   // are validated on write; an inactive or expired campaign never redirects.
   app.get("/go/:publicKey", async (req: Request, res: Response) => {
-    const publicKey = req.params.publicKey;
+    const publicKey = singleRouteParam(req.params.publicKey);
     if (!publicKey) {
       res.status(404).type("text/plain").send("Campaign link is unavailable.");
       return;

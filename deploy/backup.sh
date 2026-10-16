@@ -134,13 +134,20 @@ log "Dump size: $(numfmt --to=iec "$DUMP_BYTES")"
 # Uploaded files and configuration
 # ---------------------------------------------------------------------------
 INCLUDES_RUNTIME="no"
+STORAGE_OBJECT_COUNT="0"
+STORAGE_OBJECT_BYTES="0"
+STORAGE_DRIVER_EFFECTIVE="${STORAGE_DRIVER:-local}"
 if [[ "$DB_ONLY" == "false" ]]; then
-  if [[ -d "${DATA_DIR}/storage" ]]; then
-    log "Archiving uploaded files"
-    tar -C "$DATA_DIR" -cf "${STAGING}/storage.tar" storage
-  else
-    warn "No storage directory at ${DATA_DIR}/storage"
-  fi
+  # The archive adapter reads the configured local or S3-compatible backend and
+  # writes an identical opaque-key tree to staging. This deliberately avoids an
+  # undocumented host sync tool, preserves file hashes, and makes a full backup
+  # portable between local-disk and shared object-storage deployments.
+  log "Archiving uploaded files from ${STORAGE_DRIVER_EFFECTIVE} storage"
+  STORAGE_EXPORT_RESULT="$(node "${APP_ROOT}/deploy/object-storage-archive.mjs" export --destination "${STAGING}/storage")"
+  STORAGE_OBJECT_COUNT="$(printf '%s\n' "$STORAGE_EXPORT_RESULT" | sed -n 's/^object_count=//p' | head -n1)"
+  STORAGE_OBJECT_BYTES="$(printf '%s\n' "$STORAGE_EXPORT_RESULT" | sed -n 's/^object_bytes=//p' | head -n1)"
+  [[ "$STORAGE_OBJECT_COUNT" =~ ^[0-9]+$ && "$STORAGE_OBJECT_BYTES" =~ ^[0-9]+$ ]] || die "Storage archive adapter returned an invalid summary."
+  tar -C "$STAGING" -cf "${STAGING}/storage.tar" storage
 
   # Included because the encryption and service-integration keys are required
   # to recover encrypted customer data and application settings on a replacement
@@ -168,6 +175,9 @@ Host:           $(hostname -f 2>/dev/null || hostname)
 Database:       ${DB_NAME}
 Dump bytes:     ${DUMP_BYTES}
 Includes files: $([[ "$DB_ONLY" == "false" ]] && echo yes || echo no)
+Storage driver: ${STORAGE_DRIVER_EFFECTIVE}
+Storage objects: ${STORAGE_OBJECT_COUNT}
+Storage bytes:   ${STORAGE_OBJECT_BYTES}
 Includes application secrets: $([[ "$DB_ONLY" == "false" ]] && echo yes || echo no)
 Includes backup-sync runtime: ${INCLUDES_RUNTIME}
 Schema version: $(MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" \

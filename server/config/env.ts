@@ -170,6 +170,30 @@ for (const origin of allowedOrigins) {
 
 const smtpHost = optional("SMTP_HOST");
 
+const instanceRoleRaw = (optional("INSTANCE_ROLE") ?? "all").toLowerCase();
+const instanceRole = instanceRoleRaw === "web" || instanceRoleRaw === "worker" || instanceRoleRaw === "all"
+  ? instanceRoleRaw
+  : "all";
+if (instanceRoleRaw !== instanceRole) {
+  problems.push("INSTANCE_ROLE must be web, worker, or all");
+}
+
+const databaseConnectionLimit = Math.floor(num("DATABASE_CONNECTION_LIMIT", isProduction ? 16 : 6));
+if (databaseConnectionLimit < 1 || databaseConnectionLimit > 64) {
+  problems.push("DATABASE_CONNECTION_LIMIT must be between 1 and 64");
+}
+
+const storageDriverRaw = (optional("STORAGE_DRIVER") ?? "local").toLowerCase();
+const storageDriver = storageDriverRaw === "local" || storageDriverRaw === "s3" ? storageDriverRaw : "local";
+if (storageDriverRaw !== storageDriver) {
+  problems.push("STORAGE_DRIVER must be local or s3");
+}
+if (storageDriver === "s3") {
+  for (const key of ["S3_REGION", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const) {
+    if (!optional(key)) problems.push(`${key} is required when STORAGE_DRIVER=s3`);
+  }
+}
+
 export const env = {
   nodeEnv: NODE_ENV,
   isProduction,
@@ -184,6 +208,7 @@ export const env = {
   allowedHostnames: [...allowedHostnames],
 
   databaseUrl: secret("DATABASE_URL", 12),
+  databaseConnectionLimit: Math.max(1, Math.min(64, databaseConnectionLimit)),
   sessionSecret: secret("SESSION_SECRET", 48),
   dataEncryptionKey: hexKey("DATA_ENCRYPTION_KEY"),
   emailIndexKey: hexKey("EMAIL_INDEX_KEY"),
@@ -194,6 +219,8 @@ export const env = {
 
   sessionTtlMinutes: num("SESSION_TTL_MINUTES", 720),
   sessionIdleTimeoutMinutes: num("SESSION_IDLE_TIMEOUT_MINUTES", 120),
+  instanceRole,
+  schedulerEnabled: instanceRole !== "web",
   cookiePrefix: isProduction ? "__Host-" : "",
 
   /** Native clients use OAuth 2.1/OIDC + PKCE; callback hosts are explicitly allowlisted. */
@@ -205,7 +232,7 @@ export const env = {
   },
 
   storage: {
-    driver: (optional("STORAGE_DRIVER") ?? "local") as "local" | "s3",
+    driver: storageDriver,
     localRoot: str("STORAGE_LOCAL_ROOT", path.resolve(process.cwd(), "var", "storage")),
     maxUploadBytes: num("MAX_UPLOAD_BYTES", 52_428_800),
     s3: {

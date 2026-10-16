@@ -8,7 +8,8 @@
  * cannot keep the process alive during shutdown.
  */
 import { and, eq, isNull, lt, sql } from "drizzle-orm";
-import { db } from "../db/client.js";
+import type { RowDataPacket } from "mysql2";
+import { db, pool } from "../db/client.js";
 import {
   emailQueue,
   emailVerificationTokens,
@@ -34,12 +35,23 @@ interface Job {
   /** Delay before the first run, so startup is not a thundering herd. */
   initialDelayMs: number;
 }
-
+type SchedulerLeaseRow = RowDataPacket & { acquired: number };
 const timers: NodeJS.Timeout[] = [];
 
 async function runJob(job: Job): Promise<void> {
   const started = Date.now();
+  // A worker can run in a standby region for high availability. MySQL named
+  // locks make the schedule globally singleton without Redis or host-local
+  // leader state. The lock lives on this connection until explicitly released.
+  const lockName = `readypackets:scheduler:${job.name}`;
+  let connection: Awaited<ReturnType<typeof pool.getConnection>> | null = null;
   try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.query<SchedulerLeaseRow[]>("SELECT GET_LOCK(?, 0) AS acquired", [lockName]);
+    if (Number(rows[0]?.acquired ?? 0) !== 1) {
+      logger.debug("Scheduled job lease held by another worker", { job: job.name });
+      return;
+    }
     await job.run();
     const duration = Date.now() - started;
     if (duration > 5_000) {
@@ -54,6 +66,16 @@ async function runJob(job: Job): Promise<void> {
       message: `Scheduled job "${job.name}" failed`,
       detail: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    if (connection) {
+      try {
+        await connection.query("DO RELEASE_LOCK(?)", [lockName]);
+      } catch (error) {
+        logger.warn("Failed to release scheduled job lease", { job: job.name, error });
+      } finally {
+        connection.release();
+      }
+    }
   }
 }
 

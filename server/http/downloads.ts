@@ -9,7 +9,7 @@
  */
 import type { Request, Response, Router } from "express";
 import express from "express";
-import archiver from "archiver";
+import * as archiverModule from "archiver";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { files } from "../db/schema.js";
@@ -18,12 +18,29 @@ import { authoriseFileAccess, consumeDownloadTicket, getAudioPlaybackTicket, log
 import { contentDisposition, getObjectStream, objectExists } from "../services/storage.js";
 import { logger } from "../observability/logger.js";
 import { recordSecurityEvent } from "../observability/audit.js";
+import { singleRouteParam } from "./routeParam.js";
+
+/**
+ * Archiver 8 is native ESM and exports `ZipArchive`; the installed community
+ * declaration package currently models the pre-8 factory API. Keep the narrow
+ * bridge here rather than falling back to the vulnerable legacy package.
+ */
+interface ZipArchiveInstance {
+  on(event: "warning" | "error", listener: (error: Error) => void): this;
+  pipe(destination: NodeJS.WritableStream): NodeJS.WritableStream;
+  append(source: NodeJS.ReadableStream | Buffer | string, data?: { name: string }): this;
+  finalize(): Promise<void>;
+}
+
+const ZipArchive = (archiverModule as unknown as {
+  ZipArchive: new (options?: { zlib?: { level?: number } }) => ZipArchiveInstance;
+}).ZipArchive;
 
 export function createDownloadRouter(): Router {
   const router = express.Router();
 
   router.get("/audio/:token", async (req: Request, res: Response) => {
-    const token = req.params.token ?? "";
+    const token = singleRouteParam(req.params.token);
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) {
       res.status(400).type("text/plain").send("Invalid audio token");
       return;
@@ -84,7 +101,7 @@ export function createDownloadRouter(): Router {
     res.setHeader("Pragma", "no-cache");
     if (range) res.setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
     void logFileAccess(ticket.fileId, session.user.id, "audio_playback", (res.locals.clientIp as string | undefined) ?? null);
-    const stream = getObjectStream(file.storageKey, { start, end });
+    const stream = await getObjectStream(file.storageKey, { start, end });
     stream.on("error", (error) => {
       logger.error("Audio playback stream failed", { error, fileId: file.id });
       if (!res.headersSent) res.status(500).end();
@@ -94,7 +111,7 @@ export function createDownloadRouter(): Router {
   });
 
   router.get("/download/:token", async (req: Request, res: Response) => {
-    const token = req.params.token ?? "";
+    const token = singleRouteParam(req.params.token);
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) {
       res.status(400).type("text/plain").send("Invalid download token");
       return;
@@ -169,7 +186,7 @@ export function createDownloadRouter(): Router {
         (res.locals.clientIp as string | undefined) ?? null,
       );
 
-      const stream = getObjectStream(file.storageKey);
+      const stream = await getObjectStream(file.storageKey);
       stream.on("error", (error) => {
         logger.error("Download stream failed", { error, fileId: file.id });
         if (!res.headersSent) res.status(500).end();
@@ -184,7 +201,7 @@ export function createDownloadRouter(): Router {
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", contentDisposition(archiveName));
 
-    const archive = archiver("zip", { zlib: { level: 6 } });
+    const archive = new ZipArchive({ zlib: { level: 6 } });
     archive.on("warning", (error) => {
       logger.warn("Archive warning during bulk download", { error });
     });
@@ -208,7 +225,7 @@ export function createDownloadRouter(): Router {
         entryName = `${base}-${file.id}${ext}`;
       }
       usedNames.add(entryName);
-      archive.append(getObjectStream(file.storageKey), { name: entryName });
+      archive.append(await getObjectStream(file.storageKey), { name: entryName });
       void logFileAccess(
         file.id,
         session.user.id,

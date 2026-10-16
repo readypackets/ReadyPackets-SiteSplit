@@ -23,7 +23,7 @@ The portal implements the ReadyPackets delivery model: a customer selects one or
 
 ## Architecture in brief
 
-A single Node process serves the API and the built client assets. State lives entirely in MySQL, with uploaded files on the local filesystem by default.
+A single Node process serves the API and the built client assets. State lives in MySQL, with uploaded files on local disk for a single node or S3-compatible private object storage for horizontally scaled replicas.
 
 ```
 Internet → nginx (TLS termination, edge rate limiting)
@@ -41,7 +41,7 @@ The client is React 19 with TypeScript and Tailwind CSS, bundled by Vite. The AP
 | API | Express 4, tRPC 11, Zod | Every input validated by schema at the boundary; types shared with the client |
 | Data | MySQL 8, Drizzle ORM | Parameterised queries only; schema defined in TypeScript and migrated by generated SQL |
 | Authentication | Local password with Argon2id, TOTP MFA, optional SAML 2.0 | No external identity provider required |
-| Storage | Local filesystem, optional S3-compatible | Works on a single host with no object store |
+| Storage | Local filesystem, optional S3-compatible object storage | Single host by default; shared private objects for scale-out |
 
 ## Security posture
 
@@ -128,7 +128,7 @@ docs/              Architecture, security, deployment, administration, user guid
 
 ## Operational notes
 
-The scheduler runs inside the application process and handles the outbound email queue, expiry of tokens and sessions, order health checks, and settings cache refresh. No external cron entry is required for application logic; the only scheduled item outside the process is the nightly backup timer.
+The scheduler runs inside the application process for a single-node deployment and handles the outbound email queue, expiry of tokens and sessions, order health checks, and settings cache refresh. At scale, `INSTANCE_ROLE=web` replicas do not start background jobs; a dedicated `INSTANCE_ROLE=worker` performs them under MySQL-backed leases. No external cron entry is required for application logic; the only scheduled item outside the process is the nightly backup timer.
 
 Configuration is environment-driven and validated at startup. The process refuses to start when a required secret is missing, weak, or left at a development default, which prevents an install from silently running with a predictable key. Every setting is documented in `.env.example`.
 
@@ -140,6 +140,7 @@ Configuration is environment-driven and validated at startup. The process refuse
 | [docs/SECURITY.md](docs/SECURITY.md) | Every control, what it defends against, and how it is verified |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS and Docker deployment, TLS, backups, upgrades, troubleshooting |
 | [docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md](docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md) | Current pinned-release deployment for a portal VPS separated from the external Hostinger marketing site |
+| [docs/GLOBAL_SCALE_ARCHITECTURE.md](docs/GLOBAL_SCALE_ARCHITECTURE.md) | Horizontal web replicas, worker coordination, shared storage, global routing, and regional compliance controls |
 | [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md) | Running the business in the portal, day to day |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Customer-facing walkthrough from registration to delivery |
 | [docs/GAP_ANALYSIS_RESPONSE.md](docs/GAP_ANALYSIS_RESPONSE.md) | Point-by-point response to the Batch 39 gap analysis |

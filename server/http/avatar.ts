@@ -168,7 +168,7 @@ export function createAvatarRouter(): Router {
     res.setHeader("Content-Type", mimeMap[ext] ?? "image/jpeg");
 
     try {
-      const stream = getObjectStream(key);
+      const stream = await getObjectStream(key);
       stream.pipe(res);
     } catch (error) {
       logger.error("Avatar serve failed", { error, key });

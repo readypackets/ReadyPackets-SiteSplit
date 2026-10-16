@@ -34,7 +34,7 @@ The third constraint is **operability by a small team**. Code is organised into 
 | MFA | TOTP (RFC 6238) with single-use backup codes | Offline verification; no third-party dependency |
 | Enterprise SSO | SAML 2.0, disabled by default | Optional Entra ID/Okta support without adding a mandatory dependency |
 | Mail | SMTP via nodemailer | Operator supplies any SMTP relay; no vendor lock-in |
-| File storage | Local encrypted disk by default, optional S3-compatible target | Works on a bare VPS with no cloud account |
+| File storage | Local encrypted disk by default, S3-compatible object storage for scale-out | Works on a bare VPS; shared object storage enables regional replicas |
 | Build | Vite 6 (client) and esbuild (server) | Fast, reproducible, produces a single server bundle |
 | Runtime | Node.js 22 LTS | Current LTS with modern crypto APIs |
 | Process supervision | systemd unit, or Docker restart policy | Native to each deployment target |
@@ -117,7 +117,13 @@ Accompanying headers are `Strict-Transport-Security` with a two-year max-age and
 
 Cookie `SameSite=Strict` is treated as a supplement rather than a control. Every state-changing request must satisfy three independent checks: the `Origin` (or `Referer`) hostname must equal the configured application hostname, a `X-RP-CSRF` header must be present, and its value must match both the `__Host-rp_csrf` cookie and the CSRF binding stored on the session row. Tokens are 32 random bytes, rotate on login and on privilege change, and comparison is constant-time.
 
-### 4.4 Rate limiting and progressive penalties
+### 4.4 Horizontal scaling and worker coordination
+
+The one-host deployment remains the simplest supported starting point. For production growth, request-serving nodes are stateless: sessions, orders, queues, audit records, and rate-limit penalties are durable in MySQL; files move to private S3-compatible object storage; and a web replica can safely serve a request authenticated by any other replica. `INSTANCE_ROLE=web` prevents recurring work from starting on a web node. `INSTANCE_ROLE=worker` owns scheduled work, and MySQL named locks prevent an active/standby worker pair from running the same scheduler job concurrently.
+
+The database remains the single write authority. A globally distributed deployment must keep database/object-store data residency, encryption-key custody, backup location, and recovery objectives explicit rather than assuming that regional compute replicas create a compliant multi-region service. The actionable rollout, region controls, and validation checklist are in [GLOBAL_SCALE_ARCHITECTURE.md](GLOBAL_SCALE_ARCHITECTURE.md).
+
+### 4.5 Rate limiting and progressive penalties
 
 Six categories are configurable at runtime from the admin panel and are stored in `rate_limit_configs`. Defaults:
 

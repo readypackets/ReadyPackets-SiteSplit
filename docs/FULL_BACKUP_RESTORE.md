@@ -11,7 +11,7 @@ A ReadyPackets **full backup** is a root-created archive named `readypackets-<ti
 | Archive member | Included | Recovery purpose |
 |---|---:|---|
 | `database.sql` | Always | Entire MySQL application database: user accounts, MFA recovery data, orders, messages, audit records, product/catalogue data, workflow definitions, policies, integration configuration, and application settings. |
-| `storage.tar` | Full backups | Uploaded and generated order files, audio recordings, customer and staff attachments, and generated artifacts under ReadyPackets storage. |
+| `storage.tar` | Full backups | Uploaded and generated order files, audio recordings, customer and staff attachments, and generated artifacts. The archive contains the verified opaque-object tree whether the source instance uses local disk or an S3-compatible shared object store. |
 | `portal.env` | Full backups | Application secrets and configuration, including session signing, AES-256-GCM data encryption, email blind-index, SMTP, payment, SAML, storage-provider, and other environment-backed settings. |
 | `platform-runtime.tar` | When backup synchronization is configured | Root-owned rclone backup-sync configuration and destination mapping. TLS private keys are deliberately excluded. |
 | `MANIFEST.txt` | Always | Creation time, source host, database name, schema version, included components, and warnings. |
@@ -53,9 +53,11 @@ sudo /opt/readypackets/deploy/restore.sh \
   --restore-platform-secrets
 ```
 
-The command first validates archive structure and checksums, creates a pre-restore database snapshot, restores the database and files, restores archived application/integration secrets while preserving the target database connection, hostname, allowed origins, network binding, storage path, Cloudflare/TLS materials, and SAML activation setting, restores root-owned backup-sync runtime if available, reruns forward-only migrations and the database schema contract, and starts the service only after readiness succeeds.
+The command first validates archive structure and checksums, creates a pre-restore database snapshot, restores the database and files, restores archived application/integration secrets while preserving the target database connection, hostname, allowed origins, network binding, storage driver and target object-store identity, Cloudflare/TLS materials, and SAML activation setting, restores root-owned backup-sync runtime if available, reruns forward-only migrations and the database schema contract, and starts the service only after readiness succeeds. This allows a validated archive created from local disk to recover into a configured shared S3-compatible bucket, or vice versa, without copying source-cloud credentials to the replacement host.
 
 The prior target environment is retained as a root-only file beside `portal.env` with a `.pre-full-restore-<timestamp>` suffix. The target must issue or install a valid certificate for its own public hostname; Cloudflare Origin CA material is intentionally never included in the backup archive.
+
+For a shared S3-compatible target, recovery writes every verified archived object under its opaque key but deliberately does **not** bulk-delete unrelated target objects. The restored database references only the recovered object set; retaining unreferenced objects avoids an unsafe broad-delete operation during a high-impact recovery. Use the bucket’s versioning, lifecycle, and a separately reviewed post-recovery cleanup plan for orphaned objects after validating the restored system.
 
 ## Fresh VPS installation assurance
 
@@ -67,7 +69,7 @@ For a new VPS, install the desired reviewed release first, confirm the installer
 
 The portal restore flow is administrator-only and requires an MFA-backed active session, CSRF validation, typed confirmation, strict archive-member checks, path/link rejection, checksums, protected staging, audit records, and a narrowly scoped root backup-control helper. The helper accepts only fixed archive names and action types; it cannot execute arbitrary user-controlled commands. Every full backup and restore attempt is also retained in a root-owned, append-only recovery history with a start/completion/failure status and bounded non-sensitive diagnostic; it survives database replacement so an attempted restore is still visible after recovery.
 
-Run a restore drill periodically against an isolated, nonproduction database and storage location. A backup that has not been verified and tested cannot be relied on for disaster recovery.
+Run a restore drill periodically against an isolated, nonproduction database and storage location. For shared object storage, use a dedicated nonproduction bucket/prefix and verify both the database and a representative file download after the drill. A backup that has not been verified and tested cannot be relied on for disaster recovery.
 
 A full archive should be encrypted before it is copied off-host. ReadyPackets can create encrypted archives through the root backup procedure when `age` or GPG recovery material is configured. Cloud destinations should also use provider-side encryption, versioning or immutability, and separate least-privilege credentials.
 
@@ -78,7 +80,7 @@ The administrator portal also provides two **passphrase-encrypted selective reco
 | Scope | Included | Deliberately excluded | Restore effect |
 |---|---|---|---|
 | **User accounts** | User accounts, encrypted profile values, one-way password hashes, roles, login policy values, MFA enrollment, and MFA recovery-code material | Plaintext passwords, active sessions, orders, files, platform environment, payment keys, and TLS material | Restored identity rows are merged into the target; all user sessions are revoked. |
-| **Orders and files** | Orders, workflow state, questions/answers, notes/messages, status history, SharePoint sync evidence, invoices, payments, refunds, MNDA/policy acceptance evidence, phase records, file metadata/version history, and only local files referenced by orders | User accounts, plaintext passwords, active sessions, platform environment, unrelated storage, payment keys, and TLS material | Restored order rows and referenced files are merged into the target; unrelated target records are retained. |
+| **Orders and files** | Orders, workflow state, questions/answers, notes/messages, status history, SharePoint sync evidence, invoices, payments, refunds, MNDA/policy acceptance evidence, phase records, file metadata/version history, and only files referenced by orders from local or S3-compatible storage | User accounts, plaintext passwords, active sessions, platform environment, unrelated storage, payment keys, and TLS material | Restored order rows and referenced files are merged into the target; unrelated target records are retained. |
 
 Both archive types use an administrator-provided passphrase of at least 16 characters. The passphrase is used for PBKDF2-HMAC-SHA512 key derivation, AES-256-CBC encryption, and a separate HMAC-SHA256 integrity check; it is never stored by ReadyPackets. The archive also carries a non-secret fingerprint of the portal data-encryption key. An archive from a different encryption-key lineage is rejected before restore, protecting encrypted profile/order data from becoming unreadable.
 

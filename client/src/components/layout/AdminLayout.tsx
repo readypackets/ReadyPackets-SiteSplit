@@ -235,11 +235,11 @@ export function AdminLayout({ children }: { children: ReactNode }) {
         <div className="shrink-0 px-4 py-5">
           <Link href="/admin" className="flex items-center gap-2.5 px-2 no-underline">
             <img
-              src={BRAND_ASSETS.mark.dark.px64}
+              src={BRAND_ASSETS.dark.compactMark}
               alt=""
-              width={32}
-              height={32}
-              className="size-8"
+              width={491}
+              height={508}
+              className="size-10 object-contain"
               aria-hidden="true"
             />
             <span className="min-w-0">

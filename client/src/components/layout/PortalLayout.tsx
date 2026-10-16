@@ -153,11 +153,11 @@ export function PortalLayout({
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col overflow-y-auto bg-navy px-3 py-5 lg:flex">
         <Link href="/" className="mx-1 mb-6 block" aria-label={`${BRAND.companyShortName} home`}>
           <img
-            src={BRAND_ASSETS.dark.wordmarkTrademark}
+            src={BRAND_ASSETS.dark.compactMark}
             alt={`${BRAND.wordmark} logo`}
-            width={2300}
-            height={760}
-            className="h-10 w-auto"
+            width={491}
+            height={508}
+            className="size-14 object-contain"
           />
         </Link>
 
@@ -207,11 +207,11 @@ export function PortalLayout({
           <aside className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto bg-navy px-3 py-5 lg:hidden">
             <div className="mb-6 flex items-center justify-between px-1">
               <img
-                src={BRAND_ASSETS.dark.wordmarkTrademark}
+                src={BRAND_ASSETS.dark.compactMark}
                 alt={`${BRAND.wordmark} logo`}
-                width={2300}
-                height={760}
-                className="h-9 w-auto"
+                width={491}
+                height={508}
+                className="size-12 object-contain"
               />
               <button
                 type="button"

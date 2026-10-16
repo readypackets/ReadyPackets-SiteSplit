@@ -1,7 +1,8 @@
 # ReadyPackets Portal — container deployment
 #
-# Two services: the application and MySQL. Nothing else is required, and no
-# third-party service is contacted at any point.
+# Two services: the application and MySQL. Nothing else is required for a
+# single-host deployment. At scale, use web-only and worker-role replicas with
+# a shared database and private S3-compatible object storage.
 #
 # Hardening applied to every container:
 #   * unprivileged user, no new privileges
@@ -78,6 +79,7 @@ services:
       PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       DATABASE_URL: mysql://${MYSQL_USER:-readypackets}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE:-readypackets}
+      DATABASE_CONNECTION_LIMIT: ${DATABASE_CONNECTION_LIMIT:-16}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in .env}
       DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?DATA_ENCRYPTION_KEY must be set in .env}
       EMAIL_INDEX_KEY: ${EMAIL_INDEX_KEY:?EMAIL_INDEX_KEY must be set in .env}
@@ -86,6 +88,7 @@ services:
       BEHIND_CLOUDFLARE: ${BEHIND_CLOUDFLARE:-false}
       SESSION_TTL_MINUTES: ${SESSION_TTL_MINUTES:-720}
       SESSION_IDLE_TIMEOUT_MINUTES: ${SESSION_IDLE_TIMEOUT_MINUTES:-120}
+      INSTANCE_ROLE: ${INSTANCE_ROLE:-all}
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
       STORAGE_LOCAL_ROOT: /var/lib/readypackets/storage
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-52428800}
@@ -94,6 +97,7 @@ services:
       S3_BUCKET: ${S3_BUCKET:-}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}

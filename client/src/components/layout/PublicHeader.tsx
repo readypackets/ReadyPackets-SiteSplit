@@ -88,11 +88,11 @@ export function PublicHeader() {
           aria-label={`${BRAND.companyShortName} home`}
         >
           <img
-            src={BRAND_ASSETS.light.wordmarkTrademark}
+            src={BRAND_ASSETS.light.compactMark}
             alt={`${BRAND.wordmark} logo`}
-            width={2300}
-            height={760}
-            className="h-10 w-auto"
+            width={491}
+            height={508}
+            className="size-12 object-contain"
             // The logo is above the fold; loading it eagerly avoids a reflow.
             loading="eager"
             decoding="async"

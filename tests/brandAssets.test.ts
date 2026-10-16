@@ -11,12 +11,18 @@ function publicAssetPath(assetPath: string): string {
 }
 
 const brandAssets = [
+  BRAND_ASSETS.light.squareLockup,
+  BRAND_ASSETS.light.squareLockupPng,
+  BRAND_ASSETS.light.compactMark,
   BRAND_ASSETS.light.full,
   BRAND_ASSETS.light.trademark,
   BRAND_ASSETS.light.wordmark,
   BRAND_ASSETS.light.wordmarkPng,
   BRAND_ASSETS.light.wordmarkTrademark,
   BRAND_ASSETS.light.wordmarkTrademarkPng,
+  BRAND_ASSETS.dark.squareLockup,
+  BRAND_ASSETS.dark.squareLockupPng,
+  BRAND_ASSETS.dark.compactMark,
   BRAND_ASSETS.dark.full,
   BRAND_ASSETS.dark.trademark,
   BRAND_ASSETS.dark.wordmark,
@@ -28,7 +34,7 @@ const brandAssets = [
   BRAND_ASSETS.favicon,
 ];
 
-describe("Document-Flow brand package", () => {
+describe("ReadyPackets brand package", () => {
   it("keeps every registered self-hosted asset present and non-empty", () => {
     for (const asset of brandAssets) {
       const resolved = publicAssetPath(asset);
@@ -66,18 +72,14 @@ describe("Document-Flow brand package", () => {
     }
   });
 
-  it("keeps browser and PWA icon references on the supplied compact mark", () => {
+  it("keeps browser and PWA icon references on the supplied square lockup", () => {
     for (const file of ["client/index.html", "client/public.html", "client/portal.html"]) {
       const shell = readFileSync(path.join(repositoryRoot, file), "utf8");
       expect(shell).toContain(BRAND_ASSETS.favicon);
-      expect(shell).toContain(BRAND_ASSETS.mark.light.px32);
-      expect(shell).toContain(BRAND_ASSETS.mark.light.px256);
+      expect(shell).toContain("/brand/readypackets-full-lockup-square-light-192.png");
     }
 
     const manifest = readFileSync(path.join(repositoryRoot, "client/public/manifest.webmanifest"), "utf8");
-    expect(manifest).toContain(BRAND_ASSETS.mark.light.px128);
-    expect(manifest).toContain(BRAND_ASSETS.mark.light.px256);
-    expect(manifest).toContain(BRAND_ASSETS.mark.light.px512);
-    expect(manifest).toContain(BRAND_ASSETS.mark.light.px1024);
+    expect(manifest).toContain("/brand/readypackets-full-lockup-square-light-512.png");
   });
 });

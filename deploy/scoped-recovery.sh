@@ -30,7 +30,7 @@ ORDER_TABLES=(
 log() { printf '[scoped-recovery] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 require_root() { [[ "$(id -u)" -eq 0 ]] || die "This recovery helper must run as root."; }
-require_commands() { for command in openssl tar sha256sum mysql mysqldump systemctl; do command -v "$command" >/dev/null 2>&1 || die "Required command not found: $command"; done; }
+require_commands() { for command in openssl tar sha256sum mysql mysqldump systemctl node; do command -v "$command" >/dev/null 2>&1 || die "Required command not found: $command"; done; }
 valid_scope() { [[ "$1" == "identities" || "$1" == "orders" ]]; }
 valid_artifact_name() { [[ "$1" =~ ^readypackets-(identities|orders)-recovery-[0-9TZ-]+\.rprecovery$ ]]; }
 valid_import_name() { [[ "$1" =~ ^rprecovery-import-[a-f0-9]{32}\.rprecovery$ ]]; }
@@ -50,6 +50,7 @@ load_environment() {
   # shellcheck disable=SC1090
   set -a; source "$ENV_FILE"; set +a
   : "${DB_NAME:?DB_NAME is required}" "${DB_USER:?DB_USER is required}" "${DB_PASSWORD:?DB_PASSWORD is required}" "${DATA_ENCRYPTION_KEY:?DATA_ENCRYPTION_KEY is required}"
+  STORAGE_ROOT="${STORAGE_LOCAL_ROOT:-$STORAGE_ROOT}"
 }
 
 read_passphrase() {
@@ -103,20 +104,17 @@ EOF
 }
 
 create_order_storage_archive() {
-  local staging="$1" keys_file="$staging/storage-keys.txt" key count=0
+  local staging="$1" keys_file="$staging/storage-keys.txt" key count=0 export_dir
   MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" --batch --skip-column-names "$DB_NAME" -e \
     "SELECT storage_key FROM files WHERE order_id IS NOT NULL UNION SELECT fv.storage_key FROM file_versions fv INNER JOIN files f ON f.id=fv.file_id WHERE f.order_id IS NOT NULL" > "$keys_file"
   while IFS= read -r key; do
     [[ -z "$key" ]] && continue
-    [[ "$key" =~ ^[A-Za-z0-9._/-]{1,128}$ && "$key" != *".."* && "$key" != /* ]] || die "Database contains an unsafe order-file storage key."
-    [[ -f "$STORAGE_ROOT/$key" ]] || die "Referenced order file is missing from protected storage."
+    [[ "$key" =~ ^[a-f0-9]{48}(\.[a-z0-9]{1,12})?$ ]] || die "Database contains an unsafe order-file storage key."
     count=$((count + 1))
   done < "$keys_file"
-  if [[ "$count" -eq 0 ]]; then
-    tar --files-from /dev/null -cf "$staging/order-files.tar"
-  else
-    tar -C "$STORAGE_ROOT" --verbatim-files-from --no-recursion --files-from "$keys_file" -cf "$staging/order-files.tar"
-  fi
+  export_dir="$staging/order-storage"
+  node "$APP_ROOT/deploy/object-storage-archive.mjs" export --destination "$export_dir" --keys-file "$keys_file" >/dev/null
+  tar -C "$export_dir" -cf "$staging/order-files.tar" .
   printf '%s\n' "$count"
 }
 
@@ -187,6 +185,18 @@ open_recovery() {
 
 read_manifest_value() { sed -nE "s/^[[:space:]]*\"$2\"[[:space:]]*:[[:space:]]*\"?([^\",}]+)\"?.*/\\1/p" "$1" | head -n1; }
 
+validate_order_storage_archive() {
+  local source="$1" member normalized member_type
+  while IFS= read -r member; do
+    normalized="${member#./}"
+    [[ -z "$normalized" ]] && continue
+    [[ "$normalized" =~ ^[a-f0-9]{2}(/[a-f0-9]{2}(/[a-f0-9]{48}(\.[a-z0-9]{1,12})?)?)?/?$ ]] || die "Order file bundle contains an unsafe storage path."
+  done < <(tar -tf "$source")
+  while IFS= read -r member_type; do
+    [[ "$member_type" == "-" || "$member_type" == "d" ]] || die "Order file bundle contains unsupported member types."
+  done < <(tar -tvf "$source" | awk '{print substr($1,1,1)}')
+}
+
 validate_payload() {
   local extracted="$1" expected_scope="$2" scope fingerprint members
   scope="$(read_manifest_value "$extracted/manifest.json" scope)"
@@ -195,6 +205,7 @@ validate_payload() {
   [[ "$fingerprint" =~ ^[a-f0-9]{64}$ && "$fingerprint" == "$(data_key_fingerprint)" ]] || die "Recovery archive belongs to a different data-encryption key. Restore its encrypted data only after performing the controlled configuration/key recovery."
   if [[ "$expected_scope" == "orders" ]]; then
     [[ -f "$extracted/order-files.tar" ]] || die "Order recovery archive is missing its file bundle."
+    validate_order_storage_archive "$extracted/order-files.tar"
     members="$(tar -tf "$extracted/order-files.tar" | sed '/^$/d' | wc -l | tr -d ' ')"
     [[ "$members" =~ ^[0-9]+$ ]] || die "Order file archive validation failed."
   fi
@@ -230,15 +241,15 @@ restore_recovery() {
     printf 'SET UNIQUE_CHECKS=1;\nSET FOREIGN_KEY_CHECKS=1;\n'
   } | MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" "$DB_NAME"
   if [[ "$scope" == "orders" ]]; then
-    tar -tf "$extracted/order-files.tar" | while IFS= read -r key; do
-      [[ "$key" =~ ^[A-Za-z0-9._/-]{1,128}$ && "$key" != *".."* && "$key" != /* ]] || die "Order file bundle contains an unsafe path."
-    done
-    tar --no-same-owner --no-same-permissions -C "$STORAGE_ROOT" -xf "$extracted/order-files.tar"
-    while IFS= read -r key; do
-      [[ -z "$key" ]] && continue
-      chown readypackets:readypackets "$STORAGE_ROOT/$key"
-      chmod go-rwx "$STORAGE_ROOT/$key"
-    done < <(tar -tf "$extracted/order-files.tar")
+    local storage_import="$extracted/order-storage"
+    mkdir -p "$storage_import"
+    validate_order_storage_archive "$extracted/order-files.tar"
+    tar --no-same-owner --no-same-permissions -C "$storage_import" -xf "$extracted/order-files.tar"
+    node "$APP_ROOT/deploy/object-storage-archive.mjs" import --source "$storage_import" >/dev/null
+    if [[ "${STORAGE_DRIVER:-local}" == "local" ]]; then
+      chown -R readypackets:readypackets "$STORAGE_ROOT" 2>/dev/null || true
+      chmod -R go-rwx "$STORAGE_ROOT"
+    fi
   else
     # Recovered password hashes and MFA material must not inherit any existing
     # authenticated browser sessions on the target system.

@@ -39,8 +39,12 @@ async function main(): Promise<void> {
   server.maxHeadersCount = 64;
 
   server.listen(env.port, env.bindHost, () => {
-    logger.info("Listening", { host: env.bindHost, port: env.port, appUrl: env.appUrl });
-    startScheduler();
+    logger.info("Listening", { host: env.bindHost, port: env.port, appUrl: env.appUrl, instanceRole: env.instanceRole });
+    if (env.schedulerEnabled) {
+      startScheduler();
+    } else {
+      logger.info("Scheduler disabled for web-only instance", { instanceRole: env.instanceRole });
+    }
   });
 
   server.on("error", (error: NodeJS.ErrnoException) => {
@@ -58,7 +62,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     logger.info("Shutting down", { signal });
 
-    stopScheduler();
+    if (env.schedulerEnabled) stopScheduler();
 
     // Stop accepting connections, then wait for the active ones to finish.
     const forceExit = setTimeout(() => {

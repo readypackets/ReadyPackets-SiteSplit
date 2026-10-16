@@ -97,11 +97,11 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           <div className="grid gap-10 lg:grid-cols-[1.4fr_repeat(3,1fr)]">
             <div>
               <img
-                src={BRAND_ASSETS.dark.wordmarkTrademark}
+                src={BRAND_ASSETS.dark.squareLockup}
                 alt={`${BRAND.wordmark} logo`}
-                width={2300}
-                height={760}
-                className="h-11 w-auto"
+                width={2048}
+                height={2048}
+                className="size-32 object-contain"
                 loading="lazy"
                 decoding="async"
               />

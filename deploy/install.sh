@@ -405,6 +405,14 @@ SESSION_IDLE_TIMEOUT_MINUTES=120
 STORAGE_DRIVER=local
 STORAGE_LOCAL_ROOT=${DATA_DIR}/storage
 MAX_UPLOAD_BYTES=52428800
+# For a horizontally replicated deployment, switch to STORAGE_DRIVER=s3 and
+# configure a private versioned S3-compatible bucket after installation.
+# S3_ENDPOINT=https://object-storage.example.net
+# S3_REGION=us-east-1
+# S3_BUCKET=readypackets-production
+# S3_ACCESS_KEY_ID=
+# S3_SECRET_ACCESS_KEY=
+# S3_FORCE_PATH_STYLE=false
 
 # Outbound email. Until these are set, messages queue in the database and the
 # admin dashboard reports the queue as degraded.

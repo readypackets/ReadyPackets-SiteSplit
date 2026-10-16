@@ -30,6 +30,7 @@ import { decryptField, encryptField } from "../../security/crypto.js";
 import { getOrCreatePaidOrderInvoice } from "../../services/invoices.js";
 import { invoicePdfFileName, renderInvoicePdf } from "../../services/invoicePdf.js";
 import { env } from "../../config/env.js";
+import { singleRouteParam } from "../routeParam.js";
 
 interface MobileRequest extends Request {
   mobile?: MobilePrincipal;
@@ -218,7 +219,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.get("/orders/:publicOrderId/detail", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:read");
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const caller = await customerCaller(req, res);
     const detail = await caller.orders.detail({ orderId }) as Record<string, any>;
     const order = detail.order as Record<string, unknown>;
@@ -253,7 +254,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.get("/orders/:publicOrderId/files", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:read");
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const rows = await db.select({
       id: files.id, originalName: files.originalName, extension: files.extension,
       sizeBytes: files.sizeBytes, durationSeconds: files.durationSeconds, detectedMime: files.detectedMime,
@@ -265,7 +266,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.get("/files/:mobileFileRef/content", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:read");
-    const fileId = openReference(req.params.mobileFileRef ?? "", "file", principal.userId);
+    const fileId = openReference(singleRouteParam(req.params.mobileFileRef), "file", principal.userId);
     const authorised = await authoriseFileAccess([fileId], principal.userId, "customer");
     const file = authorised[0];
     if (!file || !(await objectExists(file.storageKey))) {
@@ -291,12 +292,12 @@ export function createMobileCustomerRouter(): Router {
     res.setHeader("Cache-Control", "private, no-store, max-age=0");
     if (req.headers.range) res.setHeader("Content-Range", `bytes ${range.start}-${range.end}/${size}`);
     await logFileAccess(fileId, principal.userId, inlineAudio ? "mobile_audio_playback" : "mobile_download", clientIp(res));
-    getObjectStream(file.storageKey, { start: range.start, end: range.end }).pipe(res);
+    (await getObjectStream(file.storageKey, { start: range.start, end: range.end })).pipe(res);
   }));
 
   router.delete("/files/:mobileFileRef", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const fileId = openReference(req.params.mobileFileRef ?? "", "file", principal.userId);
+    const fileId = openReference(singleRouteParam(req.params.mobileFileRef), "file", principal.userId);
     const result = await runIdempotent(req, "DELETE /files/:ref", { fileId }, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       return caller.files.delete({ fileId });
@@ -311,7 +312,7 @@ export function createMobileCustomerRouter(): Router {
     });
   }, withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const body = req.body ?? {};
     const phase = typeof body.phase === "string" && /^[a-z0-9_]{2,64}$/.test(body.phase) ? body.phase : "phase_1";
     const recordedAudio = body.recordedAudio === "true";
@@ -363,13 +364,13 @@ export function createMobileCustomerRouter(): Router {
   }));
 
   router.get("/orders/:publicOrderId/intake", withMobileError(async (req, res) => {
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const caller = await customerCaller(req, res);
     res.json(await caller.intake.get({ orderId }));
   }));
 
   router.put("/orders/:publicOrderId/intake", withMobileError(async (req, res) => {
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const result = await runIdempotent(req, "PUT /orders/:publicOrderId/intake", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       return caller.intake.save({ orderId, projectName: req.body?.projectName, desiredOutcomes: req.body?.desiredOutcomes, integrityChoice: req.body?.integrityChoice, answers: req.body?.answers });
@@ -378,7 +379,7 @@ export function createMobileCustomerRouter(): Router {
   }));
 
   router.post("/orders/:publicOrderId/intake/submit", withMobileError(async (req, res) => {
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const result = await runIdempotent(req, "POST /orders/:publicOrderId/intake/submit", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       return caller.intake.submit({ orderId, confirmAccurate: req.body?.confirmAccurate === true });
@@ -406,7 +407,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.get("/orders/:publicOrderId/questions", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:read");
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const caller = await customerCaller(req, res);
     const questions = await caller.orders.questions({ orderId }) as unknown as Record<string, unknown>[];
     res.json({ items: questions.map((question) => ({ mobileQuestionRef: sealReference("question", Number(question.id), principal.userId), question: question.question, phase: question.phase, required: question.required, status: question.status, answer: question.answer })) });
@@ -414,7 +415,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.post("/questions/:mobileQuestionRef/answer", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const questionId = openReference(req.params.mobileQuestionRef ?? "", "question", principal.userId);
+    const questionId = openReference(singleRouteParam(req.params.mobileQuestionRef), "question", principal.userId);
     const result = await runIdempotent(req, "POST /questions/:ref/answer", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       return caller.orders.answerQuestion({ questionId, body: req.body?.body });
@@ -423,26 +424,26 @@ export function createMobileCustomerRouter(): Router {
   }));
 
   router.post("/orders/:publicOrderId/workflow/:phaseKey/submit", withMobileError(async (req, res) => {
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const result = await runIdempotent(req, "POST /orders/:publicOrderId/workflow/:phaseKey/submit", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
-      return caller.orders.submitWorkflowPhase({ orderId, phaseKey: req.params.phaseKey ?? "", acknowledged: req.body?.acknowledged === true, acknowledgementText: req.body?.acknowledgementText });
+      return caller.orders.submitWorkflowPhase({ orderId, phaseKey: singleRouteParam(req.params.phaseKey), acknowledged: req.body?.acknowledged === true, acknowledgementText: req.body?.acknowledgementText });
     });
     res.status(result.replayed ? 200 : 202).json(result.value);
   }));
 
   router.post("/orders/:publicOrderId/workflow/:phaseKey/advance", withMobileError(async (req, res) => {
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const result = await runIdempotent(req, "POST /orders/:publicOrderId/workflow/:phaseKey/advance", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
-      return caller.orders.advanceWorkflowStage({ orderId, phaseKey: req.params.phaseKey ?? "" });
+      return caller.orders.advanceWorkflowStage({ orderId, phaseKey: singleRouteParam(req.params.phaseKey) });
     });
     res.status(result.replayed ? 200 : 202).json(result.value);
   }));
 
   router.get("/orders/:publicOrderId/invoice", withMobileError(async (req, res) => {
     await requireCustomer(req, "mobile:read");
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const caller = await customerCaller(req, res);
     const invoice = await caller.invoices.getForOrder({ orderId });
     res.json({
@@ -462,7 +463,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.get("/orders/:publicOrderId/invoice/content", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:read");
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const invoice = await getOrCreatePaidOrderInvoice(orderId);
     if (!invoice.customerVisible) throw new MobileOAuthError("not_found", "The requested invoice was not found.", 404);
     const pdf = renderInvoicePdf(invoice);
@@ -477,7 +478,7 @@ export function createMobileCustomerRouter(): Router {
   }));
 
   router.post("/orders/:publicOrderId/checkout-handoff", withMobileError(async (req, res) => {
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const result = await runIdempotent(req, "POST /orders/:publicOrderId/checkout-handoff", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       const checkout = await caller.stripe.createCheckout({
@@ -507,7 +508,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.post("/messages/:mobileMessageRef/read", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const noteId = openReference(req.params.mobileMessageRef ?? "", "message", principal.userId);
+    const noteId = openReference(singleRouteParam(req.params.mobileMessageRef), "message", principal.userId);
     const result = await runIdempotent(req, "POST /messages/:ref/read", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       return caller.messages.markRead({ noteId });
@@ -516,7 +517,7 @@ export function createMobileCustomerRouter(): Router {
   }));
 
   router.post("/orders/:publicOrderId/messages", withMobileError(async (req, res) => {
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
     const result = await runIdempotent(req, "POST /orders/:publicOrderId/messages", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       const note = await caller.orders.addNote({ orderId, body: req.body?.body });
@@ -547,7 +548,7 @@ export function createMobileCustomerRouter(): Router {
   }));
 
   router.put("/notification-preferences/:channel", withMobileError(async (req, res) => {
-    const channel = req.params.channel ?? "";
+    const channel = singleRouteParam(req.params.channel);
     const result = await runIdempotent(req, "PUT /notification-preferences/:channel", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       return caller.account.setNotificationPreference({ channel: channel as any, enabled: req.body?.enabled === true });
@@ -568,7 +569,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.get("/tickets/:ticketNumber", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:read");
-    const ticketNumber = req.params.ticketNumber ?? "";
+    const ticketNumber = singleRouteParam(req.params.ticketNumber);
     const ticket = (await db.select({ id: tickets.id }).from(tickets).where(and(eq(tickets.userId, principal.userId), eq(tickets.ticketNumber, ticketNumber))).limit(1))[0];
     if (!ticket) throw new MobileOAuthError("not_found", "The requested support ticket was not found.", 404);
     const caller = await customerCaller(req, res);
@@ -589,7 +590,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.post("/tickets/:ticketNumber/replies", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const ticket = (await db.select({ id: tickets.id }).from(tickets).where(and(eq(tickets.userId, principal.userId), eq(tickets.ticketNumber, req.params.ticketNumber ?? ""))).limit(1))[0];
+    const ticket = (await db.select({ id: tickets.id }).from(tickets).where(and(eq(tickets.userId, principal.userId), eq(tickets.ticketNumber, singleRouteParam(req.params.ticketNumber)))).limit(1))[0];
     if (!ticket) throw new MobileOAuthError("not_found", "The requested support ticket was not found.", 404);
     const result = await runIdempotent(req, "POST /tickets/:ticketNumber/replies", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
@@ -600,7 +601,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.post("/tickets/:ticketNumber/close", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const ticket = (await db.select({ id: tickets.id }).from(tickets).where(and(eq(tickets.userId, principal.userId), eq(tickets.ticketNumber, req.params.ticketNumber ?? ""))).limit(1))[0];
+    const ticket = (await db.select({ id: tickets.id }).from(tickets).where(and(eq(tickets.userId, principal.userId), eq(tickets.ticketNumber, singleRouteParam(req.params.ticketNumber)))).limit(1))[0];
     if (!ticket) throw new MobileOAuthError("not_found", "The requested support ticket was not found.", 404);
     const result = await runIdempotent(req, "POST /tickets/:ticketNumber/close", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
@@ -631,7 +632,7 @@ export function createMobileCustomerRouter(): Router {
   router.get("/community/topics/:slug", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:read");
     const caller = await customerCaller(req, res);
-    const value = await caller.community.topic({ slug: req.params.slug ?? "" });
+    const value = await caller.community.topic({ slug: singleRouteParam(req.params.slug) });
     res.json({
       topic: { slug: value.topic.slug, title: value.topic.title, body: value.topic.body, locked: value.topic.locked, pinned: value.topic.pinned, author: value.topic.author, createdAt: value.topic.createdAt, reactions: value.topic.reactions },
       posts: value.posts.map((post) => ({ mobilePostRef: sealReference("forum-post", post.id, principal.userId), body: post.body, author: post.author, createdAt: post.createdAt, reactions: post.reactions })),
@@ -651,7 +652,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.post("/community/topics/:slug/posts", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const topic = (await db.select({ id: forumTopics.id }).from(forumTopics).where(and(eq(forumTopics.slug, req.params.slug ?? ""), isNull(forumTopics.deletedAt))).limit(1))[0];
+    const topic = (await db.select({ id: forumTopics.id }).from(forumTopics).where(and(eq(forumTopics.slug, singleRouteParam(req.params.slug)), isNull(forumTopics.deletedAt))).limit(1))[0];
     if (!topic) throw new MobileOAuthError("not_found", "The requested community topic was not found.", 404);
     const result = await runIdempotent(req, "POST /community/topics/:slug/posts", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
@@ -662,7 +663,7 @@ export function createMobileCustomerRouter(): Router {
   }));
 
   router.post("/community/topics/:slug/reaction", withMobileError(async (req, res) => {
-    const topic = (await db.select({ id: forumTopics.id }).from(forumTopics).where(and(eq(forumTopics.slug, req.params.slug ?? ""), isNull(forumTopics.deletedAt))).limit(1))[0];
+    const topic = (await db.select({ id: forumTopics.id }).from(forumTopics).where(and(eq(forumTopics.slug, singleRouteParam(req.params.slug)), isNull(forumTopics.deletedAt))).limit(1))[0];
     if (!topic) throw new MobileOAuthError("not_found", "The requested community topic was not found.", 404);
     const result = await runIdempotent(req, "POST /community/topics/:slug/reaction", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
@@ -673,7 +674,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.post("/community/posts/:mobilePostRef/reaction", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const postId = openReference(req.params.mobilePostRef ?? "", "forum-post", principal.userId);
+    const postId = openReference(singleRouteParam(req.params.mobilePostRef), "forum-post", principal.userId);
     const post = (await db.select({ topicId: forumPosts.topicId }).from(forumPosts).where(and(eq(forumPosts.id, postId), isNull(forumPosts.deletedAt))).limit(1))[0];
     if (!post) throw new MobileOAuthError("not_found", "The requested community post was not found.", 404);
     const result = await runIdempotent(req, "POST /community/posts/:ref/reaction", req.body, async () => {
@@ -717,7 +718,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.post("/workspaces/:mobileWorkspaceRef/members", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const workspaceId = openReference(req.params.mobileWorkspaceRef ?? "", "workspace", principal.userId);
+    const workspaceId = openReference(singleRouteParam(req.params.mobileWorkspaceRef), "workspace", principal.userId);
     const result = await runIdempotent(req, "POST /workspaces/:ref/members", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       return caller.orders.addWorkspaceMember({ workspaceId, email: req.body?.email, role: req.body?.role });
@@ -727,8 +728,8 @@ export function createMobileCustomerRouter(): Router {
 
   router.post("/orders/:publicOrderId/workspaces/:mobileWorkspaceRef", withMobileError(async (req, res) => {
     const principal = requireCustomer(req, "mobile:write");
-    const orderId = await internalOrderId(req, req.params.publicOrderId ?? "");
-    const workspaceId = openReference(req.params.mobileWorkspaceRef ?? "", "workspace", principal.userId);
+    const orderId = await internalOrderId(req, singleRouteParam(req.params.publicOrderId));
+    const workspaceId = openReference(singleRouteParam(req.params.mobileWorkspaceRef), "workspace", principal.userId);
     const result = await runIdempotent(req, "POST /orders/:publicOrderId/workspaces/:ref", req.body, async () => {
       const caller = await customerCaller(req, res, "mobile:write");
       return caller.orders.shareOrderWithWorkspace({ orderId, workspaceId, scope: req.body?.scope });
@@ -779,7 +780,7 @@ export function createMobileCustomerRouter(): Router {
 
   router.get("/knowledge/:slug", withMobileError(async (req, res) => {
     const caller = await customerCaller(req, res);
-    res.json(await caller.knowledgeBase.article({ slug: req.params.slug ?? "" }));
+    res.json(await caller.knowledgeBase.article({ slug: singleRouteParam(req.params.slug) }));
   }));
 
   router.get("/public/faqs", withMobileError(async (req, res) => {

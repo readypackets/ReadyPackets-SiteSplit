@@ -138,6 +138,24 @@ docker compose down                         # stop, preserving volumes
 docker compose build --no-cache app         # rebuild after a code change
 ```
 
+## Horizontal and global growth
+
+The default installer deploys a safe single-node portal (`INSTANCE_ROLE=all`) for an initial self-hosted site. Do not clone that local-disk pattern behind a load balancer. For scale-out, use private S3-compatible storage, a shared highly available MySQL service, and independent roles:
+
+```dotenv
+# web replicas behind the load balancer
+INSTANCE_ROLE=web
+DATABASE_CONNECTION_LIMIT=8
+STORAGE_DRIVER=s3
+
+# exactly one active worker (or one active plus standby)
+INSTANCE_ROLE=worker
+DATABASE_CONNECTION_LIMIT=12
+STORAGE_DRIVER=s3
+```
+
+Web-only replicas do not execute recurring jobs. Worker-capable instances coordinate scheduler jobs with MySQL named locks, so a standby cannot duplicate queue work. Run migrations once as a controlled release step **before** increasing web-replica count; do not have every replica apply DDL. Full design, regional rollout, residency, least privilege, and failover controls are in [GLOBAL_SCALE_ARCHITECTURE.md](GLOBAL_SCALE_ARCHITECTURE.md).
+
 ## Configuration
 
 Every setting is documented in `.env.example`. Configuration is validated at startup and the process **refuses to start** when a required secret is missing, too short, or left at a development default. This is intentional: an install that boots with a predictable key is worse than one that fails visibly.

@@ -119,8 +119,8 @@ const BUSINESS_PROFILE_ADDRESS_TOKEN = "__RP_BUSINESS_PROFILE_ADDRESS__";
 /** Brand-consistent HTML wrapper; the logo is served from the app's own origin. */
 export function wrapHtmlBody(title: string, innerHtml: string): string {
   // E-mail clients do not uniformly support SVG, so use the supplied transparent
-  // PNG trademark wordmark that is designed for the navy transactional-mail header.
-  const logoUrl = `${env.appUrl}${BRAND_ASSETS.dark.wordmarkTrademarkPng}`;
+  // PNG square lockup designed for the navy transactional-mail header.
+  const logoUrl = `${env.appUrl}${BRAND_ASSETS.dark.squareLockupPng}`;
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -130,7 +130,7 @@ export function wrapHtmlBody(title: string, innerHtml: string): string {
 <tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
 <tr><td style="background:${BRAND_COLORS.navy};padding:24px;text-align:center;">
-<img src="${logoUrl}" width="240" alt="${escapeHtml(BRAND.companyShortName)}" style="display:block;margin:0 auto;max-width:240px;height:auto;">
+<img src="${logoUrl}" width="150" alt="${escapeHtml(BRAND.wordmark)}" style="display:block;margin:0 auto;max-width:150px;height:auto;">
 </td></tr>
 <tr><td style="padding:32px 32px 24px 32px;font-size:15px;line-height:1.65;">
 ${innerHtml}

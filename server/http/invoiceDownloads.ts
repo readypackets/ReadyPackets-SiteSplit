@@ -5,6 +5,7 @@ import { consumeInvoiceDownloadTicket } from "../services/invoiceDownloads.js";
 import { getInvoiceByIdForDocument } from "../services/invoices.js";
 import { invoicePdfFileName, renderInvoicePdf } from "../services/invoicePdf.js";
 import { recordSecurityEvent } from "../observability/audit.js";
+import { singleRouteParam } from "./routeParam.js";
 
 function attachmentDisposition(filename: string): string {
   const safe = filename.replace(/[\r\n"\\/]/g, "_").slice(0, 190) || "ReadyPackets-Invoice.pdf";
@@ -19,7 +20,7 @@ function attachmentDisposition(filename: string): string {
 export function createInvoiceDownloadRouter(): Router {
   const router = express.Router();
   router.get("/download/:token", async (req: Request, res: Response) => {
-    const token = req.params.token ?? "";
+    const token = singleRouteParam(req.params.token);
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) {
       res.status(400).type("text/plain").send("Invalid invoice download token");
       return;
