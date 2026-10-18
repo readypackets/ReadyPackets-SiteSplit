@@ -1,10 +1,12 @@
 # ReadyPackets Portal — Private GitHub Fresh-Server Bootstrap
 
-The ReadyPackets Portal includes [`deploy/github-bootstrap-install.sh`](../deploy/github-bootstrap-install.sh) for a secure **first installation only** on a new Ubuntu VPS. It retrieves a reviewed immutable release from the private `readypackets/ReadyPackets-SiteSplit` repository through a repository-scoped **read-only GitHub deploy key**, then starts the native installer.
+The recommended interactive path is [`deploy/master-install.sh`](../deploy/master-install.sh). It is a secure **first installation only** workflow for a new Ubuntu VPS: it captures the portal hostname, ReadyPackets display name, first administrator name/email, TLS method, and reviewed immutable release; creates or validates the read-only deploy key; runs the full native install; and creates the first local administrator with a generated one-time password.
+
+[`deploy/github-bootstrap-install.sh`](../deploy/github-bootstrap-install.sh) remains the lower-level non-interactive primitive for approved automation after an operator has separately created the deploy key and selected every parameter.
 
 > Do not use this bootstrap to update or repair a working portal. It deliberately refuses an existing source directory and active `readypackets.service`. Use **Admin → Platform updates** for a reviewed in-place release, or follow [Full Backup and Recovery](FULL_BACKUP_RESTORE.md) for a replacement-server recovery.
 
-## Controls enforced by the bootstrap
+## Controls enforced by the guided master installer
 
 | Control | Behavior |
 | --- | --- |
@@ -15,12 +17,21 @@ The ReadyPackets Portal includes [`deploy/github-bootstrap-install.sh`](../deplo
 | Existing-deployment protection | Stops if the source directory exists or the portal service is active. |
 | TLS | Supports Let’s Encrypt, an existing Cloudflare Origin CA PEM pair, and automated Cloudflare Origin CA issuance from a root-owned `0600` token file. |
 | Health | Requires local portal readiness. Public HTTPS is checked separately because DNS/proxy/certificate propagation can still be pending immediately after a correct installation. |
+| Initial administrator | Captures name/email and creates the local administrator only after the protected application deployment succeeds; its generated password is shown once on the VPS console. |
 
 ## Recommended production procedure
 
-Use the current [Portal Production VPS Deployment Runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md). It includes the deploy-key setup, immutable-release review, Cloudflare Full (strict), secure token-file creation, exact portal-only command, migration/schema checkpoint, initial administrator command, backup drill, and go-live checklist.
+Use the current [Guided Master Installer](MASTER_PORTAL_INSTALLER.md) and [Portal Production VPS Deployment Runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md). Download the reviewed master script from authenticated GitHub, transfer it to the new VPS, then run:
 
-For a Cloudflare-proxied production portal, the command shape is:
+```bash
+sudo bash /root/readypackets-master-install.sh
+```
+
+The terminal captures the deployment information and displays a newly generated deploy-key public half for a repository administrator to register. It rejects the separate public-website hosts `readypackets.com` and `www.readypackets.com`, and does not accept secrets on the command line.
+
+## Advanced non-interactive procedure
+
+Use the lower-level bootstrap only where a reviewed automation process already owns the deploy-key, exact commit, hostname, TLS method, and certificate/token-file inputs. For a Cloudflare-proxied production portal, the command shape is:
 
 ```bash
 sudo bash /root/github-bootstrap-install.sh \

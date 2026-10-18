@@ -68,6 +68,16 @@ The application listens on `127.0.0.1:3000`; put a reverse proxy in front of it,
 
 ### VPS
 
+For a brand-new native VPS, the recommended interactive installation path is [`deploy/master-install.sh`](deploy/master-install.sh). It captures the portal hostname, ReadyPackets display name, first administrator identity, TLS choice, and approved immutable release; creates the read-only GitHub deploy key; performs the full native installation; and creates the first local administrator with a generated one-time password. See [Guided Master Installer](docs/MASTER_PORTAL_INSTALLER.md).
+
+After securely transferring the reviewed script from authenticated GitHub to the new VPS, run:
+
+```bash
+sudo bash /root/readypackets-master-install.sh
+```
+
+For approved non-interactive automation, use the lower-level bootstrap with explicit reviewed values:
+
 ```bash
 sudo bash /root/github-bootstrap-install.sh \
   --repository readypackets/ReadyPackets-SiteSplit \
@@ -141,6 +151,7 @@ Configuration is environment-driven and validated at startup. The process refuse
 | [docs/SECURITY.md](docs/SECURITY.md) | Every control, what it defends against, and how it is verified |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS and Docker deployment, TLS, backups, upgrades, troubleshooting |
 | [docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md](docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md) | Current pinned-release deployment for a portal VPS separated from the external Hostinger marketing site |
+| [docs/MASTER_PORTAL_INSTALLER.md](docs/MASTER_PORTAL_INSTALLER.md) | Recommended interactive one-script new-VPS portal installation with safe prompts and approval gates |
 | [docs/GITHUB_AUTOMATED_INSTALL.md](docs/GITHUB_AUTOMATED_INSTALL.md) | Secure private-GitHub fresh-server bootstrap using an immutable reviewed commit and a read-only deploy key |
 | [docs/GLOBAL_SCALE_ARCHITECTURE.md](docs/GLOBAL_SCALE_ARCHITECTURE.md) | Horizontal web replicas, worker coordination, shared storage, global routing, and regional compliance controls |
 | [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md) | Running the business in the portal, day to day |

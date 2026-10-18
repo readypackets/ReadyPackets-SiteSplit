@@ -17,6 +17,8 @@
 
 The repository is private, so **Route A is the normal production installation path**.
 
+> **Recommended one-script route:** Use [`deploy/master-install.sh`](../deploy/master-install.sh) on a brand-new native VPS. It collects the portal name/hostname, first administrator, TLS method, and immutable release; creates the restricted read-only GitHub deploy key; runs the full native installer; and creates the first local administrator. Its operator guide is [Guided Master Installer](MASTER_PORTAL_INSTALLER.md). The detailed manual Route A below remains available for reviewed automation and break-glass diagnostics.
+
 ## 2. Prerequisites before the VPS is changed
 
 ### Server capacity and operating system
