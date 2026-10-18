@@ -4247,4 +4247,4 @@ The new design and review documents, alongside this session log entry, are queue
 
 **Validation completed:** Shell syntax checks passed for the new master installer and all related deployment scripts. Focused Vitest suites passed **27 tests across 4 files** (`masterInstall`, `githubBootstrapInstall`, schema contract, and headers). TypeScript typecheck and ESLint completed with zero warnings; `git diff --check` passed. A terminal-level negative test confirmed the master script rejects `www.readypackets.com` before creating a deploy key, project/runtime/configuration/data path, or service state. The native portal baseline remains **51 forward-only migrations** and **44 critical tables verified**.
 
-**Publication state:** Pending the commit and push that follow this session-log entry.
+**Publication state:** Published to the private `readypackets/ReadyPackets-SiteSplit` GitHub `main` branch as immutable commit `2cb0fb261d6767c387c1217384c7de738e8077e7` (`feat: add guided portal master installer`).
