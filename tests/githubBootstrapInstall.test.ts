@@ -36,7 +36,8 @@ describe("private portal fresh-server bootstrap", () => {
   });
 
   it("requires local readiness and performs public reachability as a separately controlled gate", () => {
-    expect(source).toContain('verify-public-connectivity.sh" --domain "$DOMAIN" --local-only');
+    expect(source).toContain('verify-public-connectivity.sh" --domain "$DOMAIN" "${verifier_alias_args[@]}" --local-only');
+    expect(source).toContain('verifier_alias_args+=(--portal-alias "$portal_alias")');
     expect(source).toContain('"$REQUIRE_PUBLIC_HEALTH" == "no"');
     expect(source).toContain("Local installation is healthy; public HTTPS is pending");
   });

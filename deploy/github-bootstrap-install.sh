@@ -11,6 +11,7 @@ umask 077
 REPOSITORY=""
 COMMIT=""
 DOMAIN=""
+PORTAL_ALIASES=()
 EMAIL=""
 MODE="native"
 TLS_PROVIDER=""
@@ -31,6 +32,7 @@ Usage:
     --repository owner/repository \
     --commit <reviewed-40-character-Git-SHA> \
     --domain portal.example.com \
+    --portal-alias my.example.com \
     --mode native \
     --tls-provider letsencrypt \
     --email operations@example.com
@@ -51,6 +53,7 @@ Required arguments:
 
 Optional arguments:
   --mode native|docker|docker-bootstrap             Defaults to native. Native is recommended.
+  --portal-alias <hostname>                         Explicit portal alias; repeat up to five times. Native only; aliases redirect to --domain.
   --tls-provider letsencrypt|cloudflare-origin|cloudflare-origin-ca
   --email <address>                                Required only for Let's Encrypt.
   --cloudflare-api-token-file <root-owned-0600-file>
@@ -85,6 +88,7 @@ while [[ $# -gt 0 ]]; do
     --repository) REPOSITORY="${2:-}"; shift 2 ;;
     --commit) COMMIT="${2:-}"; shift 2 ;;
     --domain) DOMAIN="${2:-}"; shift 2 ;;
+    --portal-alias) PORTAL_ALIASES+=("${2:-}"); shift 2 ;;
     --email) EMAIL="${2:-}"; shift 2 ;;
     --mode) MODE="${2:-}"; shift 2 ;;
     --tls-provider) TLS_PROVIDER="${2:-}"; shift 2 ;;
@@ -106,7 +110,16 @@ done
 [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail "--repository must be owner/repository."
 [[ "$COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || fail "--commit must be a reviewed 40-character Git SHA."
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "--domain must be a valid public hostname."
+[[ "${DOMAIN,,}" != "readypackets.com" && "${DOMAIN,,}" != "www.readypackets.com" ]] || fail "readypackets.com and www.readypackets.com are reserved for the independently hosted ReadyPackets website. Use a dedicated portal hostname."
 [[ "$MODE" =~ ^(native|docker|docker-bootstrap)$ ]] || fail "--mode must be native, docker, or docker-bootstrap."
+(( ${#PORTAL_ALIASES[@]} <= 5 )) || fail "At most five --portal-alias values are permitted."
+for portal_alias in "${PORTAL_ALIASES[@]}"; do
+  [[ "$portal_alias" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "--portal-alias must be a valid hostname."
+  [[ "${portal_alias,,}" != "readypackets.com" && "${portal_alias,,}" != "www.readypackets.com" ]] || fail "readypackets.com and www.readypackets.com are reserved for the independently hosted ReadyPackets website."
+done
+if [[ "${#PORTAL_ALIASES[@]}" -gt 0 && "$MODE" != "native" ]]; then
+  fail "--portal-alias is currently supported only by the native VPS installer."
+fi
 [[ "$TLS_PROVIDER" =~ ^(letsencrypt|cloudflare-origin|cloudflare-origin-ca)$ ]] || fail "--tls-provider must be letsencrypt, cloudflare-origin, or cloudflare-origin-ca."
 [[ "$REQUIRE_PUBLIC_HEALTH" =~ ^(yes|no)$ ]] || fail "--require-public-health must be yes or no."
 [[ "$PROJECT_DIR" == /* && "$PROJECT_DIR" != "/" && "$PROJECT_DIR" != "/srv" ]] || fail "--project-dir must be a safe absolute application path."
@@ -214,6 +227,9 @@ installer=(
   --tls-provider "$TLS_PROVIDER"
   --site-name "$SITE_NAME"
 )
+for portal_alias in "${PORTAL_ALIASES[@]}"; do
+  installer+=(--portal-alias "$portal_alias")
+done
 if [[ "$TLS_PROVIDER" == "letsencrypt" ]]; then
   installer+=(--email "$EMAIL")
 elif [[ "$TLS_PROVIDER" == "cloudflare-origin" ]]; then
@@ -230,11 +246,15 @@ log "Running the ReadyPackets ${MODE} installer for ${DOMAIN}."
 COREPACK_ENABLE_DOWNLOAD_PROMPT=0 "${installer[@]}"
 
 if [[ "$MODE" == "native" ]]; then
+  verifier_alias_args=()
+  for portal_alias in "${PORTAL_ALIASES[@]}"; do
+    verifier_alias_args+=(--portal-alias "$portal_alias")
+  done
   log "Requiring local service and database readiness."
-  bash "$PROJECT_DIR/deploy/verify-public-connectivity.sh" --domain "$DOMAIN" --local-only
+  bash "$PROJECT_DIR/deploy/verify-public-connectivity.sh" --domain "$DOMAIN" "${verifier_alias_args[@]}" --local-only
 
   log "Checking public HTTPS separately from local installation health."
-  if bash "$PROJECT_DIR/deploy/verify-public-connectivity.sh" --domain "$DOMAIN"; then
+  if bash "$PROJECT_DIR/deploy/verify-public-connectivity.sh" --domain "$DOMAIN" "${verifier_alias_args[@]}"; then
     log "Public HTTPS health: PASS"
   else
     status=$?
@@ -256,6 +276,7 @@ ReadyPackets Portal fresh deployment completed.
   Repository:       ${REPOSITORY}
   Installed commit: ${resolved}
   Portal URL:       https://${DOMAIN}
+  Portal aliases:   ${PORTAL_ALIASES[*]:-none (canonical redirect only)}
   Source checkout:  ${PROJECT_DIR}
   Runtime:          /opt/readypackets
 

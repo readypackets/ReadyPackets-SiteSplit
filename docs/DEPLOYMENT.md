@@ -64,7 +64,8 @@ The installer is the supported path. It is idempotent, so it is safe to re-run a
 git clone <repository-url> readypackets
 cd readypackets
 sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 ./deploy/install.sh \
-  --domain portal.readypackets.com --email ops@readypackets.com --tls
+  --domain my.readypackets.com --portal-alias portal.readypackets.com \
+  --email ops@readypackets.com --tls
 ```
 
 The `COREPACK_ENABLE_DOWNLOAD_PROMPT=0` prefix is not optional in an unattended run. Without it corepack prompts for confirmation before fetching pnpm, and the installer blocks on standard input with no indication of why.
@@ -103,6 +104,7 @@ Two practical notes. The script accepts `--generate-password`, which is preferab
 | Option | Effect |
 | --- | --- |
 | `--domain <host>` | Public hostname; required, and used for origin checks, cookie scope, and the certificate |
+| `--portal-alias <host>` | Native installer only; repeat up to five explicit names. Each is included in certificate validation and permanently redirects to the canonical `--domain` before reaching Node. |
 | `--email <address>` | Certificate contact address; required with `--tls` |
 | `--tls` | Obtain a Let's Encrypt certificate |
 | `--no-seed` | Skip catalogue seeding, for use when restoring a backup |
@@ -166,6 +168,7 @@ Every setting is documented in `.env.example`. Configuration is validated at sta
 | --- | --- |
 | `APP_URL` | Canonical **portal/API** URL. Determines session-facing links, SAML/native callback identity, and the authenticated host. |
 | `PUBLIC_SITE_URL` | Optional anonymous marketing-site URL. Set it to a distinct HTTPS hostname to enable the isolated public and portal bundles; omit it for the legacy one-host deployment. |
+| `PORTAL_ALIASES` | Installer-managed comma-separated redirect aliases. Keep `APP_URL` canonical; aliases must never be added as application origins because they redirect before host-only portal cookies are issued. |
 | `DATABASE_URL` | `mysql://user:password@host:3306/database` |
 | `SESSION_SECRET` | At least 32 characters of random data |
 | `DATA_ENCRYPTION_KEY` | Exactly 64 hex characters. **Loss is unrecoverable.** |

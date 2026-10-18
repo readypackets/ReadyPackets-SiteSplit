@@ -7,10 +7,11 @@
 # anywhere. Safe to re-run: existing secrets and data are preserved.
 #
 # Usage:
-#   sudo ./deploy/install.sh --domain portal.example.com --public-domain www.example.com --email ops@example.com
+#   sudo ./deploy/install.sh --domain portal.example.com --portal-alias my.example.com --public-domain www.example.com --email ops@example.com
 #
 # Options:
 #   --domain <host>     Canonical portal/API hostname (required)
+#   --portal-alias <host> Additional explicit portal hostname; repeat up to five times. Aliases redirect to --domain.
 #   --public-domain <host> Optional marketing-site hostname; enables separate public and portal bundles
 #   --email <address>   Contact address for Let's Encrypt (required for --tls-provider letsencrypt)
 #   --tls               Compatibility alias for --tls-provider letsencrypt
@@ -40,9 +41,16 @@ readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOMAIN=""
 PUBLIC_DOMAIN=""
 ALTERNATE_DOMAIN=""
+PORTAL_ALIAS_INPUTS=()
+PORTAL_ALIAS_HOSTS=()
+ALL_ROUTED_HOSTS=()
+PORTAL_ALIASES_CSV=""
 SERVER_NAMES=""
 HOST_ALLOWLIST_REGEX=""
-TLS_ALIAS_PLACEHOLDER="__rp_no_alias.invalid"
+# Escaped for use as a sed replacement. It is deliberately an impossible name
+# rather than an empty regex, which would match every Host header.
+PORTAL_ALIAS_REGEX="rp-alias-disabled\\\\.invalid"
+APP_ALLOWED_ORIGINS=""
 CONTACT_EMAIL=""
 TLS_PROVIDER="" # letsencrypt, cloudflare-origin, cloudflare-origin-ca, or empty to preserve/expose HTTP only
 CLOUDFLARE_ORIGIN_CERT=""
@@ -71,6 +79,7 @@ trap 'die "Installation failed on line ${LINENO}. No changes were rolled back; r
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain)        DOMAIN="${2:-}"; shift 2 ;;
+    --portal-alias)  PORTAL_ALIAS_INPUTS+=("${2:-}"); shift 2 ;;
     --public-domain) PUBLIC_DOMAIN="${2:-}"; shift 2 ;;
     --email)         CONTACT_EMAIL="${2:-}"; shift 2 ;;
     --tls)           TLS_PROVIDER="letsencrypt"; shift ;;
@@ -97,6 +106,18 @@ done
 [[ -n "$DOMAIN" ]] || die "--domain is required."
 [[ "$SITE_NAME" != *$'\n'* && ${#SITE_NAME} -le 100 ]] || die "--site-name must be 1 to 100 characters and contain no line breaks."
 [[ -n "$SITE_NAME" ]] || die "--site-name must not be empty."
+
+# A supported in-place update invokes this installer with the canonical domain.
+# Preserve aliases from the protected environment unless the operator explicitly
+# supplies one or more replacement --portal-alias values; silently dropping a
+# certificate SAN or redirect hostname would be unsafe.
+if [[ "${#PORTAL_ALIAS_INPUTS[@]}" -eq 0 && -f "$ENV_FILE" ]]; then
+  existing_portal_aliases="$(grep -m1 '^PORTAL_ALIASES=' "$ENV_FILE" | cut -d= -f2- || true)"
+  if [[ -n "$existing_portal_aliases" ]]; then
+    IFS=',' read -r -a PORTAL_ALIAS_INPUTS <<< "$existing_portal_aliases"
+  fi
+fi
+
 if [[ -n "$GITHUB_CONFIG_REPOSITORY" || -n "$GITHUB_CONFIG_TOKEN_FILE" || -n "$GITHUB_CONFIG_PASSPHRASE_FILE" ]]; then
   [[ "$GITHUB_CONFIG_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "--github-config-repository must be owner/repository."
   [[ -f "$GITHUB_CONFIG_TOKEN_FILE" && -f "$GITHUB_CONFIG_PASSPHRASE_FILE" ]] || die "GitHub configuration recovery requires root-only token and passphrase files."
@@ -131,12 +152,27 @@ elif [[ "$TLS_PROVIDER" == "cloudflare-origin-ca" ]]; then
   [[ "$CLOUDFLARE_ORIGIN_VALIDITY" =~ ^(7|30|90|365|730|1095|5475)$ ]] || die "--cloudflare-origin-validity must be one of 7, 30, 90, 365, 730, 1095, or 5475."
 fi
 
-# Reject an obviously invalid hostname early: it ends up in security-critical
-# configuration (origin checks, cookie scope, certificate name).
+# Normalize and validate every hostname before it reaches nginx, the certificate
+# request, or the application's origin controls. Aliases are intentionally a
+# bounded, explicit list: arbitrary Host headers are never made trustworthy.
+valid_hostname() {
+  [[ "$1" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$ ]]
+}
+
+is_reserved_public_website_hostname() {
+  [[ "$1" == "readypackets.com" || "$1" == "www.readypackets.com" ]]
+}
+
+escape_regex() { printf '%s' "$1" | sed 's/[.[\\*^$()+?{|]/\\\\&/g'; }
+
+DOMAIN="${DOMAIN,,}"
+PUBLIC_DOMAIN="${PUBLIC_DOMAIN,,}"
 [[ "$DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$ ]] \
   || die "'${DOMAIN}' does not look like a valid hostname."
+is_reserved_public_website_hostname "$DOMAIN" \
+  && die "${DOMAIN} is reserved for the independently hosted ReadyPackets website. Use a dedicated portal hostname."
 if [[ -n "$PUBLIC_DOMAIN" ]]; then
-  [[ "$PUBLIC_DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$ ]] \
+  valid_hostname "$PUBLIC_DOMAIN" \
     || die "'${PUBLIC_DOMAIN}' does not look like a valid hostname."
   [[ "$PUBLIC_DOMAIN" != "$DOMAIN" ]] || die "--public-domain must differ from --domain. Omit it for the legacy single-host deployment."
 fi
@@ -152,24 +188,67 @@ fi
 if [[ -n "$PUBLIC_DOMAIN" && "$PUBLIC_DOMAIN" == "$ALTERNATE_DOMAIN" ]]; then
   die "Use a dedicated portal subdomain with --public-domain (for example --domain portal.example.com --public-domain www.example.com); the canonical apex/www alias cannot simultaneously be the public site."
 fi
-SERVER_NAMES="$DOMAIN"
+
+add_portal_alias() {
+  local alias="$1" known
+  valid_hostname "$alias" || die "'${alias}' does not look like a valid portal alias hostname."
+  [[ "$alias" != "$DOMAIN" ]] || die "--portal-alias must differ from the canonical --domain."
+  is_reserved_public_website_hostname "$alias" \
+    && die "${alias} is reserved for the independently hosted ReadyPackets website and cannot be a portal alias."
+  [[ -z "$PUBLIC_DOMAIN" || "$alias" != "$PUBLIC_DOMAIN" ]] \
+    || die "--portal-alias must differ from --public-domain."
+  for known in "${PORTAL_ALIAS_HOSTS[@]}"; do
+    [[ "$known" == "$alias" ]] && return 0
+  done
+  PORTAL_ALIAS_HOSTS+=("$alias")
+}
+
+explicit_alias_count=0
+for requested_alias in "${PORTAL_ALIAS_INPUTS[@]}"; do
+  requested_alias="${requested_alias,,}"
+  ((explicit_alias_count += 1))
+  (( explicit_alias_count <= 5 )) || die "At most five explicit --portal-alias values are permitted."
+  add_portal_alias "$requested_alias"
+done
+
+# Retain backwards-compatible apex/www behavior, but make it use the same
+# canonical redirect semantics as an explicitly configured portal alias.
 if [[ -n "$ALTERNATE_DOMAIN" ]]; then
-  SERVER_NAMES+=" ${ALTERNATE_DOMAIN}"
-  TLS_ALIAS_PLACEHOLDER="$ALTERNATE_DOMAIN"
-fi
-if [[ -n "$PUBLIC_DOMAIN" ]]; then
-  SERVER_NAMES+=" ${PUBLIC_DOMAIN}"
-fi
-escape_regex() { printf '%s' "$1" | sed 's/[.[\\*^$()+?{|]/\\\\&/g'; }
-HOST_ALLOWLIST_REGEX="$(escape_regex "$DOMAIN")"
-if [[ -n "$ALTERNATE_DOMAIN" ]]; then
-  HOST_ALLOWLIST_REGEX+="|$(escape_regex "$ALTERNATE_DOMAIN")"
-fi
-if [[ -n "$PUBLIC_DOMAIN" ]]; then
-  HOST_ALLOWLIST_REGEX+="|$(escape_regex "$PUBLIC_DOMAIN")"
+  add_portal_alias "$ALTERNATE_DOMAIN"
 fi
 
+ALL_ROUTED_HOSTS=("$DOMAIN" "${PORTAL_ALIAS_HOSTS[@]}")
+[[ -n "$PUBLIC_DOMAIN" ]] && ALL_ROUTED_HOSTS+=("$PUBLIC_DOMAIN")
+SERVER_NAMES="${ALL_ROUTED_HOSTS[*]}"
+for hostname in "${ALL_ROUTED_HOSTS[@]}"; do
+  escaped_hostname="$(escape_regex "$hostname")"
+  if [[ -n "$HOST_ALLOWLIST_REGEX" ]]; then
+    HOST_ALLOWLIST_REGEX+="|${escaped_hostname}"
+  else
+    HOST_ALLOWLIST_REGEX="$escaped_hostname"
+  fi
+done
+if [[ "${#PORTAL_ALIAS_HOSTS[@]}" -gt 0 ]]; then
+  PORTAL_ALIAS_REGEX=""
+  for hostname in "${PORTAL_ALIAS_HOSTS[@]}"; do
+    escaped_hostname="$(escape_regex "$hostname")"
+    if [[ -n "$PORTAL_ALIAS_REGEX" ]]; then
+      PORTAL_ALIAS_REGEX+="|${escaped_hostname}"
+    else
+      PORTAL_ALIAS_REGEX="$escaped_hostname"
+    fi
+  done
+  PORTAL_ALIASES_CSV="$(IFS=,; printf '%s' "${PORTAL_ALIAS_HOSTS[*]}")"
+fi
+
+# Portal aliases are edge redirects only. They never become application origins:
+# this preserves one host-only __Host- session/CSRF cookie origin and prevents a
+# direct proxy path from treating an alias as an authenticated portal host.
+APP_ALLOWED_ORIGINS="https://${DOMAIN}"
+[[ -n "$PUBLIC_DOMAIN" ]] && APP_ALLOWED_ORIGINS+=",https://${PUBLIC_DOMAIN}"
+
 log "Installing ReadyPackets Portal for https://${DOMAIN}"
+[[ -n "$PORTAL_ALIASES_CSV" ]] && log "Configured portal aliases (canonical HTTPS redirects): ${PORTAL_ALIASES_CSV}"
 
 # ---------------------------------------------------------------------------
 # Packages
@@ -380,7 +459,11 @@ PORT=3000
 BIND_HOST=127.0.0.1
 APP_URL=https://${DOMAIN}
 PUBLIC_SITE_URL=https://${PUBLIC_DOMAIN:-$DOMAIN}
-ALLOWED_ORIGINS=https://${DOMAIN},https://${PUBLIC_DOMAIN:-$DOMAIN}
+# Only the canonical portal and optional public website reach Node. Approved
+# PORTAL_ALIASES are terminated by nginx and 308-redirected before cookies or
+# application routes are available.
+ALLOWED_ORIGINS=${APP_ALLOWED_ORIGINS}
+PORTAL_ALIASES=${PORTAL_ALIASES_CSV}
 # Root-owned source checkout used by the controlled platform-update helper.
 RP_SOURCE_DIR=${REPO_ROOT}
 
@@ -555,6 +638,14 @@ write_http_only_site() {
   cat > "$NGINX_SITE" <<TEMP
 # Temporary HTTP-only configuration, replaced once a certificate exists.
 server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    server_tokens off;
+    return 421;
+}
+
+server {
     listen 80;
     listen [::]:80;
     server_name ${SERVER_NAMES};
@@ -569,7 +660,7 @@ server {
     }
 
     location / {
-        return 308 https://\$host\$request_uri;
+        return 308 https://${DOMAIN}\$request_uri;
     }
 }
 TEMP
@@ -589,14 +680,6 @@ write_hardened_site() {
   # arrive as a bare "." -- still functional, since an unescaped dot matches any
   # character, but it would accept "myportalXreadypackets.com" too. Doubling them
   # means one backslash survives into the file.
-  local host_regex="${DOMAIN//./\\\\.}"
-  if [[ -n "$ALTERNATE_DOMAIN" ]]; then
-    host_regex+="|${ALTERNATE_DOMAIN//./\\\\.}"
-  fi
-  if [[ -n "$PUBLIC_DOMAIN" ]]; then
-    host_regex+="|${PUBLIC_DOMAIN//./\\\\.}"
-  fi
-
   # `more_clear_headers` comes from the headers-more module, present in
   # nginx-extras but not in the base nginx package. Emitting the directive
   # unconditionally would make the whole configuration fail to load on a stock
@@ -608,8 +691,9 @@ write_hardened_site() {
 
   sed -e "s/portal\.readypackets\.com/${DOMAIN}/g" \
       -e "s/__RP_SERVER_NAMES__/${SERVER_NAMES}/g" \
-      -e "s/__RP_TLS_ALIAS__/${TLS_ALIAS_PLACEHOLDER}/g" \
-      -e "s/__RP_HOST_REGEX__/${host_regex}/g" \
+      -e "s/__RP_CANONICAL_DOMAIN__/${DOMAIN}/g" \
+      -e "s/__RP_PORTAL_ALIAS_REGEX__/${PORTAL_ALIAS_REGEX}/g" \
+      -e "s/__RP_HOST_REGEX__/${HOST_ALLOWLIST_REGEX}/g" \
       -e "s|# __RP_MORE_CLEAR_HEADERS__|${clear_headers}|g" \
       "${APP_DIR}/deploy/nginx.conf" > "$NGINX_SITE"
 
@@ -631,9 +715,7 @@ CLOUDFLARE_TLS_DIR="${TLS_DIR}/cloudflare-origin"
 
 certificate_covers_public_names() {
   local certificate="$1" hostname
-  local -a hostnames=("$DOMAIN")
-  [[ -n "$ALTERNATE_DOMAIN" ]] && hostnames+=("$ALTERNATE_DOMAIN")
-  [[ -n "$PUBLIC_DOMAIN" ]] && hostnames+=("$PUBLIC_DOMAIN")
+  local -a hostnames=("${ALL_ROUTED_HOSTS[@]}")
   [[ -f "$certificate" ]] || return 1
   for hostname in "${hostnames[@]}"; do
     openssl x509 -in "$certificate" -noout -checkhost "$hostname" 2>/dev/null | grep -q "does match certificate" || return 1
@@ -690,9 +772,7 @@ issue_cloudflare_origin_ca() {
   openssl genrsa -out "$private_key" 3072 >/dev/null 2>&1
   chmod 0600 "$private_key"
   hostname="$DOMAIN"
-  local -a certificate_hosts=("$DOMAIN")
-  [[ -n "$ALTERNATE_DOMAIN" ]] && certificate_hosts+=("$ALTERNATE_DOMAIN")
-  [[ -n "$PUBLIC_DOMAIN" ]] && certificate_hosts+=("$PUBLIC_DOMAIN")
+  local -a certificate_hosts=("${ALL_ROUTED_HOSTS[@]}")
   san="$(printf 'DNS:%s,' "${certificate_hosts[@]}")"
   san="${san%,}"
   openssl req -new -key "$private_key" -out "$csr" \
@@ -804,12 +884,9 @@ if [[ "$TLS_PROVIDER" == "letsencrypt" && "$HAVE_CERT" == "false" ]]; then
   chmod 0644 "$acme_probe_file"
 
   certbot_domains=(--cert-name "$DOMAIN" -d "$DOMAIN")
-  if [[ -n "$ALTERNATE_DOMAIN" ]]; then
-    certbot_domains+=(-d "$ALTERNATE_DOMAIN")
-  fi
-  if [[ -n "$PUBLIC_DOMAIN" ]]; then
-    certbot_domains+=(-d "$PUBLIC_DOMAIN")
-  fi
+  for certificate_hostname in "${ALL_ROUTED_HOSTS[@]:1}"; do
+    certbot_domains+=(-d "$certificate_hostname")
+  done
   # Certbot requires an explicit non-interactive expansion when a prior
   # canonical-name certificate is being widened to its apex/www counterpart.
   if [[ -d "/etc/letsencrypt/live/${DOMAIN}" ]]; then
@@ -817,9 +894,7 @@ if [[ "$TLS_PROVIDER" == "letsencrypt" && "$HAVE_CERT" == "false" ]]; then
   fi
 
   webroot_ready="true"
-  acme_hostnames=("$DOMAIN")
-  [[ -n "$ALTERNATE_DOMAIN" ]] && acme_hostnames+=("$ALTERNATE_DOMAIN")
-  [[ -n "$PUBLIC_DOMAIN" ]] && acme_hostnames+=("$PUBLIC_DOMAIN")
+  acme_hostnames=("${ALL_ROUTED_HOSTS[@]}")
   for acme_hostname in "${acme_hostnames[@]}"; do
     if ! curl --fail --silent --show-error --max-time 5 \
       --resolve "${acme_hostname}:80:127.0.0.1" \

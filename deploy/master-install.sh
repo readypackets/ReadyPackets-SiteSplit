@@ -20,6 +20,7 @@ readonly TOKEN_DIR="/root/readypackets-secrets"
 
 REPOSITORY="$DEFAULT_REPOSITORY"
 DOMAIN=""
+PORTAL_ALIASES=()
 SITE_NAME="$DEFAULT_SITE_NAME"
 ADMIN_NAME=""
 ADMIN_EMAIL=""
@@ -43,8 +44,9 @@ Usage:
   sudo bash master-install.sh
 
 This interactive installer is for a brand-new Ubuntu 24.04 LTS VPS only. It:
-  1. Captures portal host, ReadyPackets display name, administrator name/email,
-     TLS choice, and an exact reviewed portal release.
+  1. Captures a canonical portal host, up to five optional redirect aliases,
+     ReadyPackets display name, administrator name/email, TLS choice, and an
+     exact reviewed portal release.
   2. Creates a root-only read-only GitHub deploy key when needed and pauses so
      its PUBLIC half can be added to the private portal repository.
   3. Retrieves GitHub's published SSH host keys, resolves a candidate release,
@@ -121,6 +123,35 @@ valid_hostname() {
 
 valid_email() {
   [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+}
+
+is_reserved_public_website_hostname() {
+  [[ "$1" == "readypackets.com" || "$1" == "www.readypackets.com" ]]
+}
+
+capture_portal_aliases() {
+  local raw alias known
+  local -a requested_aliases=()
+  read -r -p "Additional portal aliases, comma-separated (optional; max 5; redirect to ${DOMAIN}): " raw
+  raw="${raw#${raw%%[![:space:]]*}}"
+  raw="${raw%${raw##*[![:space:]]}}"
+  [[ -n "$raw" ]] || return 0
+
+  IFS=',' read -r -a requested_aliases <<< "$raw"
+  (( ${#requested_aliases[@]} <= 5 )) || fail "Enter no more than five portal aliases."
+  for alias in "${requested_aliases[@]}"; do
+    alias="${alias#${alias%%[![:space:]]*}}"
+    alias="${alias%${alias##*[![:space:]]}}"
+    alias="${alias,,}"
+    valid_hostname "$alias" || fail "'${alias}' is not a valid fully qualified portal alias hostname."
+    [[ "$alias" != "$DOMAIN" ]] || fail "A portal alias must differ from the canonical portal hostname."
+    is_reserved_public_website_hostname "$alias" \
+      && fail "${alias} is reserved for the independently hosted ReadyPackets website and cannot be a portal alias."
+    for known in "${PORTAL_ALIASES[@]}"; do
+      [[ "$known" == "$alias" ]] && continue 2
+    done
+    PORTAL_ALIASES+=("$alias")
+  done
 }
 
 fresh_host_guard() {
@@ -300,6 +331,7 @@ ReadyPackets Portal fresh-install plan
 Repository:          ${REPOSITORY} (read-only deploy key)
 Immutable release:   ${COMMIT}
 Portal URL:          https://${DOMAIN}
+Portal aliases:       ${PORTAL_ALIASES[*]:-none (aliases HTTPS-redirect to the canonical URL)}
 Display name:        ${SITE_NAME}
 Initial admin:       ${ADMIN_NAME} <${ADMIN_EMAIL}>
 Deployment:          Native Ubuntu VPS (systemd, Nginx, MySQL, backups, restricted controllers)
@@ -308,7 +340,9 @@ Website boundary:    www.readypackets.com remains outside this portal VPS
 
 The installer will create local cryptographic secrets, MySQL data, protected
 runtime files, systemd services, Nginx configuration, backup controls, and an
-initial administrator. It will not overwrite an existing ReadyPackets portal.
+initial administrator. Every listed alias must have DNS pointed to this VPS and
+be covered by the selected certificate; aliases do not receive portal sessions.
+It will not overwrite an existing ReadyPackets portal.
 PLAN
 
   local confirmation=""
@@ -345,6 +379,9 @@ run_verified_bootstrap() {
     --ssh-key "$DEFAULT_SSH_KEY"
     --site-name "$SITE_NAME"
   )
+  for portal_alias in "${PORTAL_ALIASES[@]}"; do
+    command+=(--portal-alias "$portal_alias")
+  done
 
   case "$TLS_PROVIDER" in
     cloudflare-origin-ca)
@@ -396,6 +433,7 @@ main() {
   done
   [[ "$DOMAIN" != "readypackets.com" && "$DOMAIN" != "www.readypackets.com" ]] \
     || fail "readypackets.com and www.readypackets.com are reserved for the separate public website. Use a dedicated portal hostname."
+  capture_portal_aliases
 
   ask_required "Initial administrator full name"
   ADMIN_NAME="$REPLY"
@@ -435,6 +473,7 @@ PREFLIGHT
 
 ReadyPackets Portal deployment is complete.
   Portal URL: https://${DOMAIN}
+  Portal aliases: ${PORTAL_ALIASES[*]:-none (canonical redirect only)}
   Installed commit: ${COMMIT}
   Administrator: ${ADMIN_EMAIL}
 

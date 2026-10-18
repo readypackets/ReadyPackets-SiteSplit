@@ -1,6 +1,6 @@
 # ReadyPackets Portal — Private GitHub Fresh-Server Bootstrap
 
-The recommended interactive path is [`deploy/master-install.sh`](../deploy/master-install.sh). It is a secure **first installation only** workflow for a new Ubuntu VPS: it captures the portal hostname, ReadyPackets display name, first administrator name/email, TLS method, and reviewed immutable release; creates or validates the read-only deploy key; runs the full native install; and creates the first local administrator with a generated one-time password.
+The recommended interactive path is [`deploy/master-install.sh`](../deploy/master-install.sh). It is a secure **first installation only** workflow for a new Ubuntu VPS: it captures the canonical portal hostname, up to five optional canonical-redirect aliases, ReadyPackets display name, first administrator name/email, TLS method, and reviewed immutable release; creates or validates the read-only deploy key; runs the full native install; and creates the first local administrator with a generated one-time password.
 
 [`deploy/github-bootstrap-install.sh`](../deploy/github-bootstrap-install.sh) remains the lower-level non-interactive primitive for approved automation after an operator has separately created the deploy key and selected every parameter.
 
@@ -38,6 +38,7 @@ sudo bash /root/github-bootstrap-install.sh \
   --repository readypackets/ReadyPackets-SiteSplit \
   --commit <REVIEWED_40_CHARACTER_SHA> \
   --domain my.readypackets.com \
+  --portal-alias portal.readypackets.com \
   --mode native \
   --tls-provider cloudflare-origin-ca \
   --cloudflare-api-token-file /root/readypackets-secrets/cloudflare-origin-ca.token \
@@ -50,6 +51,8 @@ For a direct-DNS Let’s Encrypt installation, replace the TLS options with:
 ```bash
 --tls-provider letsencrypt --email operations@readypackets.com
 ```
+
+`--portal-alias` is optional, repeatable up to five times, and currently supported only by the native installer. Create DNS for every listed name before deployment. The certificate must cover every name, and Nginx permanently redirects each alias to the canonical `--domain` before it can reach the application. This preserves one `APP_URL`, SAML/native callback origin, and host-only session/CSRF cookie origin. It does not authorize wildcard or arbitrary Host headers, and `readypackets.com` plus `www.readypackets.com` remain reserved for the separately hosted website.
 
 The current installer applies **51 forward-only migrations** and fails closed unless **44 critical tables** verify successfully. It provisions the portal service as the unprivileged `readypackets` user; secrets remain in root-owned `/etc/readypackets/portal.env`, and neither Node.js port `3000` nor MySQL port `3306` is made public.
 

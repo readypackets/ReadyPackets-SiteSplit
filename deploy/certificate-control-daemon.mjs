@@ -86,16 +86,18 @@ async function status() {
   const match = include.match(/^ssl_certificate\s+([^;]+);/m);
   return certificateMetadata(provider, match?.[1] ?? "", false);
 }
-async function validateCloudflare({ hostname, certificate, privateKey }) {
-  if (!HOSTNAME.test(hostname)) deny("Invalid certificate hostname.");
+async function validateCloudflare({ hostnames, certificate, privateKey }) {
+  if (!Array.isArray(hostnames) || hostnames.length < 1 || hostnames.some((hostname) => !HOSTNAME.test(hostname))) deny("Invalid certificate hostname.");
   const dir = mkdtempSync(join(tmpdir(), "rp-cert-"));
   const cert = join(dir, "certificate.pem"); const key = join(dir, "private-key.pem");
   try {
     writeFileSync(cert, certificate, { mode: 0o600 }); writeFileSync(key, privateKey, { mode: 0o600 });
     await run(OPENSSL, ["x509", "-in", cert, "-noout"]);
     await run(OPENSSL, ["pkey", "-in", key, "-noout"]);
-    const hostnameCheck = await run(OPENSSL, ["x509", "-in", cert, "-noout", "-checkhost", hostname]);
-    if (!hostnameCheck.includes("does match certificate")) deny("The supplied certificate does not match the portal hostname.");
+    for (const hostname of hostnames) {
+      const hostnameCheck = await run(OPENSSL, ["x509", "-in", cert, "-noout", "-checkhost", hostname]);
+      if (!hostnameCheck.includes("does match certificate")) deny("The supplied certificate does not cover every configured portal hostname.");
+    }
     const certPub = (await run("/bin/sh", ["-c", `${OPENSSL} x509 -in "$1" -pubkey -noout | ${OPENSSL} pkey -pubin -outform DER | ${OPENSSL} dgst -sha256`, "--", cert])).trim();
     const keyPub = (await run("/bin/sh", ["-c", `${OPENSSL} pkey -in "$1" -pubout -outform DER | ${OPENSSL} dgst -sha256`, "--", key])).trim();
     if (certPub !== keyPub) deny("The supplied certificate and private key do not match.");
@@ -122,7 +124,9 @@ async function reloadNginxWithRollback(previousInclude, backup) {
   }
 }
 async function installCloudflare(input) {
-  await validateCloudflare(input);
+  const hostnames = configuredPortalHostnames();
+  if (input.hostname.toLowerCase() !== hostnames[0]) deny("The Cloudflare Origin certificate must be installed for the canonical portal hostname.");
+  await validateCloudflare({ ...input, hostnames });
   mkdirSync(CLOUDFLARE_DIRECTORY, { recursive: true, mode: 0o700 });
   const backup = backupTlsMaterial(); const previousInclude = safeRead(TLS_INCLUDE);
   writeAtomic(`${CLOUDFLARE_DIRECTORY}/certificate.pem`, input.certificate, 0o644);
@@ -145,6 +149,20 @@ function currentHostname() {
   const appUrl = envValue(safeRead(APP_ENV), "APP_URL");
   try { return new URL(appUrl).hostname.toLowerCase(); } catch { return ""; }
 }
+function configuredPortalHostnames() {
+  const canonical = currentHostname();
+  if (!canonical) deny("The current APP_URL is invalid; use the server deployment procedure to repair it.");
+  const aliases = envValue(safeRead(APP_ENV), "PORTAL_ALIASES")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const seen = new Set([canonical]);
+  for (const alias of aliases) {
+    if (!HOSTNAME.test(alias) || seen.has(alias)) deny("PORTAL_ALIASES contains an invalid or duplicate hostname; use the server deployment procedure to repair it.");
+    seen.add(alias);
+  }
+  return [...seen];
+}
 function rewriteNginxHostname(contents, hostname) {
   const escaped = hostname.replace(/\./g, "\\.");
   let next = contents.replace(/^\s*server_name\s+[^;]+;/gm, (line) => `${line.slice(0, line.indexOf("server_name"))}server_name ${hostname};`);
@@ -163,6 +181,7 @@ async function updateDomainLetsEncrypt(input) {
   if (!HOSTNAME.test(input.hostname) || !validEmail(input.email)) deny("Invalid hostname or certificate contact email.");
   const oldHostname = currentHostname();
   if (!oldHostname) deny("The current APP_URL is invalid; use the server deployment procedure to repair it.");
+  if (configuredPortalHostnames().length > 1) deny("Canonical-domain changes are blocked while PORTAL_ALIASES is configured. Reconfigure aliases through the reviewed server deployment procedure so DNS, Nginx, and certificate SANs remain aligned.");
   if (oldHostname === input.hostname) deny("The requested hostname is already the portal domain.");
   if (!existsSync(CERTBOT) || !existsSync(APP_ENV) || !existsSync(NGINX_SITE)) deny("The protected domain-control prerequisites are unavailable on this server.");
   const backup = backupDomainMaterial();
@@ -194,11 +213,15 @@ async function domainStatus() {
   return { appUrl, hostname: currentHostname() || null, certificate: await status() };
 }
 async function activateLetsEncrypt(input) {
+  const hostnames = configuredPortalHostnames();
+  if (input.hostname.toLowerCase() !== hostnames[0]) deny("The Let's Encrypt certificate must be activated for the canonical portal hostname.");
   const certificate = `/etc/letsencrypt/live/${input.hostname}/fullchain.pem`;
   const key = `/etc/letsencrypt/live/${input.hostname}/privkey.pem`;
   if (!HOSTNAME.test(input.hostname) || !existsSync(certificate) || !existsSync(key)) deny("A valid Let's Encrypt certificate was not found for this hostname.");
-  const hostnameCheck = await run(OPENSSL, ["x509", "-in", certificate, "-noout", "-checkhost", input.hostname]);
-  if (!hostnameCheck.includes("does match certificate")) deny("The existing Let's Encrypt certificate does not match the portal hostname.");
+  for (const hostname of hostnames) {
+    const hostnameCheck = await run(OPENSSL, ["x509", "-in", certificate, "-noout", "-checkhost", hostname]);
+    if (!hostnameCheck.includes("does match certificate")) deny("The existing Let's Encrypt certificate does not cover every configured portal hostname.");
+  }
   const backup = backupTlsMaterial(); const previousInclude = safeRead(TLS_INCLUDE);
   writeAtomic(TLS_INCLUDE, includeFor("letsencrypt", certificate, key), 0o640);
   await reloadNginxWithRollback(previousInclude, backup);

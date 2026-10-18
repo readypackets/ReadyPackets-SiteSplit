@@ -122,13 +122,13 @@ existing_tables() {
 }
 
 # Configuration bundles must restore application keys and integration secrets,
-# but a fresh target has its own provisioned database instance and credentials.
-# Retaining those target connection values prevents an imported environment from
-# pointing the new application at an unreachable old database.
+# but a fresh target has its own provisioned database instance, credentials, and
+# explicit hostname/alias routing. Retaining those target-bound values prevents
+# an import from pointing to the old database or accepting the old portal hosts.
 preserve_target_database_connection() {
   local source="$1" target="$2" key line
   [[ -f "$source" ]] || return 0
-  for key in DATABASE_URL DB_NAME DB_USER DB_PASSWORD MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD; do
+  for key in DATABASE_URL DB_NAME DB_USER DB_PASSWORD MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD APP_URL PUBLIC_SITE_URL ALLOWED_ORIGINS PORTAL_ALIASES; do
     line="$(grep -E "^${key}=" "$source" | tail -n 1 || true)"
     [[ -n "$line" ]] || continue
     sed -i -E "/^${key}=.*/d" "$target"
@@ -282,7 +282,7 @@ import_bundle() {
   fi
   "$MYSQL_BIN" "$DB_NAME" < "$EXTRACTED_DIR/configuration.sql"
   if [[ "$INCLUDE_SECRETS" == "true" ]]; then
-    log "Configuration tables and protected environment restored under break-glass mode; the target server database connection credentials were retained."
+    log "Configuration tables and protected environment restored under break-glass mode; target database credentials and portal hostname/alias routing were retained."
   else
     log "Non-secret configuration restored; target environment and secret settings were preserved."
   fi

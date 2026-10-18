@@ -175,7 +175,7 @@ prepare_platform_secret_restore() {
 
   # These values identify and connect the replacement host. They must remain
   # local even when restoring source application and integration secrets.
-  local preserve_keys=(DB_NAME DB_USER DB_PASSWORD DATABASE_URL PORT BIND_HOST APP_URL ALLOWED_ORIGINS TRUST_PROXY_HOPS BEHIND_CLOUDFLARE STORAGE_DRIVER STORAGE_LOCAL_ROOT S3_BUCKET S3_REGION S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_FORCE_PATH_STYLE RP_ENV_FILE RP_DATA_DIR SAML_ENABLED)
+  local preserve_keys=(DB_NAME DB_USER DB_PASSWORD DATABASE_URL PORT BIND_HOST APP_URL PUBLIC_SITE_URL ALLOWED_ORIGINS PORTAL_ALIASES TRUST_PROXY_HOPS BEHIND_CLOUDFLARE STORAGE_DRIVER STORAGE_LOCAL_ROOT S3_BUCKET S3_REGION S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_FORCE_PATH_STYLE RP_ENV_FILE RP_DATA_DIR SAML_ENABLED)
   local preserve_regex key replacement
   preserve_regex="^($(IFS='|'; echo "${preserve_keys[*]}"))="
   replacement="${STAGING}/portal.env.recovered"

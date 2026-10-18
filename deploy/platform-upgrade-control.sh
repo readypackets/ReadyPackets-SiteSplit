@@ -10,6 +10,8 @@ readonly APP_DIR="/opt/readypackets"
 readonly ENV_FILE="/etc/readypackets/portal.env"
 SOURCE_DIR=""
 RUNTIME_DOMAIN=""
+RUNTIME_PUBLIC_DOMAIN=""
+RUNTIME_PORTAL_ALIASES=()
 readonly BACKUP_ROOT="/var/backups/readypackets/platform-upgrades"
 readonly WORK_ROOT="/var/lib/readypackets/platform-upgrades"
 readonly SERVICE="readypackets"
@@ -30,12 +32,25 @@ env_value() {
 
 load_runtime_config() {
   [[ -r "$ENV_FILE" ]] || fail "ReadyPackets environment file is unavailable."
-  local app_url configured candidate
+  local app_url public_site_url configured candidate alias
   app_url="$(env_value APP_URL)"
   RUNTIME_DOMAIN="${app_url#https://}"
   RUNTIME_DOMAIN="${RUNTIME_DOMAIN#http://}"
   RUNTIME_DOMAIN="${RUNTIME_DOMAIN%%/*}"
   [[ "$RUNTIME_DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || fail "The active APP_URL does not contain a valid hostname."
+
+  public_site_url="$(env_value PUBLIC_SITE_URL)"
+  if [[ -n "$public_site_url" ]]; then
+    RUNTIME_PUBLIC_DOMAIN="${public_site_url#https://}"
+    RUNTIME_PUBLIC_DOMAIN="${RUNTIME_PUBLIC_DOMAIN#http://}"
+    RUNTIME_PUBLIC_DOMAIN="${RUNTIME_PUBLIC_DOMAIN%%/*}"
+    [[ "$RUNTIME_PUBLIC_DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || fail "The active PUBLIC_SITE_URL does not contain a valid hostname."
+    [[ "$RUNTIME_PUBLIC_DOMAIN" == "$RUNTIME_DOMAIN" ]] && RUNTIME_PUBLIC_DOMAIN=""
+  fi
+  IFS=',' read -r -a RUNTIME_PORTAL_ALIASES <<< "$(env_value PORTAL_ALIASES)"
+  for alias in "${RUNTIME_PORTAL_ALIASES[@]}"; do
+    [[ -z "$alias" || "$alias" =~ ^[A-Za-z0-9.-]+$ ]] || fail "PORTAL_ALIASES contains an invalid hostname."
+  done
 
   configured="$(env_value RP_SOURCE_DIR)"
   for candidate in "$configured" /srv/readypackets /home/ubuntu/src/readypackets; do
@@ -112,7 +127,12 @@ apply_upgrade() {
   pnpm run build:server
   safe_copy_tree "$work" "$SOURCE_DIR"
   cd "$SOURCE_DIR"
-  COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/install.sh --domain "$RUNTIME_DOMAIN" --skip-packages < /dev/null
+  local -a installer_args=(--domain "$RUNTIME_DOMAIN" --skip-packages)
+  [[ -n "$RUNTIME_PUBLIC_DOMAIN" ]] && installer_args+=(--public-domain "$RUNTIME_PUBLIC_DOMAIN")
+  for alias in "${RUNTIME_PORTAL_ALIASES[@]}"; do
+    [[ -n "$alias" ]] && installer_args+=(--portal-alias "$alias")
+  done
+  COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/install.sh "${installer_args[@]}" < /dev/null
   printf '%s\n' "$target" > "$APP_DIR/RELEASE_COMMIT"
   chmod 0640 "$APP_DIR/RELEASE_COMMIT"
   chown root:readypackets "$APP_DIR/RELEASE_COMMIT"

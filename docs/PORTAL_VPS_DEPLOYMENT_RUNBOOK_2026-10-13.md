@@ -37,7 +37,7 @@ The native installer provisions Node.js 22, MySQL 8, Nginx, the self-hosted docu
 
 1. Permit public inbound traffic only on `80/tcp` and `443/tcp`; keep `22/tcp` restricted to administrator networks where possible.
 2. Do **not** expose `3000/tcp` (Node.js) or `3306/tcp` (MySQL). The installer binds them to loopback/private paths.
-3. In Cloudflare DNS, create one dedicated portal record. For example:
+3. In Cloudflare DNS, create one canonical dedicated portal record. For example:
 
    ```text
    Type: A
@@ -46,8 +46,9 @@ The native installer provisions Node.js 22, MySQL 8, Nginx, the self-hosted docu
    Proxy: Proxied (orange cloud) for Cloudflare Origin CA
    ```
 
-4. Keep `www.readypackets.com` and its Hostinger website record untouched. The website links to the portal; it does not share portal authentication cookies, CSRF state, database access, or customer files.
-5. Before a migration or replacement-server deployment, retain and verify a full backup plus its recovery material. Never run a fresh installer over an active portal.
+4. Optional explicit aliases such as `portal.readypackets.com` are supported only as permanent redirects to the canonical portal URL. Create a separate record for every selected alias, pointing to the same VPS and using the same Cloudflare proxy state. Do not use a wildcard record, and do not add aliases until their DNS is ready for certificate validation.
+5. Keep `www.readypackets.com` and its Hostinger website record untouched. The website links to the portal; it does not share portal authentication cookies, CSRF state, database access, or customer files.
+6. Before a migration or replacement-server deployment, retain and verify a full backup plus its recovery material. Never run a fresh installer over an active portal.
 
 ### TLS choice
 
@@ -56,6 +57,8 @@ The native installer provisions Node.js 22, MySQL 8, Nginx, the self-hosted docu
 | **Cloudflare Origin CA automatic issuance — recommended** | The portal remains Cloudflare-proxied | Zone SSL/TLS mode **Full (strict)**; one zone-scoped token with only **Zone → SSL and Certificates → Edit** |
 | **Cloudflare Origin CA existing certificate** | A reviewed Origin CA PEM certificate/key already exist in root-only files | **Full (strict)** |
 | **Let's Encrypt** | The hostname points directly at the VPS for HTTP-01 validation | Temporarily set only the portal record to **DNS only** (grey cloud) if Cloudflare interferes |
+
+Every selected canonical hostname and explicit portal alias must be present in the certificate SAN set. The installer sends every configured portal hostname to Cloudflare Origin CA and adds every name as a Let’s Encrypt `-d` value. A manual Origin CA PEM pair is rejected unless it covers every configured name.
 
 Never paste a Cloudflare token, GitHub key, password, private key, database dump, portal environment file, or backup key into chat, source control, terminal history, or a URL.
 
@@ -144,6 +147,7 @@ sudo bash /root/github-bootstrap-install.sh \
   --repository readypackets/ReadyPackets-SiteSplit \
   --commit <REVIEWED_40_CHARACTER_SHA> \
   --domain my.readypackets.com \
+  --portal-alias portal.readypackets.com \
   --mode native \
   --tls-provider cloudflare-origin-ca \
   --cloudflare-api-token-file /root/readypackets-secrets/cloudflare-origin-ca.token \
@@ -151,7 +155,7 @@ sudo bash /root/github-bootstrap-install.sh \
   --site-name ReadyPackets
 ```
 
-The portal will be installed at `/opt/readypackets`; the immutable source checkout remains at `/srv/readypackets`. The installer starts and validates local health. It also checks public HTTPS, but treats DNS/Cloudflare propagation as pending rather than corrupting a healthy local deployment.
+The `--portal-alias` line is optional and repeatable up to five times. It adds a certificate SAN and an Nginx `308` redirect to `https://my.readypackets.com`; it does not create a second portal login origin. The portal will be installed at `/opt/readypackets`; the immutable source checkout remains at `/srv/readypackets`. The installer starts and validates local health. It also checks public HTTPS, but treats DNS/Cloudflare propagation as pending rather than corrupting a healthy local deployment.
 
 After certificate installation is verified, remove the one-time token file and revoke the token unless an approved renewal process requires it:
 
@@ -225,10 +229,12 @@ sudo systemctl list-timers readypackets-backup.timer
 sudo nginx -t
 
 sudo bash /opt/readypackets/deploy/verify-public-connectivity.sh \
-  --domain my.readypackets.com
+  --domain my.readypackets.com \
+  --portal-alias portal.readypackets.com
 
 curl -fsS https://my.readypackets.com/api/health
 curl -fsS https://my.readypackets.com/api/health/ready
+curl -sSI https://portal.readypackets.com/api/health | grep -Ei '^(HTTP/|location: https://my\.readypackets\.com/)'
 
 sudo ss -ltnp | grep -E ':(22|80|443|3000|3306)'
 ```
@@ -239,6 +245,8 @@ Expected health output:
 {"status":"ok"}
 {"status":"ready"}
 ```
+
+Omit the `--portal-alias` and alias `curl` command when no alias was configured. For each configured alias, the verifier requires an exact `308` redirect to the canonical hostname. It does not treat a direct application response or a redirect to an untrusted host as success.
 
 For Cloudflare Origin CA, additionally verify that the certificate covers the hostname and that Nginx loads it:
 

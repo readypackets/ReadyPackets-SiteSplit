@@ -2,7 +2,7 @@
 
 A self-hosted customer portal and administrative workspace for ReadyPackets. Customers configure orders, submit and retrieve protected files, execute required agreements, receive deliverables, and communicate securely; staff use the same platform for governed order operations, customer management, security, recovery, integrations, and audit review.
 
-The independently hosted ReadyPackets website at `www.readypackets.com` is a separate static deployment. The portal belongs only on a dedicated authenticated hostname such as `my.readypackets.com` or `portal.readypackets.com`; it does not share its sessions, CSRF cookies, customer data, uploads, or runtime with the public website. The native portal deployment is designed for Ubuntu 24.04 LTS, Node.js 22, MySQL 8, Nginx, systemd, protected backups, and restricted root controllers. It contains no Manus runtime, OAuth, hosting, or platform dependency.
+The independently hosted ReadyPackets website at `www.readypackets.com` is a separate static deployment. The portal belongs only on a dedicated authenticated hostname such as `my.readypackets.com`; up to five explicit aliases such as `portal.readypackets.com` can permanently redirect to that canonical hostname. Aliases do not share or create a second session/CSRF origin, and the public website does not share portal sessions, customer data, uploads, or runtime. The native portal deployment is designed for Ubuntu 24.04 LTS, Node.js 22, MySQL 8, Nginx, systemd, protected backups, and restricted root controllers. It contains no Manus runtime, OAuth, hosting, or platform dependency.
 
 Optional Stripe, SMTP, Microsoft Graph/SharePoint, SAML, SIEM/syslog, Microsoft Clarity, and PostHog capabilities are disabled until deliberately configured. Consent-gated analytics and all third-party integrations remain subject to the portal's access control, privacy, encryption, audit, and administrator-approval boundaries.
 
@@ -68,7 +68,7 @@ The application listens on `127.0.0.1:3000`; put a reverse proxy in front of it,
 
 ### VPS
 
-For a brand-new native VPS, the recommended interactive installation path is [`deploy/master-install.sh`](deploy/master-install.sh). It captures the portal hostname, ReadyPackets display name, first administrator identity, TLS choice, and approved immutable release; creates the read-only GitHub deploy key; performs the full native installation; and creates the first local administrator with a generated one-time password. See [Guided Master Installer](docs/MASTER_PORTAL_INSTALLER.md).
+For a brand-new native VPS, the recommended interactive installation path is [`deploy/master-install.sh`](deploy/master-install.sh). It captures the canonical portal hostname, up to five optional canonical-redirect aliases, ReadyPackets display name, first administrator identity, TLS choice, and approved immutable release; creates the read-only GitHub deploy key; performs the full native installation; and creates the first local administrator with a generated one-time password. See [Guided Master Installer](docs/MASTER_PORTAL_INSTALLER.md).
 
 After securely transferring the reviewed script from authenticated GitHub to the new VPS, run:
 
@@ -83,12 +83,13 @@ sudo bash /root/github-bootstrap-install.sh \
   --repository readypackets/ReadyPackets-SiteSplit \
   --commit <REVIEWED_40_CHARACTER_SHA> \
   --domain my.readypackets.com \
+  --portal-alias portal.readypackets.com \
   --mode native \
   --tls-provider cloudflare-origin-ca \
   --cloudflare-api-token-file /root/readypackets-secrets/cloudflare-origin-ca.token
 ```
 
-The private-repository bootstrap is for a new VPS only. It requires a repository-scoped read-only deploy key and a reviewed complete commit SHA, and refuses to overwrite an existing source directory or active portal. The installer provisions the service account, private database listener, production build, systemd unit, Nginx site, TLS, restricted helpers, and backup controls. It generates cryptographic secrets locally and preserves them during approved in-place updates so protected data is not orphaned.
+The private-repository bootstrap is for a new VPS only. It requires a repository-scoped read-only deploy key and a reviewed complete commit SHA, and refuses to overwrite an existing source directory or active portal. `--portal-alias` is optional, repeatable up to five times, and requires DNS plus certificate coverage for every name. Nginx redirects aliases to `--domain` before cookies or API requests reach Node; unknown hostnames remain rejected. The installer provisions the service account, private database listener, production build, systemd unit, Nginx site, TLS, restricted helpers, and backup controls. It generates cryptographic secrets locally and preserves them during approved in-place updates so protected data is not orphaned.
 
 Complete, production-safe instructions including deploy-key setup, Cloudflare Origin CA, Let's Encrypt, verification, MFA, backup/recovery drill, and troubleshooting are in [docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md](docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md). Use [docs/AUTO_DEPLOYMENT.md](docs/AUTO_DEPLOYMENT.md) for approved in-place updates, not this fresh-server path.
 

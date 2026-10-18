@@ -14,6 +14,7 @@ The script prompts for and validates the following non-secret operational detail
 | --- | --- |
 | ReadyPackets display name | Browser and portal display name; defaults to `ReadyPackets`. |
 | Dedicated portal hostname | Example: `my.readypackets.com`. The public `readypackets.com` and `www.readypackets.com` website hostnames are explicitly rejected. |
+| Additional portal aliases | Optional comma-separated list of up to five explicit hostnames, for example `portal.readypackets.com`. Each alias redirects with HTTPS `308` to the dedicated canonical portal hostname; it does not become a separate session origin. |
 | First administrator name and email | Used to create the first local administrator after a successful deployment. |
 | TLS method | Cloudflare Origin CA automatic issuance, Let's Encrypt, or an existing Cloudflare Origin CA PEM pair. |
 | Exact immutable Git release | Shows the current `main` candidate but requires the operator to type a full reviewed 40-character SHA; pressing Enter without it is rejected. |
@@ -38,8 +39,8 @@ Applied 51 migration(s); 44 critical tables verified.
 
 1. Use a new Ubuntu 24.04 LTS VPS with a public IPv4 address and sudo/root access.
 2. Reserve `readypackets.com` and `www.readypackets.com` for the independently hosted ReadyPackets website. Use a dedicated portal hostname, such as `my.readypackets.com` or `portal.readypackets.com`.
-3. Create an `A` record for the portal hostname to the VPS. Keep `3000/tcp` and `3306/tcp` private; only `80/tcp` and `443/tcp` are public for portal traffic.
-4. For automatic Cloudflare Origin CA, proxy the portal DNS record and set Cloudflare to **Full (strict)**. Prepare a short-lived zone-scoped token with only **Zone → SSL and Certificates → Edit**. The script asks for it in a non-echoed prompt only after deployment confirmation.
+3. Create an `A` record for the canonical portal hostname to the VPS. If aliases are selected, create an `A` or appropriate proxied DNS record for **every** alias to the same VPS before beginning. Keep `3000/tcp` and `3306/tcp` private; only `80/tcp` and `443/tcp` are public for portal traffic.
+4. For automatic Cloudflare Origin CA, proxy every portal DNS record and set Cloudflare to **Full (strict)**. Prepare a short-lived zone-scoped token with only **Zone → SSL and Certificates → Edit**. The script asks for it in a non-echoed prompt only after deployment confirmation.
 5. Ensure a person with repository-administration authority is available to add the generated public key at:
 
    ```text
@@ -66,6 +67,12 @@ sudo bash /root/readypackets-master-install.sh
 ```
 
 The master installer will guide the remaining process. It intentionally stops after it prints the deploy key so that you can register only its public half in GitHub before it attempts source retrieval.
+
+## Canonical portal URL and aliases
+
+Choose exactly one canonical portal hostname, such as `my.readypackets.com`. It remains the only `APP_URL`, email-link, SAML/native callback, CSRF, and `__Host-` cookie origin. You may add up to five explicit aliases, including `portal.readypackets.com`, when the installer asks. The native proxy validates every alias, includes it in the TLS certificate SAN set, serves HTTP-01 validation where applicable, and issues a permanent `308` redirect to the canonical HTTPS URL before the request reaches the application.
+
+This is intentionally not a wildcard or arbitrary-host feature. An unconfigured hostname is rejected, and `readypackets.com` and `www.readypackets.com` remain reserved for the separately hosted ReadyPackets website. Do not expect a session created at an alias to work: aliases redirect before a session is issued, so users should bookmark and use the canonical portal URL.
 
 ### Temporary-public repository fallback
 

@@ -6,6 +6,7 @@ umask 077
 MODE=""
 DOMAIN=""
 PUBLIC_DOMAIN=""
+PORTAL_ALIASES=()
 EMAIL=""
 PROJECT_DIR=""
 TLS_PROVIDER=""
@@ -25,7 +26,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   # Interactive: prompts for native VPS, existing Docker, or Docker bootstrap.
-  sudo bash deploy/unified-install.sh --domain portal.example.com --public-domain www.example.com --email ops@example.com
+  sudo bash deploy/unified-install.sh --domain portal.example.com --portal-alias my.example.com --email ops@example.com
 
   # Non-interactive / automation: explicitly select the install mode.
   sudo bash deploy/unified-install.sh --mode native --domain portal.example.com --email ops@example.com --tls-provider letsencrypt
@@ -37,6 +38,7 @@ TLS options:
   --cloudflare-origin-cert <PEM path>
   --cloudflare-origin-key <PEM path>
   --cloudflare-origin-root <PEM path>  Optional Cloudflare Origin CA root/chain
+  --portal-alias <host>  Explicit portal alias; repeat up to five times. Native only; aliases redirect to --domain.
   --no-tls  Configure HTTP only / preserve certificate configuration.
   --site-name <name>  Website name used in public browser titles.
   --github-config-repository <owner/repository>  Restore latest encrypted configuration vault.
@@ -60,6 +62,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) MODE="${2:-}"; shift 2 ;;
     --domain) DOMAIN="${2:-}"; shift 2 ;;
+    --portal-alias) PORTAL_ALIASES+=("${2:-}"); shift 2 ;;
     --public-domain) PUBLIC_DOMAIN="${2:-}"; shift 2 ;;
     --email) EMAIL="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
@@ -124,8 +127,17 @@ if [[ -z "$MODE" && -t 0 ]]; then
 fi
 [[ "$MODE" == "native" || "$MODE" == "docker" || "$MODE" == "docker-bootstrap" ]] || fail "Choose --mode native, docker, or docker-bootstrap."
 [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "A valid --domain is required."
+[[ "${DOMAIN,,}" != "readypackets.com" && "${DOMAIN,,}" != "www.readypackets.com" ]] || fail "readypackets.com and www.readypackets.com are reserved for the independently hosted ReadyPackets website. Use a dedicated portal hostname."
 [[ -z "$PUBLIC_DOMAIN" || "$PUBLIC_DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "--public-domain must be a valid hostname."
 [[ -z "$PUBLIC_DOMAIN" || "$PUBLIC_DOMAIN" != "$DOMAIN" ]] || fail "--public-domain must differ from --domain."
+(( ${#PORTAL_ALIASES[@]} <= 5 )) || fail "At most five --portal-alias values are permitted."
+for portal_alias in "${PORTAL_ALIASES[@]}"; do
+  [[ "$portal_alias" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]] || fail "--portal-alias must be a valid hostname."
+  [[ "${portal_alias,,}" != "readypackets.com" && "${portal_alias,,}" != "www.readypackets.com" ]] || fail "readypackets.com and www.readypackets.com are reserved for the independently hosted ReadyPackets website."
+done
+if [[ "${#PORTAL_ALIASES[@]}" -gt 0 && "$MODE" != "native" ]]; then
+  fail "--portal-alias is currently supported only by the native VPS installer."
+fi
 if [[ -z "$TLS_PROVIDER" && -t 0 ]]; then
   printf '\nTLS certificate provider:\n  1) Let\x27s Encrypt\n  2) Cloudflare Origin CA\n  3) HTTP only / configure later\n'
   read -r -p "Choose [1-3] (default 1): " tls_choice
@@ -146,6 +158,7 @@ fi
 
 if [[ "$MODE" == "native" ]]; then
   args=(--domain "$DOMAIN")
+  for portal_alias in "${PORTAL_ALIASES[@]}"; do args+=(--portal-alias "$portal_alias"); done
   [[ -n "$PUBLIC_DOMAIN" ]] && args+=(--public-domain "$PUBLIC_DOMAIN")
   [[ -n "$EMAIL" ]] && args+=(--email "$EMAIL")
   [[ "$TLS_PROVIDER" != "none" ]] && args+=(--tls-provider "$TLS_PROVIDER")

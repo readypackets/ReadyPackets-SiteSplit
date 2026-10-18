@@ -4,7 +4,7 @@
 
 The recommended production deployment is the authenticated ReadyPackets Portal on its own native Ubuntu 24.04 LTS VPS, for example `my.readypackets.com` or `portal.readypackets.com`. It is separate from the public ReadyPackets website at `www.readypackets.com`, which may remain hosted on Hostinger or another static host.
 
-The recommended one-script procedure is [Guided Master Installer](MASTER_PORTAL_INSTALLER.md). It safely captures the name, dedicated portal hostname, first administrator, TLS method, and reviewed release on the new VPS. The authoritative detailed controls remain in [Portal Production VPS Deployment Runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md).
+The recommended one-script procedure is [Guided Master Installer](MASTER_PORTAL_INSTALLER.md). It safely captures the name, canonical portal hostname, optional bounded canonical-redirect aliases, first administrator, TLS method, and reviewed release on the new VPS. The authoritative detailed controls remain in [Portal Production VPS Deployment Runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md).
 
 ## Deployment safety model
 
@@ -28,7 +28,7 @@ For horizontal/global rollout, use the staged design in [Global Growth & Horizon
 
 ## New private-repository VPS installation
 
-1. Create one dedicated DNS record for the portal, not for the externally hosted public website.
+1. Create one dedicated DNS record for the canonical portal, not for the externally hosted public website. If you use aliases such as `portal.readypackets.com`, create DNS for each alias to the same VPS before installing.
 2. Keep `80/tcp` and `443/tcp` public, restrict `22/tcp`, and leave `3000/tcp` and `3306/tcp` private.
 3. Generate and register a **read-only** deploy key for the private portal repository.
 4. Review the desired release and record its exact 40-character commit SHA.
@@ -41,6 +41,7 @@ sudo bash /root/github-bootstrap-install.sh \
   --repository readypackets/ReadyPackets-SiteSplit \
   --commit <REVIEWED_40_CHARACTER_SHA> \
   --domain my.readypackets.com \
+  --portal-alias portal.readypackets.com \
   --mode native \
   --tls-provider cloudflare-origin-ca \
   --cloudflare-api-token-file /root/readypackets-secrets/cloudflare-origin-ca.token \
@@ -48,7 +49,7 @@ sudo bash /root/github-bootstrap-install.sh \
   --site-name ReadyPackets
 ```
 
-For direct-DNS Let’s Encrypt, use `--tls-provider letsencrypt --email operations@readypackets.com` instead. The full commands, prerequisite checks, Cloudflare and deploy-key setup, token hygiene, verification, troubleshooting, administrator bootstrap, and go-live checklist are in the [production runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md).
+The `--portal-alias` line is optional and can be repeated for up to five explicit hostnames. Each must be present in DNS and TLS, and it receives only a permanent redirect to the canonical `--domain`; it is not a second portal session origin. For direct-DNS Let’s Encrypt, use `--tls-provider letsencrypt --email operations@readypackets.com` instead. The full commands, prerequisite checks, Cloudflare and deploy-key setup, token hygiene, verification, troubleshooting, administrator bootstrap, and go-live checklist are in the [production runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md).
 
 ## Existing portal update or replacement-server recovery
 
