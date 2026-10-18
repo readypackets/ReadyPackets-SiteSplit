@@ -1,196 +1,234 @@
-# ReadyPackets Portal — VPS Deployment Runbook
+# ReadyPackets Portal — Production VPS Deployment Runbook
 
-**Release repository:** [readypackets/ReadyPackets-SiteSplit](https://github.com/readypackets/ReadyPackets-SiteSplit) (private)
-**Reviewed release:** `f083ea3d773d94e509c42a0f76796546d00aa09c`
-**Expected database checkpoint:** `Applied 51 migration(s); 44 critical tables verified.`
-**Preferred runtime:** Native Ubuntu 24.04 VPS with systemd, Nginx, MySQL, and the ReadyPackets protected backup/update helpers.
+**Release repository:** <https://github.com/readypackets/ReadyPackets-SiteSplit> (private)
+**Recommended runtime:** Native Ubuntu 24.04 LTS VPS with systemd, Nginx, MySQL, root-protected backups, and the ReadyPackets restricted update/recovery controllers.
+**Current fresh-install checkpoint:** The installer must report **51 forward-only migrations** and **44 critical tables verified**.
 
-> This runbook deploys the **authenticated ReadyPackets portal** only. The independent Hostinger marketing site remains separate. With the current marketing-site configuration, use `my.readypackets.com` as the portal hostname because the public CTA targets that hostname. Do not point the Hostinger marketing host (`go` now, later `www`) at the portal VPS.
+> This runbook deploys only the authenticated ReadyPackets Portal at `my.readypackets.com` or `portal.readypackets.com`. The ReadyPackets website stays independently hosted at `www.readypackets.com` (and any staging hostname such as `go.readypackets.com`). Do not add an externally hosted website hostname to the portal installer.
 
-## 1. Choose the correct deployment route
+## 1. Choose the safe deployment route
 
-| Situation | Use this route | Do not use |
+| Situation | Correct route | Do not use |
 | --- | --- | --- |
-| A new/reimaged VPS; repository remains private | **Route A — private repository + read-only deploy key** | The anonymous one-click bootstrap |
-| A new/reimaged VPS; repository is intentionally public for a short installation window | **Route B — temporary-public guided bootstrap** | A personal GitHub token in a command |
-| An already working ReadyPackets portal | **Route C — controlled in-place upgrade** | Either fresh-server route; they refuse/are unsafe for a live portal |
+| New/reimaged VPS; portal repository remains private | **Route A — reviewed private release with a read-only deploy key** | Anonymous source download or a personal access token in a command |
+| New/reimaged VPS; repository is deliberately public for a short, controlled window | **Route B — temporary-public guided bootstrap** | Leaving the repository public after the release is installed |
+| Working ReadyPackets Portal already exists | **Route C — approved in-place update** | Any fresh-server bootstrap or reinstallation |
+| Replacement server recovery | Install a clean portal with Route A, verify it, then use the documented full restore | Copying database/files manually or overwriting live secrets |
 
-The application source repository is currently **private**, so **Route A is the normal production route**.
+The repository is private, so **Route A is the normal production installation path**.
 
-## 2. Before touching the VPS
+## 2. Prerequisites before the VPS is changed
 
-1. Provision **Ubuntu 24.04 LTS** (Ubuntu 22.04 LTS or Debian 12 are also supported) with at least **2 vCPU, 4 GB RAM, and 40 GB SSD**.
-2. Keep only SSH administration plus inbound **TCP 80 and 443** available. Do **not** expose application port `3000` or MySQL port `3306`.
-3. In Cloudflare DNS, create the portal record:
+### Server capacity and operating system
+
+Provision **Ubuntu 24.04 LTS** with a static public IPv4 address, sudo/root access, and at least:
+
+| Environment | vCPU | RAM | NVMe storage |
+| --- | ---:|---:|---:|
+| Evaluation only | 2 | 4 GB | 80 GB |
+| Recommended initial production | 4 | 8 GB | 160 GB |
+| Conversion-heavy / higher volume | 8 | 16 GB | 320 GB+ |
+
+The native installer provisions Node.js 22, MySQL 8, Nginx, the self-hosted document/audio converter toolchain, the portal service, restricted root controllers, log rotation, and the backup timer. It does **not** require any Manus service or identity provider.
+
+### Network and DNS
+
+1. Permit public inbound traffic only on `80/tcp` and `443/tcp`; keep `22/tcp` restricted to administrator networks where possible.
+2. Do **not** expose `3000/tcp` (Node.js) or `3306/tcp` (MySQL). The installer binds them to loopback/private paths.
+3. In Cloudflare DNS, create one dedicated portal record. For example:
 
    ```text
    Type: A
    Name: my
-   Target: <new portal VPS public IPv4 address>
+   Target: <new-VPS-public-IPv4>
+   Proxy: Proxied (orange cloud) for Cloudflare Origin CA
    ```
 
-4. Do not change the marketing Hostinger record (`go` staging or `www` future production), the root redirect, or the existing Hostinger deployment.
-5. Choose one TLS path:
-   - **Cloudflare Origin CA (recommended when `my` stays orange-cloud/proxied):** Set Cloudflare SSL/TLS mode to **Full (strict)**. Create a new zone-scoped token with only **Zone → SSL and Certificates → Edit** for `readypackets.com`. Do not paste it into chat, source files, or a shell command.
-   - **Let’s Encrypt:** Set only the `my` record to **DNS only** (grey cloud) until issuance completes. You need an email address for renewal notices.
-6. If this is a migration rather than a blank portal, retain a tested full backup and its recovery material before beginning. A fresh installer must never overwrite an existing working portal.
+4. Keep `www.readypackets.com` and its Hostinger website record untouched. The website links to the portal; it does not share portal authentication cookies, CSRF state, database access, or customer files.
+5. Before a migration or replacement-server deployment, retain and verify a full backup plus its recovery material. Never run a fresh installer over an active portal.
 
-## 3. Route A — Private repository and read-only deploy key (recommended)
+### TLS choice
 
-### 3.1 Prepare the fresh VPS
+| Choice | Use when | Required Cloudflare state |
+| --- | --- | --- |
+| **Cloudflare Origin CA automatic issuance — recommended** | The portal remains Cloudflare-proxied | Zone SSL/TLS mode **Full (strict)**; one zone-scoped token with only **Zone → SSL and Certificates → Edit** |
+| **Cloudflare Origin CA existing certificate** | A reviewed Origin CA PEM certificate/key already exist in root-only files | **Full (strict)** |
+| **Let's Encrypt** | The hostname points directly at the VPS for HTTP-01 validation | Temporarily set only the portal record to **DNS only** (grey cloud) if Cloudflare interferes |
 
-SSH to the new VPS as a sudo-capable administrator, then run:
+Never paste a Cloudflare token, GitHub key, password, private key, database dump, portal environment file, or backup key into chat, source control, terminal history, or a URL.
+
+## 3. Route A — private GitHub repository deployment
+
+### 3.1 Create a read-only repository deploy key
+
+Connect to the new VPS as a sudo-capable administrator and run:
 
 ```bash
 sudo apt-get update
+sudo apt-get upgrade -y
 sudo apt-get install -y ca-certificates curl git openssh-client
+
 sudo install -d -m 0700 /root/.ssh
-sudo ssh-keygen -t ed25519 -f /root/.ssh/readypackets_deploy -N '' -C 'readypackets-production-deploy'
+sudo ssh-keygen -t ed25519 \
+  -f /root/.ssh/readypackets_deploy \
+  -N '' \
+  -C 'readypackets-portal-production-deploy'
 sudo cat /root/.ssh/readypackets_deploy.pub
 ```
 
-### 3.2 Add the public deploy key in GitHub
+In GitHub:
 
-1. Copy the single public-key line printed by the last command.
-2. Open the private repository: <https://github.com/readypackets/ReadyPackets-SiteSplit/settings/keys>
-3. Select **Add deploy key**.
-4. Give it a descriptive name such as `portal-vps-YYYY-MM-DD`.
-5. Paste the public key.
-6. **Leave “Allow write access” unchecked.**
-7. Save it.
+1. Open <https://github.com/readypackets/ReadyPackets-SiteSplit/settings/keys>.
+2. Select **Add deploy key**.
+3. Give the key a clear name, such as `portal-vps-YYYY-MM-DD`.
+4. Paste the one public-key line printed above.
+5. Leave **Allow write access** **unchecked**.
+6. Save the key.
 
-> The private key stays only in `/root/.ssh/readypackets_deploy` on the VPS. Never email it, attach it to a ticket, commit it, or paste it into chat.
+The corresponding private key must remain only in `/root/.ssh/readypackets_deploy` with `0400` or `0600` permissions. It is a source-read credential, not a general GitHub login and not a key to distribute.
 
-### 3.3 Configure SSH access and retrieve the reviewed release
+### 3.2 Obtain and approve a precise release SHA
 
-Back on the VPS:
+From a trusted administrator workstation with repository access, review the desired `main` release in GitHub and record its full 40-character commit SHA. Do **not** use a short SHA or a moving branch name as the deployment reference.
+
+You can also obtain the current full SHA after the deploy key is added:
 
 ```bash
-sudo tee /root/.ssh/config >/dev/null <<'EOF'
-Host github.com
-  HostName github.com
-  User git
-  IdentityFile /root/.ssh/readypackets_deploy
-  IdentitiesOnly yes
-EOF
-sudo chmod 0600 /root/.ssh/config
-sudo ssh-keyscan -H github.com | sudo tee -a /root/.ssh/known_hosts >/dev/null
-sudo chmod 0600 /root/.ssh/known_hosts
-
-sudo git clone --no-checkout git@github.com:readypackets/ReadyPackets-SiteSplit.git /srv/readypackets
-cd /srv/readypackets
-sudo git fetch --depth=1 origin f083ea3d773d94e509c42a0f76796546d00aa09c
-sudo git checkout --detach f083ea3d773d94e509c42a0f76796546d00aa09c
-sudo test "$(git rev-parse HEAD)" = "f083ea3d773d94e509c42a0f76796546d00aa09c"
-sudo test -z "$(git status --porcelain)"
+sudo GIT_SSH_COMMAND='ssh -i /root/.ssh/readypackets_deploy -o IdentitiesOnly=yes' \
+  git ls-remote git@github.com:readypackets/ReadyPackets-SiteSplit.git refs/heads/main
 ```
 
-Before trusting a newly collected GitHub host key, compare it to GitHub’s published SSH host-key fingerprints using a trusted browser or your organization’s known-hosts process.
+Treat the result as a candidate only until an authorized administrator has reviewed and approved that exact commit. The bootstrap refuses any value other than a 40-character SHA and verifies the fetched result exactly.
 
-### 3.4 Install the portal — choose one TLS command
+### 3.3 Put the reviewed bootstrap script on the VPS
 
-#### Option A — Cloudflare Origin CA automatic issuance
-
-Use this when `my.readypackets.com` remains **proxied** through Cloudflare. Create the token file locally; do not put the token on the command line:
+Download `deploy/github-bootstrap-install.sh` from the approved release in the private GitHub repository using GitHub’s authenticated download interface, then transfer it to the VPS through an approved administrator channel. For example, from your trusted workstation:
 
 ```bash
-sudo install -d -m 0700 /root/readypackets-secrets
-sudo nano /root/readypackets-secrets/cloudflare-origin-ca.token
-sudo chown root:root /root/readypackets-secrets/cloudflare-origin-ca.token
-sudo chmod 0600 /root/readypackets-secrets/cloudflare-origin-ca.token
+scp deploy/github-bootstrap-install.sh root@<VPS-IP>:/root/github-bootstrap-install.sh
+```
 
-cd /srv/readypackets
-sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/unified-install.sh \
-  --mode native \
+On the VPS, lock the local copy down and verify its syntax before use:
+
+```bash
+sudo chown root:root /root/github-bootstrap-install.sh
+sudo chmod 0700 /root/github-bootstrap-install.sh
+sudo bash -n /root/github-bootstrap-install.sh
+```
+
+The bootstrap itself downloads GitHub’s published SSH host keys over authenticated HTTPS and uses a dedicated strict `known_hosts` file. It does not accept an unknown GitHub SSH key on first use.
+
+### 3.4 Automatic Cloudflare Origin CA deployment — recommended
+
+Set the `my` record to **Proxied** in Cloudflare and set the zone encryption mode to **Full (strict)**. Create a short-lived, zone-scoped Cloudflare API token with only **Zone → SSL and Certificates → Edit**.
+
+Create the token file locally on the VPS; it is deliberately not accepted on a command line:
+
+```bash
+sudo install -d -m 0700 -o root -g root /root/readypackets-secrets
+sudo bash -c '
+  read -r -s -p "Cloudflare Origin CA token: " token
+  printf "\n"
+  umask 077
+  printf "%s\n" "$token" > /root/readypackets-secrets/cloudflare-origin-ca.token
+  unset token
+'
+```
+
+Paste the token only at the non-echoed terminal prompt and press `Enter`. Then run the exact reviewed release, substituting **only** the approved SHA:
+
+```bash
+sudo bash /root/github-bootstrap-install.sh \
+  --repository readypackets/ReadyPackets-SiteSplit \
+  --commit <REVIEWED_40_CHARACTER_SHA> \
   --domain my.readypackets.com \
+  --mode native \
   --tls-provider cloudflare-origin-ca \
   --cloudflare-api-token-file /root/readypackets-secrets/cloudflare-origin-ca.token \
   --cloudflare-origin-validity 5475 \
   --site-name ReadyPackets
 ```
 
-When the installer asks whether to restore a configuration-vault backup, select **No** for a clean new portal. Select **Yes** only when you intentionally have a verified encrypted configuration vault, its recovery passphrase, and a plan to restore only configuration—not customer data/files.
+The portal will be installed at `/opt/readypackets`; the immutable source checkout remains at `/srv/readypackets`. The installer starts and validates local health. It also checks public HTTPS, but treats DNS/Cloudflare propagation as pending rather than corrupting a healthy local deployment.
 
-#### Option B — Let’s Encrypt
-
-Use this only after `my.readypackets.com` resolves to the VPS and is **DNS only** during validation:
+After certificate installation is verified, remove the one-time token file and revoke the token unless an approved renewal process requires it:
 
 ```bash
-cd /srv/readypackets
-sudo COREPACK_ENABLE_DOWNLOAD_PROMPT=0 bash deploy/unified-install.sh \
-  --mode native \
+sudo shred -u /root/readypackets-secrets/cloudflare-origin-ca.token
+```
+
+### 3.5 Let’s Encrypt alternative
+
+Use this only when `my.readypackets.com` resolves to the VPS and can complete HTTP-01 validation. If the record is proxied, temporarily set only `my` to **DNS only** until the certificate has been issued.
+
+```bash
+sudo bash /root/github-bootstrap-install.sh \
+  --repository readypackets/ReadyPackets-SiteSplit \
+  --commit <REVIEWED_40_CHARACTER_SHA> \
   --domain my.readypackets.com \
-  --email operations@readypackets.com \
+  --mode native \
   --tls-provider letsencrypt \
+  --email operations@readypackets.com \
   --site-name ReadyPackets
 ```
 
-> Do **not** add `--public-domain www.readypackets.com` to either portal-only command. `www` is reserved for the independent Hostinger marketing site. Adding it would make this installer try to serve and certificate a hostname that belongs to Hostinger.
+Do not add `--public-domain www.readypackets.com`; `www` belongs to the independently hosted ReadyPackets website.
 
-## 4. Route B — Temporary-public guided bootstrap
+### 3.6 Existing Cloudflare Origin CA PEM alternative
 
-Use only after making `readypackets/ReadyPackets-SiteSplit` deliberately public for a short, reviewed installation window. Confirm there are no secrets, customer uploads, database exports, backup archives, certificates, or `.env` files in the repository before changing its visibility.
-
-On the new VPS:
+If Cloudflare has already issued the portal certificate, place its certificate and key in separate root-only files, verify their content locally, and use:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y curl ca-certificates git
-
-curl -fsSLO https://raw.githubusercontent.com/readypackets/ReadyPackets-SiteSplit/f083ea3d773d94e509c42a0f76796546d00aa09c/deploy/one-click-install.sh
-chmod 0700 one-click-install.sh
-sudo env \
-  RP_REPOSITORY=readypackets/ReadyPackets-SiteSplit \
-  RP_REF=main \
-  RP_COMMIT=f083ea3d773d94e509c42a0f76796546d00aa09c \
-  ./one-click-install.sh
+sudo bash /root/github-bootstrap-install.sh \
+  --repository readypackets/ReadyPackets-SiteSplit \
+  --commit <REVIEWED_40_CHARACTER_SHA> \
+  --domain my.readypackets.com \
+  --mode native \
+  --tls-provider cloudflare-origin \
+  --cloudflare-origin-cert /root/readypackets-secrets/origin-cert.pem \
+  --cloudflare-origin-key /root/readypackets-secrets/origin-key.pem \
+  --site-name ReadyPackets
 ```
 
-At the guided prompts choose:
+## 4. Route B — temporary-public source fallback
 
-| Prompt | Recommended value |
-| --- | --- |
-| Installation type | **1 — Native VPS** |
-| Customer portal hostname | `my.readypackets.com` |
-| Public marketing-site hostname | The installer currently requires a value; enter a dedicated host only if it also resolves to this same VPS. **For the Hostinger-separated marketing architecture, use Route A instead** so no external marketing hostname is incorrectly included in VPS TLS configuration. |
-| TLS | Cloudflare Origin CA automatic for an orange-cloud `my` record; otherwise Let’s Encrypt |
-| Source | Keep `readypackets/ReadyPackets-SiteSplit` and use the pinned SHA above |
-| Nightly local backups | **Yes** for production |
-| Initial administrator | Generate a one-time password; store it immediately in a password manager |
-| Final confirmation | Verify every displayed value, then type `INSTALL READY PACKETS` |
+Use this path only when the repository has intentionally been made public for a brief, reviewed installation window. It is **not** the default production process.
 
-Once the installer prints its completed commit and local readiness result, change the repository back to **private**.
+Before changing repository visibility, confirm that no commit contains customer data, `portal.env`, database exports, backup archives, credentials, tokens, private keys, origin certificates, encryption keys, or deployment keys. Review [Temporary Public-Repository Installation](TEMPORARY_PUBLIC_REPOSITORY_INSTALL.md) before use.
 
-## 5. Route C — Existing portal upgrade
+The guided bootstrap is only appropriate if you deliberately configure the public-host portion of the dual-host portal application on the same VPS. For the normal Hostinger website + portal-VPS topology, use Route A; it prevents the VPS from claiming the website hostname.
 
-Do not run a fresh-install bootstrap on a live VPS. Use **Admin → Platform updates**:
+## 5. Route C — updating an existing portal
 
-1. Confirm the current deployed commit and service status are known and healthy.
-2. Configure the private repository as `readypackets/ReadyPackets-SiteSplit` with a short-lived fine-grained GitHub token limited to **Repository contents: Read-only**.
-3. Scan for changes.
-4. Review the changed paths and target commit.
-5. Type the commit-specific **Approve** phrase, then the commit-specific **Upgrade** phrase.
-6. Let the protected helper create its pre-upgrade snapshot, apply the approved release, migrate, restart, and health check.
-7. Verify the post-upgrade checks below. Rollback restores a pre-upgrade database snapshot, so do not treat it as a casual undo after new customer activity begins.
+Do not run any fresh-server bootstrap when `readypackets.service` or an existing `/srv/readypackets` checkout is present.
+
+For routine changes, use **Admin → Platform updates**. It requires review/approval of an exact commit, creates a protected snapshot before migration, validates source/builds/migrations, performs a health check, and retains rollback evidence. See [Approved Auto-Deployment](AUTO_DEPLOYMENT.md).
+
+For a replacement server, install the new host first, validate it, then use the protected full recovery process in [Full Backup and Recovery](FULL_BACKUP_RESTORE.md). It restores customer data, files, protected configuration, and relevant integration secrets while preserving the target server’s hostname, TLS material, database/network binding, and storage identity.
 
 ## 6. Required post-install verification
 
-The installer must report:
+The installer must include this successful schema line:
 
 ```text
 Applied 51 migration(s); 44 critical tables verified.
 ```
 
-Run the following on the VPS:
+Run these checks on the VPS before inviting users:
 
 ```bash
 sudo systemctl status readypackets nginx mysql --no-pager
 sudo systemctl is-enabled readypackets readypackets-backup.timer
+sudo systemctl list-timers readypackets-backup.timer
 sudo nginx -t
-sudo bash /opt/readypackets/deploy/verify-public-connectivity.sh --domain my.readypackets.com
+
+sudo bash /opt/readypackets/deploy/verify-public-connectivity.sh \
+  --domain my.readypackets.com
 
 curl -fsS https://my.readypackets.com/api/health
 curl -fsS https://my.readypackets.com/api/health/ready
+
+sudo ss -ltnp | grep -E ':(22|80|443|3000|3306)'
 ```
 
 Expected health output:
@@ -200,37 +238,63 @@ Expected health output:
 {"status":"ready"}
 ```
 
-For Cloudflare Origin CA, also confirm the certificate is present and covers the portal hostname:
+For Cloudflare Origin CA, additionally verify that the certificate covers the hostname and that Nginx loads it:
 
 ```bash
 sudo openssl x509 \
   -in /etc/readypackets/tls/cloudflare-origin/certificate.pem \
   -noout -issuer -subject -dates -ext subjectAltName
+sudo cat /etc/readypackets/tls/nginx-tls.conf
 ```
 
-Then:
+The application listener (`127.0.0.1:3000`) and MySQL listener (`127.0.0.1:3306`) must not be public. Nginx is the only public application-facing service.
 
-1. Sign in as the initial administrator.
-2. Enroll MFA and save backup codes in a secure password manager.
-3. Create a full backup and complete an isolated restore drill before inviting customers.
-4. Configure email, payment, SharePoint/Graph, SAML, and analytics only through their protected admin settings.
-5. Confirm `my.readypackets.com` serves the portal and that `go.readypackets.com`/`www.readypackets.com` remain on Hostinger marketing hosting.
+## 7. First administrator and go-live checklist
 
-## 7. What this deployment does and does not change
+Create the first administrator after the clean installation. This command runs locally under the restricted application identity and prints a one-time generated password once; copy it directly into an approved password manager:
 
-| Asset | Result |
+```bash
+sudo runuser -u readypackets -- sh -c '
+  set -a
+  . "$1"
+  set +a
+  shift
+  exec "$@"
+' sh /etc/readypackets/portal.env \
+  node /opt/readypackets/dist/create-admin.js \
+  --email admin@readypackets.com \
+  --name 'ReadyPackets Administrator' \
+  --generate-password
+```
+
+Then complete the following before accepting customer data:
+
+- [ ] Sign in over HTTPS; enroll administrator MFA; store recovery codes in a secure password manager.
+- [ ] Verify Cloudflare is **Full (strict)** and edge WAF/rate-limit rules are active.
+- [ ] Confirm the nightly backup timer is enabled and configure an encrypted, separate off-host backup destination.
+- [ ] Create a full backup and perform an isolated restore drill, including a representative protected file download.
+- [ ] Configure email, payment, SharePoint/Graph, webhooks, SAML, and SIEM only through protected administrator settings.
+- [ ] Configure Microsoft Clarity/PostHog only after the consent, masking, retention, and data-processor settings have been reviewed; providers are disabled by default.
+- [ ] Verify `my.readypackets.com` (or your dedicated portal host) serves the portal and `www.readypackets.com` remains the separate ReadyPackets website.
+- [ ] Record the deployed commit, server region, backup location, certificate choice, recovery test date, and named deployment approver in your change record.
+
+## 8. Troubleshooting without weakening security
+
+| Symptom | Safe first response |
 | --- | --- |
-| `my.readypackets.com` | New canonical authenticated portal host on the VPS |
-| `go.readypackets.com` | Remains Hostinger staging marketing site |
-| `www.readypackets.com` | Remains reserved for Hostinger marketing production cutover |
-| Existing portal data | Untouched by a fresh-server installation; migrate only through the reviewed full backup/restore process |
-| VPS application port 3000 | Loopback-only; never publicly exposed |
-| MySQL port 3306 | Loopback-only; never publicly exposed |
-| Nightly backups | Enabled by default for native production installs unless explicitly declined |
+| Bootstrap says deploy-key access failed | Recheck that the public key belongs to the exact private portal repository and has no write permission. Do not use a GitHub PAT in a clone URL. |
+| Bootstrap says project directory exists | Stop. Determine whether a failed fresh installation or live portal is present; do not delete it blindly. |
+| Local health passes but public health is pending | Check Cloudflare DNS/proxy/TLS mode, `80/443` firewall access, and Nginx. Re-run only `verify-public-connectivity.sh`; do not reinstall. |
+| Cloudflare `525` | Cloudflare cannot validate the origin TLS handshake. Confirm Full (strict), Nginx, the Origin CA certificate/key, and the certificate hostname. |
+| Cloudflare `522` | Cloudflare cannot reach the origin. Confirm the portal DNS record, VPS public IP, Nginx status, and only ports `80/443` open publicly. |
+| Schema contract fails | Do not create tables by hand. Stop, retain the logs, and deploy a reviewed release with the complete forward-only migration set. |
+| Need to update a working portal | Use Admin → Platform updates; do not rerun the fresh-server bootstrap. |
 
-## 8. Rollback / recovery boundary
+## References
 
-- A failed fresh install on a truly new VPS can be corrected and re-run only after the cause is understood; do not use the failed-install resume mode on an active portal.
-- For an existing portal, use Platform Updates rollback only after assessing post-upgrade data loss implications.
-- For host migration, restore the tested full backup using the documented portable-recovery flow. It restores protected configuration and data while preserving the target host’s identity and TLS material.
-- Keep a record of the installed commit, deployment time, certificate choice, backup location, and verification results.
+- [GitHub: Managing deploy keys](https://docs.github.com/authentication/connecting-to-github-with-ssh/managing-deploy-keys)
+- [GitHub Meta API: published SSH host keys](https://docs.github.com/rest/meta/meta#get-github-meta-information)
+- [Cloudflare Origin CA](https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/)
+- [Cloudflare Full (strict)](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)
+- [Full Backup and Recovery](FULL_BACKUP_RESTORE.md)
+- [Global Growth & Horizontal Scaling Architecture](GLOBAL_SCALE_ARCHITECTURE.md)

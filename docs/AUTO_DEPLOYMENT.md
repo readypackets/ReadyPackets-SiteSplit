@@ -35,10 +35,10 @@ The normal platform interface invokes the protected helper after approval. If ro
 export READYPACKETS_APPROVED_DEPLOYMENT=yes
 printf '%s\n' "$GITHUB_PAT" | sudo -E bash /opt/readypackets/deploy/auto-deploy-approved.sh \
   --run-id 42 \
-  --repository readypackets/ReadyPackets \
+  --repository readypackets/ReadyPackets-SiteSplit \
   --branch main \
   --commit 0123456789abcdef0123456789abcdef01234567 \
-  --domain myportal.readypackets.com \
+  --domain my.readypackets.com \
   --contact admin@readypackets.com
 unset READYPACKETS_APPROVED_DEPLOYMENT
 ```
@@ -65,10 +65,10 @@ After every release, verify:
 
 ```bash
 sudo systemctl status readypackets nginx mysql
-curl -fsS https://myportal.readypackets.com/api/health
-curl -fsS https://myportal.readypackets.com/api/health/ready
+curl -fsS https://my.readypackets.com/api/health
+curl -fsS https://my.readypackets.com/api/health/ready
 cd /home/ubuntu/src/readypackets
-pnpm exec tsx scripts/verify-security.ts https://myportal.readypackets.com
+pnpm exec tsx scripts/verify-security.ts https://my.readypackets.com
 ```
 
 The live security verification has an intentional repeated-login exercise. If it triggers the local source address block list, confirm application health directly from the server and remove only the temporary test address through the authorized Security Centre controls; do not weaken rate limits or network protections.

@@ -1,15 +1,10 @@
 # ReadyPackets Portal
 
-A self-hosted customer website and customer portal for ReadyPackets, built as a single deployable application with no external service dependencies. The system covers the public marketing site, the authenticated customer portal through which clients configure orders and receive deliverables, and the administrative back office through which the business runs.
+A self-hosted customer portal and administrative workspace for ReadyPackets. Customers configure orders, submit and retrieve protected files, execute required agreements, receive deliverables, and communicate securely; staff use the same platform for governed order operations, customer management, security, recovery, integrations, and audit review.
 
-The application is designed for a small VPS or a Docker host. It requires nothing beyond Node.js, MySQL, and a reverse proxy. There are no third-party analytics scripts, no CDN dependencies, no external font hosts, no software-as-a-service integrations, and no platform-specific runtime hooks of any kind. Payment capture through Stripe and outbound email through SMTP are both optional and disabled until credentials are supplied.
+The independently hosted ReadyPackets website at `www.readypackets.com` is a separate static deployment. The portal belongs only on a dedicated authenticated hostname such as `my.readypackets.com` or `portal.readypackets.com`; it does not share its sessions, CSRF cookies, customer data, uploads, or runtime with the public website. The native portal deployment is designed for Ubuntu 24.04 LTS, Node.js 22, MySQL 8, Nginx, systemd, protected backups, and restricted root controllers. It contains no Manus runtime, OAuth, hosting, or platform dependency.
 
-> **Deployed instance.** This application is running in production at
-> <https://myportal.readypackets.com>, installed with `deploy/install.sh` on a
-> two-core Ubuntu 22.04 VPS behind nginx with a Let's Encrypt certificate. That
-> deployment is the reference for the instructions below: every step here has been
-> executed on a clean host rather than described from intention. See section 11 of
-> `SESSION_LOG.md` for what a first real installation exposed.
+Optional Stripe, SMTP, Microsoft Graph/SharePoint, SAML, SIEM/syslog, Microsoft Clarity, and PostHog capabilities are disabled until deliberately configured. Consent-gated analytics and all third-party integrations remain subject to the portal's access control, privacy, encryption, audit, and administrator-approval boundaries.
 
 ## What the system does
 
@@ -38,7 +33,7 @@ The client is React 19 with TypeScript and Tailwind CSS, bundled by Vite. The AP
 | Layer | Technology | Why |
 | --- | --- | --- |
 | Client | React 19, TypeScript, Tailwind CSS 4, Vite | Static output that any web server can host; no runtime framework server required |
-| API | Express 4, tRPC 11, Zod | Every input validated by schema at the boundary; types shared with the client |
+| API | Express 5, tRPC 11, Zod | Every input validated by schema at the boundary; types shared with the client |
 | Data | MySQL 8, Drizzle ORM | Parameterised queries only; schema defined in TypeScript and migrated by generated SQL |
 | Authentication | Local password with Argon2id, TOTP MFA, optional SAML 2.0 | No external identity provider required |
 | Storage | Local filesystem, optional S3-compatible object storage | Single host by default; shared private objects for scale-out |
@@ -74,12 +69,18 @@ The application listens on `127.0.0.1:3000`; put a reverse proxy in front of it,
 ### VPS
 
 ```bash
-sudo ./deploy/install.sh --domain portal.readypackets.com --email ops@readypackets.com --tls
+sudo bash /root/github-bootstrap-install.sh \
+  --repository readypackets/ReadyPackets-SiteSplit \
+  --commit <REVIEWED_40_CHARACTER_SHA> \
+  --domain my.readypackets.com \
+  --mode native \
+  --tls-provider cloudflare-origin-ca \
+  --cloudflare-api-token-file /root/readypackets-secrets/cloudflare-origin-ca.token
 ```
 
-The installer provisions the service account, database, build, systemd unit, nginx site, firewall, and nightly backup timer. It generates all cryptographic secrets locally and is safe to re-run: existing secrets are preserved so that encrypted data is never orphaned.
+The private-repository bootstrap is for a new VPS only. It requires a repository-scoped read-only deploy key and a reviewed complete commit SHA, and refuses to overwrite an existing source directory or active portal. The installer provisions the service account, private database listener, production build, systemd unit, Nginx site, TLS, restricted helpers, and backup controls. It generates cryptographic secrets locally and preserves them during approved in-place updates so protected data is not orphaned.
 
-Complete instructions, including SMTP, Stripe, SAML, and backup verification, are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Complete, production-safe instructions including deploy-key setup, Cloudflare Origin CA, Let's Encrypt, verification, MFA, backup/recovery drill, and troubleshooting are in [docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md](docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md). Use [docs/AUTO_DEPLOYMENT.md](docs/AUTO_DEPLOYMENT.md) for approved in-place updates, not this fresh-server path.
 
 ### Local development
 
@@ -140,6 +141,7 @@ Configuration is environment-driven and validated at startup. The process refuse
 | [docs/SECURITY.md](docs/SECURITY.md) | Every control, what it defends against, and how it is verified |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | VPS and Docker deployment, TLS, backups, upgrades, troubleshooting |
 | [docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md](docs/PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md) | Current pinned-release deployment for a portal VPS separated from the external Hostinger marketing site |
+| [docs/GITHUB_AUTOMATED_INSTALL.md](docs/GITHUB_AUTOMATED_INSTALL.md) | Secure private-GitHub fresh-server bootstrap using an immutable reviewed commit and a read-only deploy key |
 | [docs/GLOBAL_SCALE_ARCHITECTURE.md](docs/GLOBAL_SCALE_ARCHITECTURE.md) | Horizontal web replicas, worker coordination, shared storage, global routing, and regional compliance controls |
 | [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md) | Running the business in the portal, day to day |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Customer-facing walkthrough from registration to delivery |
