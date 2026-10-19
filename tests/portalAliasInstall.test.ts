@@ -74,6 +74,55 @@ describe("explicit portal aliases", () => {
     expect(nativeSource).toContain('s/__RP_APP_HOST_REGEX__/${APP_HOST_ALLOWLIST_REGEX}/g');
   });
 
+  it("renders the documented portal alias without mistaking it for a surviving template hostname", () => {
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        `
+          set -Eeuo pipefail
+          template="$1"
+          rendered="$(mktemp)"
+          trap 'rm -f "$rendered"' EXIT
+          canonical="my.readypackets.com"
+          alias="portal.readypackets.com"
+          sed -e "s/portal\\.readypackets\\.com/\${canonical}/g" \\
+              -e "s/__RP_HTTP_SERVER_NAMES__/\${canonical} \${alias}/g" \\
+              -e "s/__RP_PORTAL_ALIAS_SERVER_NAMES__/\${alias}/g" \\
+              -e "s/__RP_APP_SERVER_NAMES__/\${canonical}/g" \\
+              -e "s/__RP_CANONICAL_DOMAIN__/\${canonical}/g" \\
+              -e 's/__RP_APP_HOST_REGEX__/my\\\\.readypackets\\\\.com/g' \\
+              -e 's|# __RP_MORE_CLEAR_HEADERS__|# headers-more unavailable|g' \\
+              "$template" > "$rendered"
+          ! grep -q '__RP_' "$rendered"
+          routed=("$canonical" "$alias")
+          template_hostname="portal.readypackets.com"
+          template_hostname_is_routed="false"
+          for configured_hostname in "\${routed[@]}"; do
+            if [[ "$configured_hostname" == "$template_hostname" ]]; then
+              template_hostname_is_routed="true"
+              break
+            fi
+          done
+          if [[ "$template_hostname_is_routed" == "false" ]] \\
+             && grep -qE '(^|[^.[:alnum:]-])portal\\.readypackets\\.com' "$rendered"; then
+            echo 'template guard would incorrectly reject a configured alias' >&2
+            exit 1
+          fi
+          grep -F 'server_name portal.readypackets.com;' "$rendered" >/dev/null
+          grep -F 'return 308 https://my.readypackets.com$request_uri;' "$rendered" >/dev/null
+        `,
+        "bash",
+        nginxTemplate,
+      ],
+      { encoding: "utf8" },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(nativeSource).toContain('local template_hostname="portal.readypackets.com"');
+    expect(nativeSource).toContain('local template_hostname_is_routed="false"');
+    expect(nativeSource).toContain('for configured_hostname in "${ALL_ROUTED_HOSTS[@]}"; do');
+  });
+
   it("serializes Cloudflare Origin CA certificate hostnames as JSON data, not jq program text", () => {
     for (const hostnames of [["my.readypackets.com"], ["my.readypackets.com", "portal.readypackets.com"]]) {
       const result = spawnSync("jq", ["-n", "$ARGS.positional", "--args", ...hostnames], { encoding: "utf8" });

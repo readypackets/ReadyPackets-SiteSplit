@@ -726,8 +726,19 @@ write_hardened_site() {
   fi
   # Word-anchored: an unanchored search for "portal.readypackets.com" also matches
   # the correctly substituted "myportal.readypackets.com", which would reject a
-  # perfectly good configuration.
-  if [[ "$DOMAIN" != "portal.readypackets.com" ]] \
+  # perfectly good configuration. The template's example hostname can also be a
+  # deliberate redirect-only alias, so only reject it when it is absent from every
+  # approved routed hostname after rendering.
+  local template_hostname="portal.readypackets.com"
+  local template_hostname_is_routed="false"
+  local configured_hostname
+  for configured_hostname in "${ALL_ROUTED_HOSTS[@]}"; do
+    if [[ "$configured_hostname" == "$template_hostname" ]]; then
+      template_hostname_is_routed="true"
+      break
+    fi
+  done
+  if [[ "$template_hostname_is_routed" == "false" ]] \
      && grep -qE '(^|[^.[:alnum:]-])portal\.readypackets\.com' "$NGINX_SITE"; then
     die "The template hostname survived substitution in ${NGINX_SITE}."
   fi
