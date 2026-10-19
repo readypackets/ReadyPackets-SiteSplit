@@ -1094,17 +1094,34 @@ fi
 # Verification
 # ---------------------------------------------------------------------------
 log "Verifying the service"
-sleep 3
-if ! systemctl is-active --quiet readypackets; then
-  journalctl -u readypackets -n 40 --no-pager || true
-  die "The service failed to start. The journal output above shows why."
-fi
+# systemd can report a unit as active while Node is still beginning its listener
+# or a first startup is completing cleanup. A fixed sleep made a healthy-but-slow
+# service look broken, while the old warning path could print a successful
+# installation banner even if the process had then exited. Retry only through
+# loopback for a bounded window, then fail closed with local diagnostics.
+readiness_attempts=20
+readiness_delay_seconds=2
+readiness_succeeded="false"
+for ((readiness_attempt=1; readiness_attempt<=readiness_attempts; readiness_attempt++)); do
+  if systemctl is-active --quiet readypackets \
+    && curl --noproxy '*' --fail --silent --show-error --connect-timeout 2 --max-time 5 \
+      -H "Host: ${DOMAIN}" -H 'X-Forwarded-Proto: https' \
+      http://127.0.0.1:3000/api/health/ready >/dev/null; then
+    readiness_succeeded="true"
+    break
+  fi
+  if (( readiness_attempt < readiness_attempts )); then
+    sleep "$readiness_delay_seconds"
+  fi
+done
 
-if curl -fsS -H "Host: ${DOMAIN}" http://127.0.0.1:3000/api/health/ready >/dev/null; then
-  log "Readiness probe succeeded."
-else
-  warn "The readiness probe failed. Check: journalctl -u readypackets -n 50"
+if [[ "$readiness_succeeded" != "true" ]]; then
+  warn "ReadyPackets did not become locally ready after $((readiness_attempts * readiness_delay_seconds)) seconds."
+  systemctl --no-pager --full status readypackets || true
+  journalctl -u readypackets -b -n 80 --no-pager || true
+  die "The portal service is not locally ready. Installation stopped before reporting success; correct the service error above and rerun on this fresh host."
 fi
+log "Readiness probe succeeded."
 
 cat <<SUMMARY
 

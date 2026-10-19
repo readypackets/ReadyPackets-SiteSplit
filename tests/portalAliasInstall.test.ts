@@ -123,6 +123,16 @@ describe("explicit portal aliases", () => {
     expect(nativeSource).toContain('for configured_hostname in "${ALL_ROUTED_HOSTS[@]}"; do');
   });
 
+  it("requires bounded local portal readiness before claiming a fresh installation succeeded", () => {
+    expect(nativeSource).toContain("readiness_attempts=20");
+    expect(nativeSource).toContain("readiness_delay_seconds=2");
+    expect(nativeSource).toContain("--noproxy '*' --fail --silent --show-error");
+    expect(nativeSource).toContain("http://127.0.0.1:3000/api/health/ready");
+    expect(nativeSource).toContain("journalctl -u readypackets -b -n 80 --no-pager || true");
+    expect(nativeSource).toContain("The portal service is not locally ready. Installation stopped before reporting success");
+    expect(nativeSource).not.toContain('warn "The readiness probe failed. Check: journalctl -u readypackets -n 50"');
+  });
+
   it("serializes Cloudflare Origin CA certificate hostnames as JSON data, not jq program text", () => {
     for (const hostnames of [["my.readypackets.com"], ["my.readypackets.com", "portal.readypackets.com"]]) {
       const result = spawnSync("jq", ["-n", "$ARGS.positional", "--args", ...hostnames], { encoding: "utf8" });
