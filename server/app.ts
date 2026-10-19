@@ -482,7 +482,11 @@ export function createApp(): Express {
   });
 
   // SPA fallback for GET only; a POST to an unknown path is an error, not a page.
-  app.get("*", async (req: Request, res: Response) => {
+  // Express 5's path-to-regexp rejects the legacy anonymous "*" wildcard at
+  // application construction time. The named brace form includes the root path
+  // as well as nested client-side routes without exposing a route parameter to
+  // application logic.
+  app.get("/{*splat}", async (req: Request, res: Response) => {
     if (/\.[a-z0-9]{2,6}$/i.test(req.path)) {
       res.status(404).type("text/plain").send("Not found");
       return;
