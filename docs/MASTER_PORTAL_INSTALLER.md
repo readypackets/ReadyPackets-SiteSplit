@@ -95,6 +95,12 @@ curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
 
 This remains a last-resort source-retrieval option. See [Temporary Public-Repository Installation](TEMPORARY_PUBLIC_REPOSITORY_INSTALL.md). Return the repository to private visibility immediately after installation.
 
+### Repair only the confirmed Express 5 startup error
+
+Do **not** run a fresh installer over an existing portal. If the VPS-local `readypackets` journal specifically records `Missing parameter name at index 1: *`, use [`deploy/repair-express5-startup.sh`](../deploy/repair-express5-startup.sh). It is a narrow repair for the legacy Express 4 anonymous SPA wildcard that is rejected by Express 5.
+
+The helper requires the expected clean native source checkout and protected environment ownership/mode before it proceeds. It retrieves immutable source, preserves the existing TLS certificate/private key, aliases, database, files, backup history, and administrator account, skips seed data, and never asks for a Cloudflare token. A different service error requires investigation; do not apply this helper speculatively.
+
 ## What the script never does
 
 - It never accepts a GitHub personal access token, repository password, portal password, Cloudflare token, or TLS private key as a command-line parameter.
