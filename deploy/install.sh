@@ -779,7 +779,10 @@ issue_cloudflare_origin_ca() {
   san="${san%,}"
   openssl req -new -key "$private_key" -out "$csr" \
     -subj "/CN=${hostname}" -addext "subjectAltName=${san}"
-  hostnames_json="$(jq -n --args "${certificate_hosts[@]}" '$ARGS.positional')"
+  # jq treats every argument after --args as hostname data. Keep the filter
+  # before --args so a canonical name such as my.readypackets.com is never
+  # parsed as jq program text.
+  hostnames_json="$(jq -n '$ARGS.positional' --args "${certificate_hosts[@]}")"
   jq -n --rawfile csr "$csr" --argjson hostnames "$hostnames_json" \
     --argjson validity "$CLOUDFLARE_ORIGIN_VALIDITY" \
     '{csr:$csr,hostnames:$hostnames,request_type:"origin-rsa",requested_validity:$validity}' > "$payload"

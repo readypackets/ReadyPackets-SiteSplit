@@ -65,10 +65,19 @@ describe("explicit portal aliases", () => {
     expect(nativeSource).toContain('ALL_ROUTED_HOSTS=("$DOMAIN" "${PORTAL_ALIAS_HOSTS[@]}")');
     expect(nativeSource).toContain('local -a hostnames=("${ALL_ROUTED_HOSTS[@]}")');
     expect(nativeSource).toContain('local -a certificate_hosts=("${ALL_ROUTED_HOSTS[@]}")');
+    expect(nativeSource).toContain("jq -n '$ARGS.positional' --args \"${certificate_hosts[@]}\"");
     expect(nativeSource).toContain('for certificate_hostname in "${ALL_ROUTED_HOSTS[@]:1}"; do');
     expect(nativeSource).toContain('acme_hostnames=("${ALL_ROUTED_HOSTS[@]}")');
     expect(nativeSource).toContain('s/__RP_PORTAL_ALIAS_SERVER_NAMES__/${PORTAL_ALIAS_SERVER_NAMES}/g');
     expect(nativeSource).toContain('s/__RP_APP_HOST_REGEX__/${APP_HOST_ALLOWLIST_REGEX}/g');
+  });
+
+  it("serializes Cloudflare Origin CA certificate hostnames as JSON data, not jq program text", () => {
+    for (const hostnames of [["my.readypackets.com"], ["my.readypackets.com", "portal.readypackets.com"]]) {
+      const result = spawnSync("jq", ["-n", "$ARGS.positional", "--args", ...hostnames], { encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual(hostnames);
+    }
   });
 
   it("forwards aliases through both fresh-server installer entrypoints and exposes the guided DNS/TLS requirement", () => {
