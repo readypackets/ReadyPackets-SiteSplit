@@ -15,19 +15,22 @@ describe("Express 5 startup compatibility", () => {
     expect(source).not.toContain('app.get("*", async (req: Request, res: Response) => {');
   });
 
-  it("ships a syntax-valid, immutable repair helper that preserves existing TLS and data", () => {
+  it("ships a syntax-valid, immutable source-only repair helper that preserves configuration, TLS, and data", () => {
     const repairPath = resolve(process.cwd(), "deploy/repair-express5-startup.sh");
     const source = readFileSync(repairPath, "utf8");
-    const installerStart = source.indexOf('bash "$SOURCE_DIR/deploy/install.sh"');
-    const installerEnd = source.indexOf("</dev/null", installerStart);
-    const installerInvocation = source.slice(installerStart, installerEnd + "</dev/null".length);
     expect(spawnSync("bash", ["-n", repairPath], { encoding: "utf8" }).status).toBe(0);
     expect(source).toContain('readonly COMMIT="9cce95ff4ca123d3c358659140c7f25b9feee5d9"');
-    expect(installerInvocation).toContain("--skip-packages");
-    expect(installerInvocation).toContain("--no-seed");
-    expect(source).toContain("TLS certificate: unchanged");
-    expect(source).toContain("Database/data: unchanged (migrations only; no seed)");
-    expect(installerInvocation).not.toContain("--tls-provider");
-    expect(installerInvocation).not.toContain("--cloudflare-api-token");
+    expect(source).toContain('grep -Fq "Missing parameter name at index 1: *"');
+    expect(source).toContain('git -C "$SOURCE_DIR" worktree add --detach "$SOURCE_STAGE" "$RESOLVED_COMMIT"');
+    expect(source).toContain('pnpm exec esbuild server/index.ts');
+    expect(source).toContain('ENV_DIGEST_BEFORE="$(sha256sum "$ENV_FILE" | awk');
+    expect(source).toContain('ENV_DIGEST_AFTER="$(sha256sum "$ENV_FILE" | awk');
+    expect(source).toContain('mv -- "${APP_DIR}/dist/server.js" "$PREVIOUS_SERVER"');
+    expect(source).toContain('restore_previous_server');
+    expect(source).toContain("Protected environment: byte-for-byte unchanged");
+    expect(source).not.toContain('bash "$SOURCE_DIR/deploy/install.sh"');
+    expect(source).not.toContain("--tls-provider");
+    expect(source).not.toContain("--cloudflare-api-token");
+    expect(source).not.toContain("--no-seed");
   });
 });
