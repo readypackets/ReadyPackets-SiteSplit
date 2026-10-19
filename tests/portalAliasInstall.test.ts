@@ -66,6 +66,8 @@ describe("explicit portal aliases", () => {
     expect(nativeSource).toContain('local -a hostnames=("${ALL_ROUTED_HOSTS[@]}")');
     expect(nativeSource).toContain('local -a certificate_hosts=("${ALL_ROUTED_HOSTS[@]}")');
     expect(nativeSource).toContain("jq -n '$ARGS.positional' --args \"${certificate_hosts[@]}\"");
+    expect(nativeSource).toContain('EPHEMERAL_SECRET_PATHS+=("$work")');
+    expect(nativeSource).toContain('trap cleanup_ephemeral_secret_paths EXIT');
     expect(nativeSource).toContain('for certificate_hostname in "${ALL_ROUTED_HOSTS[@]:1}"; do');
     expect(nativeSource).toContain('acme_hostnames=("${ALL_ROUTED_HOSTS[@]}")');
     expect(nativeSource).toContain('s/__RP_PORTAL_ALIAS_SERVER_NAMES__/${PORTAL_ALIAS_SERVER_NAMES}/g');

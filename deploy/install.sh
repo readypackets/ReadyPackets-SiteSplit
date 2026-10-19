@@ -68,11 +68,33 @@ GITHUB_CONFIG_BRANCH="main"
 GITHUB_CONFIG_FOLDER="readypackets-platform-config"
 GITHUB_CONFIG_TOKEN_FILE=""
 GITHUB_CONFIG_PASSPHRASE_FILE=""
+EPHEMERAL_SECRET_PATHS=()
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m warn\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31merror\033[0m %s\n' "$*" >&2; exit 1; }
 
+purge_ephemeral_secret_path() {
+  local path="$1"
+  [[ -n "$path" && -e "$path" ]] || return 0
+  if [[ -d "$path" ]]; then
+    # Best effort only: secure erasure depends on the underlying filesystem,
+    # but never leave a recoverable request directory intentionally behind.
+    find "$path" -xdev -type f -exec shred -u -- {} + 2>/dev/null || true
+    rm -rf -- "$path" || true
+  else
+    shred -u -- "$path" 2>/dev/null || rm -f -- "$path" || true
+  fi
+}
+
+cleanup_ephemeral_secret_paths() {
+  local path
+  for path in "${EPHEMERAL_SECRET_PATHS[@]:-}"; do
+    purge_ephemeral_secret_path "$path"
+  done
+}
+
+trap cleanup_ephemeral_secret_paths EXIT
 trap 'die "Installation failed on line ${LINENO}. No changes were rolled back; re-run once the cause is fixed."' ERR
 
 # ---------------------------------------------------------------------------
@@ -756,6 +778,7 @@ issue_cloudflare_origin_ca() {
   local work token api_config csr payload response hostname private_key hostnames_json san
   work="$(mktemp -d /root/readypackets-cloudflare-origin.XXXXXX)"
   chmod 0700 "$work"
+  EPHEMERAL_SECRET_PATHS+=("$work")
   token="$(tr -d '\r\n' < "$CLOUDFLARE_API_TOKEN_FILE")"
   [[ "$token" =~ ^[A-Za-z0-9._-]{20,}$ ]] || { rm -rf "$work"; die "The Cloudflare API token has an unexpected format."; }
   api_config="${work}/curl.conf"
@@ -808,7 +831,7 @@ issue_cloudflare_origin_ca() {
   install -d -m 0700 -o root -g root "$CLOUDFLARE_TLS_DIR"
   install -m 0644 -o root -g root "${work}/certificate.pem" "${CLOUDFLARE_TLS_DIR}/certificate.pem"
   install -m 0600 -o root -g root "$private_key" "${CLOUDFLARE_TLS_DIR}/private-key.pem"
-  rm -rf "$work"
+  purge_ephemeral_secret_path "$work"
 
   openssl x509 -in "${CLOUDFLARE_TLS_DIR}/certificate.pem" -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 > /tmp/rp-cert-pub.$$
   openssl pkey -in "${CLOUDFLARE_TLS_DIR}/private-key.pem" -pubout -outform DER | openssl dgst -sha256 > /tmp/rp-key-pub.$$
