@@ -21,6 +21,9 @@ describe("Express 5 startup compatibility", () => {
     expect(spawnSync("bash", ["-n", repairPath], { encoding: "utf8" }).status).toBe(0);
     expect(source).toContain('readonly COMMIT="9cce95ff4ca123d3c358659140c7f25b9feee5d9"');
     expect(source).toContain('grep -Fq "Missing parameter name at index 1: *"');
+    expect(source).toContain('journalctl -u "$SERVICE" --since "14 days ago" --no-pager');
+    expect(source).toContain("--confirm-known-express5-journal-error");
+    expect(source).toContain("operator explicitly confirmed the already-verified Express 5 journal signature");
     expect(source).toContain('git -C "$SOURCE_DIR" worktree add --detach "$SOURCE_STAGE" "$RESOLVED_COMMIT"');
     expect(source).toContain('pnpm exec esbuild server/index.ts');
     expect(source).toContain('ENV_DIGEST_BEFORE="$(sha256sum "$ENV_FILE" | awk');

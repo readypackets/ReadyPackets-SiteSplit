@@ -31,6 +31,7 @@ WORK_DIR=""
 SOURCE_STAGE=""
 PREVIOUS_SERVER=""
 SERVER_SWAPPED="false"
+CONFIRM_HISTORICAL_EXPRESS5_ERROR="false"
 
 fail() { printf '\n[ReadyPackets repair] ERROR: %s\n' "$*" >&2; exit 1; }
 warn() { printf '\n[ReadyPackets repair] WARNING: %s\n' "$*" >&2; }
@@ -44,6 +45,21 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --confirm-known-express5-journal-error)
+      CONFIRM_HISTORICAL_EXPRESS5_ERROR="true"
+      shift
+      ;;
+    -h|--help)
+      printf 'Usage: sudo bash deploy/repair-express5-startup.sh [--confirm-known-express5-journal-error]\n'
+      printf 'Use the confirmation flag only when the exact Express 5 journal signature was already verified but the retained local journal no longer contains that prior boot.\n'
+      exit 0
+      ;;
+    *) fail "Unsupported argument: $1" ;;
+  esac
+done
 
 restore_previous_server() {
   [[ "$SERVER_SWAPPED" == "true" && -n "$PREVIOUS_SERVER" && -f "$PREVIOUS_SERVER" ]] || return 0
@@ -67,8 +83,14 @@ trap 'status=$?; restore_previous_server; exit "$status"' ERR
 command -v git >/dev/null 2>&1 || fail "git is required to retrieve the immutable repair source."
 command -v node >/dev/null 2>&1 || fail "Node.js is required to build the repaired server bundle."
 command -v pnpm >/dev/null 2>&1 || fail "pnpm is required to build the repaired server bundle."
-if ! journalctl -u "$SERVICE" -b --no-pager | grep -Fq "Missing parameter name at index 1: *"; then
-  fail "The confirmed Express 5 anonymous-wildcard startup signature was not found in this boot's journal. Do not apply this narrow repair to a different service failure."
+if journalctl -u "$SERVICE" -b --no-pager | grep -Fq "Missing parameter name at index 1: *"; then
+  log "Confirmed the Express 5 startup signature in the current boot journal."
+elif journalctl -u "$SERVICE" --since "14 days ago" --no-pager | grep -Fq "Missing parameter name at index 1: *"; then
+  log "Confirmed the Express 5 startup signature in a retained prior-boot journal."
+elif [[ "$CONFIRM_HISTORICAL_EXPRESS5_ERROR" == "true" ]]; then
+  warn "Proceeding only because the operator explicitly confirmed the already-verified Express 5 journal signature after local journal rotation."
+else
+  fail "The confirmed Express 5 anonymous-wildcard startup signature was not found in retained local journals. Do not apply this narrow repair to a different service failure; if the exact error was already verified before a journal rotation, rerun with --confirm-known-express5-journal-error."
 fi
 
 ORIGIN="$(git -C "$SOURCE_DIR" remote get-url origin 2>/dev/null || true)"
