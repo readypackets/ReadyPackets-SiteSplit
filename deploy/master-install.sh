@@ -14,6 +14,7 @@ umask 077
 
 readonly DEFAULT_REPOSITORY="readypackets/ReadyPackets-SiteSplit"
 readonly DEFAULT_SITE_NAME="ReadyPackets"
+readonly DEFAULT_ADMIN_EMAIL="tools@readypackets.com"
 readonly DEFAULT_SSH_KEY="/root/.ssh/readypackets_deploy"
 readonly DEFAULT_PROJECT_DIR="/srv/readypackets"
 readonly TOKEN_DIR="/root/readypackets-secrets"
@@ -23,7 +24,7 @@ DOMAIN=""
 PORTAL_ALIASES=()
 SITE_NAME="$DEFAULT_SITE_NAME"
 ADMIN_NAME=""
-ADMIN_EMAIL=""
+ADMIN_EMAIL="$DEFAULT_ADMIN_EMAIL"
 TLS_PROVIDER=""
 CONTACT_EMAIL=""
 CLOUDFLARE_CERT=""
@@ -439,7 +440,7 @@ main() {
   ADMIN_NAME="$REPLY"
   [[ ${#ADMIN_NAME} -le 120 && "$ADMIN_NAME" != *$'\n'* ]] || fail "Administrator name must be 1 to 120 characters with no line breaks."
   while :; do
-    ask_required "Initial administrator email"
+    ask_default "Initial administrator email" "$DEFAULT_ADMIN_EMAIL"
     ADMIN_EMAIL="${REPLY,,}"
     valid_email "$ADMIN_EMAIL" && break
     warn "Enter a valid administrator email address."

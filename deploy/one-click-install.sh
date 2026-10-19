@@ -55,7 +55,9 @@ VAULT_TOKEN="${RP_GITHUB_CONFIG_TOKEN:-}"
 VAULT_PASSPHRASE="${RP_GITHUB_CONFIG_PASSPHRASE:-}"
 BACKUP_ENABLED="${RP_ENABLE_NIGHTLY_BACKUPS:-yes}"
 PROVISION_ADMIN="${RP_PROVISION_ADMIN:-auto}"
-ADMIN_EMAIL="${RP_ADMIN_EMAIL:-}"
+# A caller may deliberately override this with RP_ADMIN_EMAIL. The default is a
+# non-secret operational contact, not an administrator password or credential.
+ADMIN_EMAIL="${RP_ADMIN_EMAIL:-tools@readypackets.com}"
 ADMIN_NAME="${RP_ADMIN_NAME:-}"
 ADMIN_PASSWORD="${RP_ADMIN_PASSWORD:-}"
 ADMIN_GENERATE_PASSWORD="${RP_ADMIN_GENERATE_PASSWORD:-yes}"

@@ -51,6 +51,8 @@ describe("guided portal master installer", () => {
     expect(source).toContain("Dedicated portal hostname");
     expect(source).toContain("Initial administrator full name");
     expect(source).toContain("Initial administrator email");
+    expect(source).toContain('DEFAULT_ADMIN_EMAIL="tools@readypackets.com"');
+    expect(source).toContain('ask_default "Initial administrator email" "$DEFAULT_ADMIN_EMAIL"');
     expect(source).toContain("PREPARE DEPLOY KEY");
     expect(source).toContain("INSTALL READY PACKETS");
     expect(source).toContain("readypackets.com and www.readypackets.com are reserved for the separate public website");

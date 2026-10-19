@@ -4289,3 +4289,13 @@ The new design and review documents, alongside this session log entry, are queue
 **Publication state:** Pending final source review, commit, private GitHub `main` push, remote synchronization verification, and immutable commit record.
 
 **Source commit:** The reviewed implementation above was committed locally as immutable Git commit `4df17fa4ff51ba9310ea75f92d84e327da85be44` (`feat: manage portal aliases in admin console`). A final session-log commit and private `main` push/synchronization check follow.
+
+---
+
+## 2026-10-19 — Default initial administrator mailbox for fresh installations
+**User request:**
+> update the install script with the tools@readypackets.com as the admin email and then give me the whole script again
+
+**Implemented change:** Set `tools@readypackets.com` as the visible, overrideable default initial administrator email in both fresh-install entry points: the private-repository guided `deploy/master-install.sh` and the temporary-public-source `deploy/one-click-install.sh`. The private guided installer now presents that address as its default prompt value; the public-source bootstrap uses it when `RP_ADMIN_EMAIL` is not explicitly supplied. A deployment operator can deliberately supply a different mailbox for a specific VPS. No administrator password is embedded or defaulted, and the existing generated one-time-password workflow remains unchanged.
+
+**Regression and publication controls:** Updated the guided-installer reference and added `tests/publicInstaller.test.ts` to pin the public installer’s default/override contract and its prohibition on passwords/tokens/private keys in reusable settings profiles. Focused installer regressions passed **26 tests across 5 files**. TypeScript typecheck, zero-warning ESLint, Bash syntax checks for both installers, `git diff --check`, and a high-confidence credential scan passed. No VPS, DNS, Cloudflare configuration, customer data, or running portal was modified. Source commit/push verification follows.

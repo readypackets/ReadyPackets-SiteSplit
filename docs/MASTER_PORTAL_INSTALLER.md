@@ -15,7 +15,7 @@ The script prompts for and validates the following non-secret operational detail
 | ReadyPackets display name | Browser and portal display name; defaults to `ReadyPackets`. |
 | Dedicated portal hostname | Example: `my.readypackets.com`. The public `readypackets.com` and `www.readypackets.com` website hostnames are explicitly rejected. |
 | Additional portal aliases | Optional comma-separated list of up to five explicit hostnames, for example `portal.readypackets.com`. Each alias redirects with HTTPS `308` to the dedicated canonical portal hostname; it does not become a separate session origin. |
-| First administrator name and email | Used to create the first local administrator after a successful deployment. |
+| First administrator name and email | Used to create the first local administrator after a successful deployment. The email defaults to `tools@readypackets.com` and can be deliberately overridden for a specific VPS. |
 | TLS method | Cloudflare Origin CA automatic issuance, Let's Encrypt, or an existing Cloudflare Origin CA PEM pair. |
 | Exact immutable Git release | Shows the current `main` candidate but requires the operator to type a full reviewed 40-character SHA; pressing Enter without it is rejected. |
 
