@@ -53,7 +53,8 @@ describe("explicit portal aliases", () => {
     expect(nativeSource).toContain('APP_ALLOWED_ORIGINS="https://${DOMAIN}"');
     expect(nativeSource).toContain("PORTAL_ALIASES=${PORTAL_ALIASES_CSV}");
     expect(nativeSource).toContain("Portal aliases are edge redirects only.");
-    expect(nginxSource).toContain("__RP_PORTAL_ALIAS_REGEX__");
+    expect(nginxSource).toContain("__RP_PORTAL_ALIAS_SERVER_NAMES__");
+    expect(nginxSource).toContain("__RP_APP_SERVER_NAMES__");
     expect(nginxSource).toContain("https://__RP_CANONICAL_DOMAIN__$request_uri");
     expect(nginxSource).not.toContain("https://$host$request_uri");
     expect(nginxSource).toContain("listen 80 default_server;");
@@ -66,8 +67,8 @@ describe("explicit portal aliases", () => {
     expect(nativeSource).toContain('local -a certificate_hosts=("${ALL_ROUTED_HOSTS[@]}")');
     expect(nativeSource).toContain('for certificate_hostname in "${ALL_ROUTED_HOSTS[@]:1}"; do');
     expect(nativeSource).toContain('acme_hostnames=("${ALL_ROUTED_HOSTS[@]}")');
-    expect(nativeSource).toContain('s/__RP_PORTAL_ALIAS_REGEX__/${PORTAL_ALIAS_REGEX}/g');
-    expect(nativeSource).toContain('s/__RP_HOST_REGEX__/${HOST_ALLOWLIST_REGEX}/g');
+    expect(nativeSource).toContain('s/__RP_PORTAL_ALIAS_SERVER_NAMES__/${PORTAL_ALIAS_SERVER_NAMES}/g');
+    expect(nativeSource).toContain('s/__RP_APP_HOST_REGEX__/${APP_HOST_ALLOWLIST_REGEX}/g');
   });
 
   it("forwards aliases through both fresh-server installer entrypoints and exposes the guided DNS/TLS requirement", () => {

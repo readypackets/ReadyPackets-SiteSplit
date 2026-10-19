@@ -74,6 +74,12 @@ Choose exactly one canonical portal hostname, such as `my.readypackets.com`. It 
 
 This is intentionally not a wildcard or arbitrary-host feature. An unconfigured hostname is rejected, and `readypackets.com` and `www.readypackets.com` remain reserved for the separately hosted ReadyPackets website. Do not expect a session created at an alias to work: aliases redirect before a session is issued, so users should bookmark and use the canonical portal URL.
 
+### Add an alias after installation
+
+After installing a release that includes post-install alias administration, a portal administrator can open **System → Domain & URL → Add a portal redirect alias**. The console lists current aliases and remaining capacity, accepts at most five explicit aliases in total, and writes security/audit records for successful and failed requests. It does **not** accept wildcard hostnames, change `APP_URL`, broaden CORS/CSRF origins, or create a second login/session hostname.
+
+Create the new DNS record before opening the console. For a Let’s Encrypt deployment, every active A/AAAA route for the alias must expose port 80 to this VPS for HTTP-01; the alias remains pending on HTTP challenge handling only until its expanded SAN certificate is validated. For Cloudflare Origin CA, create a **replacement** certificate in Cloudflare covering the canonical hostname, every existing alias, and the new alias; retain its private key and keep all portal records proxied with **Full (strict)**. The console validates the certificate/key pair and every required hostname before changing Nginx. In either path, Nginx tests, reloads, verifies canonical health, verifies the exact alias `308` redirect, and restores root-owned routing/TLS configuration on failure.
+
 ### Temporary-public repository fallback
 
 If—and only if—the source repository has been deliberately made public after a full current and reachable-history secret review, retrieve an **immutable reviewed script revision**, not a moving `main` branch:

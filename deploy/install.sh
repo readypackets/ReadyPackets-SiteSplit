@@ -44,12 +44,14 @@ ALTERNATE_DOMAIN=""
 PORTAL_ALIAS_INPUTS=()
 PORTAL_ALIAS_HOSTS=()
 ALL_ROUTED_HOSTS=()
+APP_ROUTED_HOSTS=()
 PORTAL_ALIASES_CSV=""
-SERVER_NAMES=""
-HOST_ALLOWLIST_REGEX=""
-# Escaped for use as a sed replacement. It is deliberately an impossible name
-# rather than an empty regex, which would match every Host header.
-PORTAL_ALIAS_REGEX="rp-alias-disabled\\\\.invalid"
+ALL_SERVER_NAMES=""
+APP_SERVER_NAMES=""
+# An empty server_name handles no real hostname; unknown TLS SNI/Host therefore
+# stays in the explicit default 421 server when no aliases are configured.
+PORTAL_ALIAS_SERVER_NAMES='""'
+APP_HOST_ALLOWLIST_REGEX=""
 APP_ALLOWED_ORIGINS=""
 CONTACT_EMAIL=""
 TLS_PROVIDER="" # letsencrypt, cloudflare-origin, cloudflare-origin-ca, or empty to preserve/expose HTTP only
@@ -218,26 +220,25 @@ if [[ -n "$ALTERNATE_DOMAIN" ]]; then
 fi
 
 ALL_ROUTED_HOSTS=("$DOMAIN" "${PORTAL_ALIAS_HOSTS[@]}")
-[[ -n "$PUBLIC_DOMAIN" ]] && ALL_ROUTED_HOSTS+=("$PUBLIC_DOMAIN")
-SERVER_NAMES="${ALL_ROUTED_HOSTS[*]}"
-for hostname in "${ALL_ROUTED_HOSTS[@]}"; do
+APP_ROUTED_HOSTS=("$DOMAIN")
+if [[ -n "$PUBLIC_DOMAIN" ]]; then
+  ALL_ROUTED_HOSTS+=("$PUBLIC_DOMAIN")
+  APP_ROUTED_HOSTS+=("$PUBLIC_DOMAIN")
+fi
+ALL_SERVER_NAMES="${ALL_ROUTED_HOSTS[*]}"
+APP_SERVER_NAMES="${APP_ROUTED_HOSTS[*]}"
+if [[ "${#PORTAL_ALIAS_HOSTS[@]}" -gt 0 ]]; then
+  PORTAL_ALIAS_SERVER_NAMES="${PORTAL_ALIAS_HOSTS[*]}"
+fi
+for hostname in "${APP_ROUTED_HOSTS[@]}"; do
   escaped_hostname="$(escape_regex "$hostname")"
-  if [[ -n "$HOST_ALLOWLIST_REGEX" ]]; then
-    HOST_ALLOWLIST_REGEX+="|${escaped_hostname}"
+  if [[ -n "$APP_HOST_ALLOWLIST_REGEX" ]]; then
+    APP_HOST_ALLOWLIST_REGEX+="|${escaped_hostname}"
   else
-    HOST_ALLOWLIST_REGEX="$escaped_hostname"
+    APP_HOST_ALLOWLIST_REGEX="$escaped_hostname"
   fi
 done
 if [[ "${#PORTAL_ALIAS_HOSTS[@]}" -gt 0 ]]; then
-  PORTAL_ALIAS_REGEX=""
-  for hostname in "${PORTAL_ALIAS_HOSTS[@]}"; do
-    escaped_hostname="$(escape_regex "$hostname")"
-    if [[ -n "$PORTAL_ALIAS_REGEX" ]]; then
-      PORTAL_ALIAS_REGEX+="|${escaped_hostname}"
-    else
-      PORTAL_ALIAS_REGEX="$escaped_hostname"
-    fi
-  done
   PORTAL_ALIASES_CSV="$(IFS=,; printf '%s' "${PORTAL_ALIAS_HOSTS[*]}")"
 fi
 
@@ -648,7 +649,7 @@ server {
 server {
     listen 80;
     listen [::]:80;
-    server_name ${SERVER_NAMES};
+    server_name ${ALL_SERVER_NAMES};
     server_tokens off;
     client_max_body_size 55m;
 
@@ -690,10 +691,11 @@ write_hardened_site() {
   fi
 
   sed -e "s/portal\.readypackets\.com/${DOMAIN}/g" \
-      -e "s/__RP_SERVER_NAMES__/${SERVER_NAMES}/g" \
+      -e "s/__RP_HTTP_SERVER_NAMES__/${ALL_SERVER_NAMES}/g" \
+      -e "s/__RP_PORTAL_ALIAS_SERVER_NAMES__/${PORTAL_ALIAS_SERVER_NAMES}/g" \
+      -e "s/__RP_APP_SERVER_NAMES__/${APP_SERVER_NAMES}/g" \
       -e "s/__RP_CANONICAL_DOMAIN__/${DOMAIN}/g" \
-      -e "s/__RP_PORTAL_ALIAS_REGEX__/${PORTAL_ALIAS_REGEX}/g" \
-      -e "s/__RP_HOST_REGEX__/${HOST_ALLOWLIST_REGEX}/g" \
+      -e "s/__RP_APP_HOST_REGEX__/${APP_HOST_ALLOWLIST_REGEX}/g" \
       -e "s|# __RP_MORE_CLEAR_HEADERS__|${clear_headers}|g" \
       "${APP_DIR}/deploy/nginx.conf" > "$NGINX_SITE"
 

@@ -376,9 +376,16 @@ function DomainPanel() {
   const toast = useToast();
   const status = trpc.adminSecurity.domainStatus.useQuery();
   const [open, setOpen] = useState(false);
+  const [aliasOpen, setAliasOpen] = useState(false);
   const [hostname, setHostname] = useState("");
   const [email, setEmail] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [aliasHostname, setAliasHostname] = useState("");
+  const [aliasEmail, setAliasEmail] = useState("");
+  const [aliasCertificate, setAliasCertificate] = useState("");
+  const [aliasPrivateKey, setAliasPrivateKey] = useState("");
+  const [aliasCaRoot, setAliasCaRoot] = useState("");
+  const [aliasConfirmation, setAliasConfirmation] = useState("");
   const update = trpc.adminSecurity.updateDomainAndRequestLetsEncrypt.useMutation({
     async onSuccess(result) {
       await status.refetch();
@@ -388,8 +395,41 @@ function DomainPanel() {
     },
     onError(error) { toast.error("Domain change was not applied", errorMessage(error)); },
   });
+  const resetAliasForm = () => {
+    setAliasHostname(""); setAliasEmail(""); setAliasCertificate(""); setAliasPrivateKey(""); setAliasCaRoot(""); setAliasConfirmation("");
+  };
+  const addLetsEncryptAlias = trpc.adminSecurity.addPortalAliasWithLetsEncrypt.useMutation({
+    async onSuccess(result) {
+      await status.refetch();
+      setAliasOpen(false); resetAliasForm();
+      toast.success("Portal alias added", `${result.addedAlias} now redirects to the canonical portal URL.`);
+    },
+    onError(error) { toast.error("Portal alias was not added", errorMessage(error)); },
+  });
+  const addCloudflareAlias = trpc.adminSecurity.addPortalAliasWithCloudflare.useMutation({
+    async onSuccess(result) {
+      await status.refetch();
+      setAliasOpen(false); resetAliasForm();
+      toast.success("Portal alias added", `${result.addedAlias} now redirects to the canonical portal URL.`);
+    },
+    onError(error) { toast.error("Portal alias was not added", errorMessage(error)); },
+  });
   const current = status.data;
   const currentHostname = current?.hostname ?? window.location.hostname;
+  const aliases = current?.aliases ?? [];
+  const aliasProvider = current?.certificate.provider;
+  const aliasesRemaining = current?.aliasesRemaining ?? 0;
+  const isAddingAlias = addLetsEncryptAlias.isPending || addCloudflareAlias.isPending;
+  const aliasProviderSupported = aliasProvider === "letsencrypt" || aliasProvider === "cloudflare_origin";
+  const aliasFormReady = Boolean(aliasHostname.trim()) && aliasConfirmation === "ADD PORTAL ALIAS" && (aliasProvider === "letsencrypt" ? Boolean(aliasEmail.trim()) : Boolean(aliasCertificate.trim()) && Boolean(aliasPrivateKey.trim()));
+  const submitAlias = () => {
+    const hostnameInput = aliasHostname.trim().toLowerCase();
+    if (aliasProvider === "letsencrypt") {
+      addLetsEncryptAlias.mutate({ hostname: hostnameInput, email: aliasEmail.trim(), confirmation: "ADD PORTAL ALIAS" });
+    } else if (aliasProvider === "cloudflare_origin") {
+      addCloudflareAlias.mutate({ hostname: hostnameInput, certificate: aliasCertificate, privateKey: aliasPrivateKey, caRoot: aliasCaRoot || undefined, confirmation: "ADD PORTAL ALIAS" });
+    }
+  };
 
   return <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
     <Card>
@@ -399,6 +439,8 @@ function DomainPanel() {
         <Row label="Active hostname" value={currentHostname} />
         <Row label="Certificate provider" value={<Badge tone={current?.certificate.provider === "letsencrypt" ? "success" : "warning"}>{current?.certificate.provider === "letsencrypt" ? "Let's Encrypt" : current?.certificate.provider ?? "unknown"}</Badge>} />
         <Row label="Certificate expiry" value={current?.certificate.notAfter ?? "—"} />
+        <Row label="Portal redirect aliases" value={aliases.length ? <span className="flex flex-wrap gap-1.5">{aliases.map((alias) => <code className="text-xs" key={alias}>{alias}</code>)}</span> : "None"} />
+        <Row label="Alias capacity" value={`${aliasesRemaining} of 5 available`} />
       </dl>}
     </Card>
 
@@ -411,12 +453,32 @@ function DomainPanel() {
       <p className="mt-4 text-xs leading-relaxed text-muted">The portal uses HTTP-01 validation through the existing nginx ACME location. Keep the DNS record reachable and do not enable an incompatible Cloudflare certificate mode during issuance.</p>
     </Card>
 
+    <Card>
+      <CardHeader title="Add a portal redirect alias" description="Add a distinct portal hostname that permanently redirects to the canonical portal URL. It never becomes a second login, cookie, CSRF, or callback origin." />
+      <Alert tone="info" className="mt-5" title="Explicit and bounded">Only explicitly configured aliases are accepted; wildcard and arbitrary hostnames remain blocked. Up to five aliases are supported. `readypackets.com` and `www.readypackets.com` remain reserved for the separately hosted website.</Alert>
+      {!aliasProviderSupported ? <Alert tone="warning" className="mt-4" title="Alias management unavailable">Activate a supported Let’s Encrypt or Cloudflare Origin CA certificate first. The portal will not add a hostname without validating its certificate coverage.</Alert> : aliasesRemaining <= 0 ? <Alert tone="warning" className="mt-4" title="Alias limit reached">Remove or revise aliases through an approved deployment change before adding another hostname.</Alert> : <div className="mt-5 flex flex-wrap gap-3"><Button variant="danger" onClick={() => { resetAliasForm(); setAliasOpen(true); }} leadingIcon={<Plus className="size-4" />}>Add portal alias</Button></div>}
+      <p className="mt-4 text-xs leading-relaxed text-muted">Every alias must have DNS pointing to this VPS. After validation, nginx serves only a direct HTTPS 308 redirect to the canonical URL before the request reaches the portal application.</p>
+    </Card>
+
     <Modal open={open} onClose={() => { if (!update.isPending) setOpen(false); }} title="Change the public portal domain" description="The action first validates nginx, requests a certificate for the new hostname, validates that certificate, applies the new application origin, reloads nginx, restarts the portal, and rolls back all modified server files if any step fails." footer={<><Button variant="outline" disabled={update.isPending} onClick={() => setOpen(false)}>Cancel</Button><Button variant="danger" busy={update.isPending} disabled={!hostname.trim() || !email.trim() || confirmation !== "CHANGE DOMAIN AND REQUEST CERTIFICATE"} onClick={() => update.mutate({ hostname: hostname.trim().toLowerCase(), email: email.trim(), confirmation: "CHANGE DOMAIN AND REQUEST CERTIFICATE" })}>Request certificate and change domain</Button></>}>
       <div className="mt-4 space-y-4">
         <Alert tone="info" title="Before continuing">Create the DNS record for the new hostname first. If Cloudflare proxies it, use Full (strict) and ensure the ACME challenge can reach this server. The prior hostname remains recoverable through the protected rollback snapshot, but the portal will begin issuing links on the new hostname immediately after success.</Alert>
         <Input label="New public hostname" type="text" autoComplete="off" value={hostname} onChange={(event) => setHostname(event.target.value)} placeholder="www.example.com" required />
         <Input label="Let’s Encrypt certificate-contact email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="operations@example.com" required />
         <Input label="Type to confirm" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="CHANGE DOMAIN AND REQUEST CERTIFICATE" required />
+      </div>
+    </Modal>
+
+    <Modal open={aliasOpen} onClose={() => { if (!isAddingAlias) { setAliasOpen(false); resetAliasForm(); } }} title="Add a portal redirect alias" description="The root-only controller validates the new hostname, updates only hardened nginx routing, verifies TLS coverage, and rolls back protected files if the canonical health or exact alias redirect check fails." footer={<><Button variant="outline" disabled={isAddingAlias} onClick={() => { setAliasOpen(false); resetAliasForm(); }}>Cancel</Button><Button variant="danger" busy={isAddingAlias} disabled={!aliasFormReady} onClick={submitAlias}>Add alias and validate redirect</Button></>}>
+      <div className="mt-4 space-y-4">
+        {aliasProvider === "letsencrypt" ? <Alert tone="warning" title="Before continuing">Create public DNS for the alias and ensure both IPv4/IPv6 records that exist route port 80 to this VPS. The alias is available only to the ACME challenge during issuance; it receives HTTPS routing only after the expanded certificate and canonical redirect are validated.</Alert> : <Alert tone="warning" title="Before continuing">Create a Cloudflare Origin CA certificate that covers the canonical hostname, every existing alias, and this new alias. Keep every listed record proxied through Cloudflare with Full (strict). The replacement certificate and key are validated locally before nginx routing changes.</Alert>}
+        <Input label="New portal alias hostname" type="text" autoComplete="off" value={aliasHostname} onChange={(event) => setAliasHostname(event.target.value)} placeholder="portal.example.com" required help="This must differ from the canonical portal hostname and the public website hostname." />
+        {aliasProvider === "letsencrypt" ? <Input label="Let’s Encrypt certificate-contact email" type="email" autoComplete="email" value={aliasEmail} onChange={(event) => setAliasEmail(event.target.value)} placeholder="operations@example.com" required /> : <>
+          <Textarea label="Replacement Cloudflare Origin CA certificate PEM" rows={7} value={aliasCertificate} onChange={(event) => setAliasCertificate(event.target.value)} placeholder="-----BEGIN CERTIFICATE-----" required />
+          <Textarea label="Replacement private key PEM" rows={7} value={aliasPrivateKey} onChange={(event) => setAliasPrivateKey(event.target.value)} placeholder="-----BEGIN PRIVATE KEY-----" required />
+          <Textarea label="Cloudflare Origin CA root PEM (optional)" rows={5} value={aliasCaRoot} onChange={(event) => setAliasCaRoot(event.target.value)} placeholder="-----BEGIN CERTIFICATE-----" />
+        </>}
+        <Input label="Type to confirm" value={aliasConfirmation} onChange={(event) => setAliasConfirmation(event.target.value)} placeholder="ADD PORTAL ALIAS" required />
       </div>
     </Modal>
   </div>;

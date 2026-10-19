@@ -86,12 +86,19 @@ type CertificateControlStatus = {
 type DomainControlStatus = {
   appUrl: string;
   hostname: string | null;
+  aliases: string[];
+  aliasesRemaining: number;
   certificate: CertificateControlStatus;
 };
 
 type DomainCutoverResult = CertificateControlStatus & {
   previousHostname: string;
   hostname: string;
+  backup: string;
+};
+
+type PortalAliasResult = DomainControlStatus & {
+  addedAlias: string;
   backup: string;
 };
 
@@ -1042,6 +1049,8 @@ export const adminSecurityRouter = router({
       return {
         appUrl: env.appUrl,
         hostname: new URL(env.appUrl).hostname,
+        aliases: [],
+        aliasesRemaining: 0,
         certificate: {
           provider: "unknown" as const,
           configured: false,
@@ -1090,6 +1099,96 @@ export const adminSecurityRouter = router({
         severity: "warning",
         summary: `Changed public portal domain from ${result.previousHostname} to ${result.hostname} and requested a Let's Encrypt certificate`,
         changes: { previousHostname: result.previousHostname, hostname: result.hostname, certificateFingerprint: result.fingerprint, certificateNotAfter: result.notAfter, rollbackBackup: result.backup },
+        ipAddress: ctx.clientIp,
+      });
+      return result;
+    }),
+
+  addPortalAliasWithLetsEncrypt: adminProcedure
+    .input(z.object({
+      hostname: z.string().trim().toLowerCase().min(4).max(253).regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i, "Enter a valid fully-qualified hostname."),
+      email: z.string().trim().email().max(254),
+      confirmation: z.literal("ADD PORTAL ALIAS"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      let result: PortalAliasResult;
+      try {
+        result = await runCertificateControl<PortalAliasResult>({
+          action: "add-portal-alias-letsencrypt",
+          hostname: input.hostname,
+          email: input.email,
+          confirmation: input.confirmation,
+        });
+      } catch (error) {
+        void recordSecurityEvent({ eventType: "settings.changed", severity: "warning", outcome: "failure", message: `Administrator failed to add Let's Encrypt portal alias ${input.hostname}`, userId: ctx.session.user.id, ipAddress: ctx.clientIp, metadata: { alias: input.hostname, provider: "letsencrypt" } });
+        void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "portal_alias.letsencrypt_failed", entityType: "portal_domain", entityId: input.hostname, severity: "warning", summary: `Failed to add Let's Encrypt portal alias ${input.hostname}`, changes: { alias: input.hostname, provider: "letsencrypt" }, ipAddress: ctx.clientIp });
+        throw error;
+      }
+      void recordSecurityEvent({
+        eventType: "settings.changed",
+        severity: "warning",
+        outcome: "success",
+        message: `Administrator added portal alias ${result.addedAlias} with Let's Encrypt`,
+        userId: ctx.session.user.id,
+        ipAddress: ctx.clientIp,
+        metadata: { alias: result.addedAlias, aliases: result.aliases, certificateFingerprint: result.certificate.fingerprint, certificateNotAfter: result.certificate.notAfter, rollbackBackup: result.backup },
+      });
+      void recordActivity({
+        actorUserId: ctx.session.user.id,
+        actorRole: "admin",
+        action: "portal_alias.letsencrypt_added",
+        entityType: "portal_domain",
+        entityId: result.addedAlias,
+        severity: "warning",
+        summary: `Added portal alias ${result.addedAlias} and expanded the Let's Encrypt certificate`,
+        changes: { alias: result.addedAlias, aliases: result.aliases, certificateFingerprint: result.certificate.fingerprint, certificateNotAfter: result.certificate.notAfter, rollbackBackup: result.backup },
+        ipAddress: ctx.clientIp,
+      });
+      return result;
+    }),
+
+  addPortalAliasWithCloudflare: adminProcedure
+    .input(z.object({
+      hostname: z.string().trim().toLowerCase().min(4).max(253).regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i, "Enter a valid fully-qualified hostname."),
+      certificate: z.string().min(80).max(30_000),
+      privateKey: z.string().min(80).max(30_000),
+      caRoot: z.string().max(30_000).optional(),
+      confirmation: z.literal("ADD PORTAL ALIAS"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      let result: PortalAliasResult;
+      try {
+        result = await runCertificateControl<PortalAliasResult>({
+          action: "add-portal-alias-cloudflare",
+          hostname: input.hostname,
+          certificate: input.certificate.endsWith("\n") ? input.certificate : `${input.certificate}\n`,
+          privateKey: input.privateKey.endsWith("\n") ? input.privateKey : `${input.privateKey}\n`,
+          caRoot: input.caRoot ? (input.caRoot.endsWith("\n") ? input.caRoot : `${input.caRoot}\n`) : "",
+          confirmation: input.confirmation,
+        });
+      } catch (error) {
+        void recordSecurityEvent({ eventType: "settings.changed", severity: "warning", outcome: "failure", message: `Administrator failed to add Cloudflare portal alias ${input.hostname}`, userId: ctx.session.user.id, ipAddress: ctx.clientIp, metadata: { alias: input.hostname, provider: "cloudflare_origin" } });
+        void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "portal_alias.cloudflare_failed", entityType: "portal_domain", entityId: input.hostname, severity: "warning", summary: `Failed to add Cloudflare portal alias ${input.hostname}`, changes: { alias: input.hostname, provider: "cloudflare_origin" }, ipAddress: ctx.clientIp });
+        throw error;
+      }
+      void recordSecurityEvent({
+        eventType: "settings.changed",
+        severity: "warning",
+        outcome: "success",
+        message: `Administrator added portal alias ${result.addedAlias} with Cloudflare Origin CA`,
+        userId: ctx.session.user.id,
+        ipAddress: ctx.clientIp,
+        metadata: { alias: result.addedAlias, aliases: result.aliases, certificateFingerprint: result.certificate.fingerprint, certificateNotAfter: result.certificate.notAfter, rollbackBackup: result.backup },
+      });
+      void recordActivity({
+        actorUserId: ctx.session.user.id,
+        actorRole: "admin",
+        action: "portal_alias.cloudflare_added",
+        entityType: "portal_domain",
+        entityId: result.addedAlias,
+        severity: "warning",
+        summary: `Added portal alias ${result.addedAlias} and installed a replacement Cloudflare Origin CA certificate`,
+        changes: { alias: result.addedAlias, aliases: result.aliases, certificateFingerprint: result.certificate.fingerprint, certificateNotAfter: result.certificate.notAfter, rollbackBackup: result.backup },
         ipAddress: ctx.clientIp,
       });
       return result;

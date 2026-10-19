@@ -33,7 +33,7 @@ LockPersonality=true
 MemoryDenyWriteExecute=false
 CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETUID CAP_SETGID
 AmbientCapabilities=
-ReadWritePaths=/run/readypackets /etc/readypackets/tls /var/backups/readypackets /etc/nginx /var/lib/nginx /run/nginx.pid
+ReadWritePaths=/run/readypackets /etc/readypackets /var/backups/readypackets /etc/nginx /var/lib/nginx /run/nginx.pid /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /var/cache/letsencrypt /var/www/html
 
 [Install]
 WantedBy=multi-user.target

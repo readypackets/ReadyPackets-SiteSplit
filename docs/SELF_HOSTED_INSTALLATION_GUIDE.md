@@ -51,6 +51,8 @@ sudo bash /root/github-bootstrap-install.sh \
 
 The `--portal-alias` line is optional and can be repeated for up to five explicit hostnames. Each must be present in DNS and TLS, and it receives only a permanent redirect to the canonical `--domain`; it is not a second portal session origin. For direct-DNS Let’s Encrypt, use `--tls-provider letsencrypt --email operations@readypackets.com` instead. The full commands, prerequisite checks, Cloudflare and deploy-key setup, token hygiene, verification, troubleshooting, administrator bootstrap, and go-live checklist are in the [production runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md).
 
+After installation, an administrator can add another explicit redirect alias from **System → Domain & URL** when the deployed release includes the protected alias controller. The console coordinates Nginx, the protected `PORTAL_ALIASES` list, certificate SAN validation, rollback, and audit logging. It never changes the canonical `APP_URL` or makes the alias an application origin. See [Add a portal alias after installation](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md#add-a-portal-alias-after-installation) for DNS and TLS prerequisites.
+
 ## Existing portal update or replacement-server recovery
 
 Do not run a fresh installer on a working portal. Use **Admin → Platform updates** for an administrator-reviewed exact release with protected snapshot and rollback controls. See [Approved Auto-Deployment](AUTO_DEPLOYMENT.md).

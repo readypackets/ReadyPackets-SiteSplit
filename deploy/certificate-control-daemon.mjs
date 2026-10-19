@@ -26,10 +26,13 @@ const CERTBOT = "/usr/bin/certbot";
 const CURL = "/usr/bin/curl";
 const APP_ENV = "/etc/readypackets/portal.env";
 const NGINX_SITE = "/etc/nginx/sites-available/readypackets";
+const NGINX_TEMPLATE = "/opt/readypackets/deploy/nginx.conf";
 const READY_PACKETS_SERVICE = "readypackets";
 const MAX_MESSAGE_BYTES = 96 * 1024;
 const MAX_PEM_BYTES = 32 * 1024;
 const HOSTNAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+const MAX_PORTAL_ALIASES = 5;
+const RESERVED_PUBLIC_WEBSITE_HOSTNAMES = new Set(["readypackets.com", "www.readypackets.com"]);
 
 if (process.getuid?.() !== 0) throw new Error("certificate-control daemon must run as root");
 
@@ -93,6 +96,7 @@ async function validateCloudflare({ hostnames, certificate, privateKey }) {
   try {
     writeFileSync(cert, certificate, { mode: 0o600 }); writeFileSync(key, privateKey, { mode: 0o600 });
     await run(OPENSSL, ["x509", "-in", cert, "-noout"]);
+    await run(OPENSSL, ["x509", "-in", cert, "-noout", "-checkend", "0"]);
     await run(OPENSSL, ["pkey", "-in", key, "-noout"]);
     for (const hostname of hostnames) {
       const hostnameCheck = await run(OPENSSL, ["x509", "-in", cert, "-noout", "-checkhost", hostname]);
@@ -124,8 +128,9 @@ async function reloadNginxWithRollback(previousInclude, backup) {
   }
 }
 async function installCloudflare(input) {
-  const hostnames = configuredPortalHostnames();
-  if (input.hostname.toLowerCase() !== hostnames[0]) deny("The Cloudflare Origin certificate must be installed for the canonical portal hostname.");
+  const state = portalAliasState();
+  const hostnames = certificateHostnames(state);
+  if (input.hostname.toLowerCase() !== state.canonical) deny("The Cloudflare Origin certificate must be installed for the canonical portal hostname.");
   await validateCloudflare({ ...input, hostnames });
   mkdirSync(CLOUDFLARE_DIRECTORY, { recursive: true, mode: 0o700 });
   const backup = backupTlsMaterial(); const previousInclude = safeRead(TLS_INCLUDE);
@@ -145,9 +150,33 @@ function setEnvValue(contents, key, value) {
   const pattern = new RegExp(`^${escapeRegExp(key)}=.*$`, "m");
   return pattern.test(contents) ? contents.replace(pattern, line) : `${contents.replace(/\s*$/, "")}\n${line}\n`;
 }
+function normaliseHostname(value, label = "hostname") {
+  if (typeof value !== "string") deny(`Invalid ${label}.`);
+  const hostname = value.trim().toLowerCase();
+  if (!HOSTNAME.test(hostname)) deny(`Invalid ${label}.`);
+  return hostname;
+}
 function currentHostname() {
   const appUrl = envValue(safeRead(APP_ENV), "APP_URL");
-  try { return new URL(appUrl).hostname.toLowerCase(); } catch { return ""; }
+  try { return normaliseHostname(new URL(appUrl).hostname, "APP_URL hostname"); } catch { return ""; }
+}
+function publicSiteHostname() {
+  const publicUrl = envValue(safeRead(APP_ENV), "PUBLIC_SITE_URL");
+  if (!publicUrl) return "";
+  try { return normaliseHostname(new URL(publicUrl).hostname, "PUBLIC_SITE_URL hostname"); }
+  catch { deny("PUBLIC_SITE_URL is invalid; repair the protected environment before changing portal aliases."); }
+}
+function nginxConfiguredHostnames() {
+  return [...safeRead(NGINX_SITE).matchAll(/^\s*server_name\s+([^;]+);/gm)]
+    .flatMap((match) => match[1].trim().split(/\s+/))
+    .map((hostname) => hostname.toLowerCase())
+    .filter((hostname) => HOSTNAME.test(hostname));
+}
+function deployedPublicSiteHostname() {
+  const candidate = publicSiteHostname();
+  if (!candidate) return "";
+  const configuredNames = nginxConfiguredHostnames();
+  return configuredNames.includes(candidate) ? candidate : "";
 }
 function configuredPortalHostnames() {
   const canonical = currentHostname();
@@ -163,12 +192,83 @@ function configuredPortalHostnames() {
   }
   return [...seen];
 }
-function rewriteNginxHostname(contents, hostname) {
-  const escaped = hostname.replace(/\./g, "\\.");
-  let next = contents.replace(/^\s*server_name\s+[^;]+;/gm, (line) => `${line.slice(0, line.indexOf("server_name"))}server_name ${hostname};`);
-  next = next.replace(/(if \(\$host !~\* \^\()[^)]+(\)\$\) \{)/, `$1${escaped}$2`);
-  if (next === contents || /__RP_/.test(next)) deny("The active nginx configuration is not a supported ReadyPackets configuration.");
+function portalAliasState() {
+  const hostnames = configuredPortalHostnames();
+  const publicHostname = deployedPublicSiteHostname();
+  return { canonical: hostnames[0], aliases: hostnames.slice(1), publicHostname: publicHostname === hostnames[0] ? "" : publicHostname };
+}
+function certificateHostnames({ canonical, aliases, publicHostname }) {
+  return [canonical, ...aliases, ...(publicHostname ? [publicHostname] : [])];
+}
+function addablePortalAlias(input) {
+  const alias = normaliseHostname(input, "portal alias hostname");
+  const { canonical, aliases, publicHostname } = portalAliasState();
+  const configuredPublicHostname = publicSiteHostname();
+  if (RESERVED_PUBLIC_WEBSITE_HOSTNAMES.has(alias)) deny(`${alias} is reserved for the independently hosted ReadyPackets website.`);
+  if (alias === canonical) deny("A portal alias must differ from the canonical portal hostname.");
+  if (configuredPublicHostname && alias === configuredPublicHostname) deny("A portal alias must differ from the configured public website hostname.");
+  if (aliases.includes(alias)) deny("That portal alias is already configured.");
+  if (nginxConfiguredHostnames().includes(alias)) deny("That hostname is already reserved by an active Nginx virtual host.");
+  if (aliases.length >= MAX_PORTAL_ALIASES) deny(`At most ${MAX_PORTAL_ALIASES} portal aliases are permitted.`);
+  return { canonical, aliases: [...aliases, alias], publicHostname, alias };
+}
+function renderNginxPortalAliases(contents, { canonical, aliases, publicHostname, httpAliases = aliases }) {
+  const template = safeRead(NGINX_TEMPLATE);
+  if (!template || !template.includes("__RP_HTTP_SERVER_NAMES__") || !template.includes("__RP_APP_SERVER_NAMES__")) {
+    deny("The reviewed ReadyPackets nginx template is unavailable; apply the approved platform update before changing portal aliases.");
+  }
+  const routedHostnames = [canonical, ...httpAliases, ...(publicHostname ? [publicHostname] : [])];
+  const appHostnames = [canonical, ...(publicHostname ? [publicHostname] : [])];
+  const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const replacements = [
+    ["__RP_HTTP_SERVER_NAMES__", routedHostnames.join(" ")],
+    ["__RP_PORTAL_ALIAS_SERVER_NAMES__", aliases.length ? aliases.join(" ") : '""'],
+    ["__RP_APP_SERVER_NAMES__", appHostnames.join(" ")],
+    ["__RP_APP_HOST_REGEX__", appHostnames.map(regexEscape).join("|")],
+    ["__RP_CANONICAL_DOMAIN__", canonical],
+    ["# __RP_MORE_CLEAR_HEADERS__", contents.includes("more_clear_headers 'Server';") ? "more_clear_headers 'Server';" : "# headers-more module not installed; \"Server: nginx\" is still sent."],
+  ];
+  let next = template;
+  for (const [placeholder, value] of replacements) next = next.split(placeholder).join(value);
+  if (/__RP_/.test(next)) {
+    deny("The active nginx configuration is not a supported ReadyPackets multi-host configuration.");
+  }
   return next;
+}
+function backupPortalAliasMaterial() {
+  const backup = `/var/backups/readypackets/portal-alias-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  mkdirSync(backup, { recursive: true, mode: 0o700 });
+  for (const source of [APP_ENV, NGINX_SITE, TLS_INCLUDE, `${CLOUDFLARE_DIRECTORY}/certificate.pem`, `${CLOUDFLARE_DIRECTORY}/private-key.pem`, `${CLOUDFLARE_DIRECTORY}/cloudflare-origin-ca-root.pem`]) {
+    if (existsSync(source)) copyFileSync(source, join(backup, source.split("/").pop()));
+  }
+  return backup;
+}
+function restorePortalAliasMaterial(backup) {
+  const restoreFile = (name, target, mode) => {
+    const source = join(backup, name);
+    if (existsSync(source)) writeAtomic(target, readFileSync(source, "utf8"), mode);
+    else if (existsSync(target)) unlinkSync(target);
+  };
+  restoreFile("portal.env", APP_ENV, 0o640);
+  restoreFile("readypackets", NGINX_SITE, 0o640);
+  restoreFile("nginx-tls.conf", TLS_INCLUDE, 0o640);
+  restoreFile("certificate.pem", `${CLOUDFLARE_DIRECTORY}/certificate.pem`, 0o644);
+  restoreFile("private-key.pem", `${CLOUDFLARE_DIRECTORY}/private-key.pem`, 0o600);
+  restoreFile("cloudflare-origin-ca-root.pem", `${CLOUDFLARE_DIRECTORY}/cloudflare-origin-ca-root.pem`, 0o644);
+}
+async function verifyCanonicalHealth(hostname) {
+  await run(CURL, ["--noproxy", "*", "-fsS", "--max-time", "20", "--resolve", `${hostname}:443:127.0.0.1`, "-k", `https://${hostname}/api/health`]);
+}
+function letsEncryptPaths() {
+  const include = safeRead(TLS_INCLUDE);
+  const certificate = include.match(/^ssl_certificate\s+([^;]+);/m)?.[1] ?? "";
+  const privateKey = include.match(/^ssl_certificate_key\s+([^;]+);/m)?.[1] ?? "";
+  const match = certificate.match(/^\/etc\/letsencrypt\/live\/([A-Za-z0-9._-]+)\/fullchain\.pem$/);
+  if (!match || !privateKey.startsWith(`/etc/letsencrypt/live/${match[1]}/`)) deny("The active Let's Encrypt certificate paths are not supported for alias expansion.");
+  return { certificate, privateKey, certName: match[1] };
+}
+function rewriteNginxHostname(contents, hostname, publicHostname) {
+  return renderNginxPortalAliases(contents, { canonical: normaliseHostname(hostname), aliases: [], publicHostname });
 }
 function certNameFor(hostname) { return `readypackets-${hostname.replace(/[^a-z0-9]/gi, "-").slice(0, 48)}`; }
 function backupDomainMaterial() {
@@ -181,23 +281,27 @@ async function updateDomainLetsEncrypt(input) {
   if (!HOSTNAME.test(input.hostname) || !validEmail(input.email)) deny("Invalid hostname or certificate contact email.");
   const oldHostname = currentHostname();
   if (!oldHostname) deny("The current APP_URL is invalid; use the server deployment procedure to repair it.");
-  if (configuredPortalHostnames().length > 1) deny("Canonical-domain changes are blocked while PORTAL_ALIASES is configured. Reconfigure aliases through the reviewed server deployment procedure so DNS, Nginx, and certificate SANs remain aligned.");
+  const currentState = portalAliasState();
+  if (currentState.aliases.length > 0) deny("Canonical-domain changes are blocked while PORTAL_ALIASES is configured. Reconfigure aliases through the reviewed server deployment procedure so DNS, Nginx, and certificate SANs remain aligned.");
   if (oldHostname === input.hostname) deny("The requested hostname is already the portal domain.");
   if (!existsSync(CERTBOT) || !existsSync(APP_ENV) || !existsSync(NGINX_SITE)) deny("The protected domain-control prerequisites are unavailable on this server.");
   const backup = backupDomainMaterial();
   const previousEnv = safeRead(APP_ENV); const previousNginx = safeRead(NGINX_SITE); const previousInclude = safeRead(TLS_INCLUDE);
   try {
-    writeAtomic(NGINX_SITE, rewriteNginxHostname(previousNginx, input.hostname), 0o640);
+    writeAtomic(NGINX_SITE, rewriteNginxHostname(previousNginx, input.hostname, currentState.publicHostname), 0o640);
     await run(NGINX, ["-t"]); await run(SYSTEMCTL, ["reload", "nginx"]);
     const certName = certNameFor(input.hostname);
-    await run(CERTBOT, ["certonly", "--webroot", "-w", "/var/www/html", "--non-interactive", "--agree-tos", "--email", input.email, "--cert-name", certName, "--keep-until-expiring", "-d", input.hostname], "", 150_000);
+    const certificateHostnames = [input.hostname, ...(currentState.publicHostname ? [currentState.publicHostname] : [])];
+    await run(CERTBOT, ["certonly", "--webroot", "-w", "/var/www/html", "--non-interactive", "--agree-tos", "--email", input.email, "--cert-name", certName, "--keep-until-expiring", ...certificateHostnames.flatMap((hostname) => ["-d", hostname])], "", 150_000);
     const certificate = `/etc/letsencrypt/live/${certName}/fullchain.pem`; const key = `/etc/letsencrypt/live/${certName}/privkey.pem`;
     if (!existsSync(certificate) || !existsSync(key)) deny("Let's Encrypt did not create the expected certificate files.");
-    const hostnameCheck = await run(OPENSSL, ["x509", "-in", certificate, "-noout", "-checkhost", input.hostname]);
-    if (!hostnameCheck.includes("does match certificate")) deny("The new Let's Encrypt certificate does not match the requested hostname.");
+    for (const hostname of certificateHostnames) {
+      const hostnameCheck = await run(OPENSSL, ["x509", "-in", certificate, "-noout", "-checkhost", hostname]);
+      if (!hostnameCheck.includes("does match certificate")) deny("The new Let's Encrypt certificate does not match every configured public hostname.");
+    }
     writeAtomic(TLS_INCLUDE, includeFor("letsencrypt", certificate, key), 0o640);
     let nextEnv = setEnvValue(previousEnv, "APP_URL", `https://${input.hostname}`);
-    nextEnv = setEnvValue(nextEnv, "ALLOWED_ORIGINS", `https://${input.hostname}`);
+    nextEnv = setEnvValue(nextEnv, "ALLOWED_ORIGINS", certificateHostnames.map((hostname) => `https://${hostname}`).join(","));
     writeAtomic(APP_ENV, nextEnv, 0o640);
     await run(NGINX, ["-t"]); await run(SYSTEMCTL, ["reload", "nginx"]); await run(SYSTEMCTL, ["restart", READY_PACKETS_SERVICE]);
     await run(CURL, ["-fsS", "--max-time", "20", "--resolve", `${input.hostname}:443:127.0.0.1`, "-k", `https://${input.hostname}/api/health`]);
@@ -210,11 +314,13 @@ async function updateDomainLetsEncrypt(input) {
 }
 async function domainStatus() {
   const appUrl = envValue(safeRead(APP_ENV), "APP_URL");
-  return { appUrl, hostname: currentHostname() || null, certificate: await status() };
+  const aliases = configuredPortalHostnames().slice(1);
+  return { appUrl, hostname: currentHostname() || null, aliases, aliasesRemaining: MAX_PORTAL_ALIASES - aliases.length, certificate: await status() };
 }
 async function activateLetsEncrypt(input) {
-  const hostnames = configuredPortalHostnames();
-  if (input.hostname.toLowerCase() !== hostnames[0]) deny("The Let's Encrypt certificate must be activated for the canonical portal hostname.");
+  const state = portalAliasState();
+  const hostnames = certificateHostnames(state);
+  if (input.hostname.toLowerCase() !== state.canonical) deny("The Let's Encrypt certificate must be activated for the canonical portal hostname.");
   const certificate = `/etc/letsencrypt/live/${input.hostname}/fullchain.pem`;
   const key = `/etc/letsencrypt/live/${input.hostname}/privkey.pem`;
   if (!HOSTNAME.test(input.hostname) || !existsSync(certificate) || !existsSync(key)) deny("A valid Let's Encrypt certificate was not found for this hostname.");
@@ -226,6 +332,79 @@ async function activateLetsEncrypt(input) {
   writeAtomic(TLS_INCLUDE, includeFor("letsencrypt", certificate, key), 0o640);
   await reloadNginxWithRollback(previousInclude, backup);
   return { ...(await status()), backup };
+}
+async function verifyAliasRedirect(alias, canonical) {
+  const expected = `https://${canonical}/api/health`;
+  const headers = await run(CURL, ["--noproxy", "*", "-ksS", "--max-time", "20", "--resolve", `${alias}:443:127.0.0.1`, "-o", "/dev/null", "-D", "-", `https://${alias}/api/health`]);
+  const hasRedirect = new RegExp(`^location:\\s*${escapeRegExp(expected)}\\s*$`, "im").test(headers);
+  if (!/\s308\s/.test(headers) || !hasRedirect) deny("The updated nginx configuration did not return the required canonical portal-alias redirect.");
+}
+function writePortalAliases(previousEnv, aliases) {
+  return setEnvValue(previousEnv, "PORTAL_ALIASES", aliases.join(","));
+}
+async function addPortalAliasCloudflare(input) {
+  if (currentProvider() !== "cloudflare_origin") deny("Cloudflare portal aliases can be added only while a Cloudflare Origin CA certificate is active.");
+  const proposed = addablePortalAlias(input.hostname);
+  await validateCloudflare({ hostnames: certificateHostnames(proposed), certificate: input.certificate, privateKey: input.privateKey });
+  const backup = backupPortalAliasMaterial();
+  const previousEnv = safeRead(APP_ENV); const previousNginx = safeRead(NGINX_SITE); const previousInclude = safeRead(TLS_INCLUDE);
+  try {
+    mkdirSync(CLOUDFLARE_DIRECTORY, { recursive: true, mode: 0o700 });
+    writeAtomic(`${CLOUDFLARE_DIRECTORY}/certificate.pem`, input.certificate, 0o644);
+    writeAtomic(`${CLOUDFLARE_DIRECTORY}/private-key.pem`, input.privateKey, 0o600);
+    if (input.caRoot) writeAtomic(`${CLOUDFLARE_DIRECTORY}/cloudflare-origin-ca-root.pem`, input.caRoot, 0o644);
+    writeAtomic(TLS_INCLUDE, includeFor("cloudflare_origin", `${CLOUDFLARE_DIRECTORY}/certificate.pem`, `${CLOUDFLARE_DIRECTORY}/private-key.pem`), 0o640);
+    writeAtomic(NGINX_SITE, renderNginxPortalAliases(previousNginx, proposed), 0o640);
+    writeAtomic(APP_ENV, writePortalAliases(previousEnv, proposed.aliases), 0o640);
+    await run(NGINX, ["-t"]); await run(SYSTEMCTL, ["reload", "nginx"]);
+    await verifyCanonicalHealth(proposed.canonical);
+    await verifyAliasRedirect(proposed.alias, proposed.canonical);
+    return { ...(await domainStatus()), addedAlias: proposed.alias, backup };
+  } catch (error) {
+    restorePortalAliasMaterial(backup);
+    await run(NGINX, ["-t"]).catch(() => undefined); await run(SYSTEMCTL, ["reload", "nginx"]).catch(() => undefined);
+    throw error;
+  }
+}
+async function addPortalAliasLetsEncrypt(input) {
+  if (currentProvider() !== "letsencrypt") deny("Let's Encrypt portal aliases can be added only while a Let's Encrypt certificate is active.");
+  if (!validEmail(input.email) || !existsSync(CERTBOT)) deny("A valid certificate-contact email and local Certbot installation are required.");
+  const proposed = addablePortalAlias(input.hostname);
+  const previousEnv = safeRead(APP_ENV); const previousNginx = safeRead(NGINX_SITE); const previousInclude = safeRead(TLS_INCLUDE);
+  const paths = letsEncryptPaths();
+  if (!existsSync(paths.certificate) || !existsSync(paths.privateKey)) deny("The active Let's Encrypt certificate files are unavailable.");
+  const backup = backupPortalAliasMaterial();
+  try {
+    // This exposes only the explicitly approved new name to the HTTP-01 location.
+    // Its TLS alias server is deliberately left absent until the expanded SAN
+    // certificate has been verified, so no HTTPS request can reach Node early.
+    writeAtomic(NGINX_SITE, renderNginxPortalAliases(previousNginx, {
+      ...proposed,
+      aliases: proposed.aliases.filter((alias) => alias !== proposed.alias),
+      httpAliases: proposed.aliases,
+    }), 0o640);
+    await run(NGINX, ["-t"]); await run(SYSTEMCTL, ["reload", "nginx"]);
+    const certificateNames = certificateHostnames(proposed);
+    await run(CERTBOT, ["certonly", "--webroot", "-w", "/var/www/html", "--non-interactive", "--agree-tos", "--email", input.email, "--cert-name", paths.certName, "--expand", "--keep-until-expiring", ...certificateNames.flatMap((hostname) => ["-d", hostname])], "", 150_000);
+    for (const hostname of certificateNames) {
+      const hostnameCheck = await run(OPENSSL, ["x509", "-in", paths.certificate, "-noout", "-checkhost", hostname]);
+      if (!hostnameCheck.includes("does match certificate")) deny("Let's Encrypt did not issue a certificate covering every configured portal hostname.");
+    }
+    writeAtomic(TLS_INCLUDE, includeFor("letsencrypt", paths.certificate, paths.privateKey), 0o640);
+    writeAtomic(NGINX_SITE, renderNginxPortalAliases(previousNginx, proposed), 0o640);
+    writeAtomic(APP_ENV, writePortalAliases(previousEnv, proposed.aliases), 0o640);
+    await run(NGINX, ["-t"]); await run(SYSTEMCTL, ["reload", "nginx"]);
+    await verifyCanonicalHealth(proposed.canonical);
+    await verifyAliasRedirect(proposed.alias, proposed.canonical);
+    return { ...(await domainStatus()), addedAlias: proposed.alias, backup };
+  } catch (error) {
+    // Certbot can retain a successfully expanded certificate even if a later
+    // health check fails. Restoring routing first remains fail-closed: a spare
+    // SAN alone cannot make an unconfigured hostname reach the portal.
+    restorePortalAliasMaterial(backup);
+    await run(NGINX, ["-t"]).catch(() => undefined); await run(SYSTEMCTL, ["reload", "nginx"]).catch(() => undefined);
+    throw error;
+  }
 }
 function validateRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) deny("Request must be an object.");
@@ -244,12 +423,22 @@ function validateRequest(value) {
     if (typeof value.hostname !== "string" || !validEmail(value.email) || value.confirmation !== "CHANGE DOMAIN AND REQUEST CERTIFICATE") deny("Invalid domain change confirmation.");
     return { action: value.action, hostname: value.hostname.toLowerCase(), email: value.email, confirmation: value.confirmation };
   }
+  if (value.action === "add-portal-alias-letsencrypt") {
+    if (typeof value.hostname !== "string" || !validEmail(value.email) || value.confirmation !== "ADD PORTAL ALIAS") deny("Invalid portal alias request.");
+    return { action: value.action, hostname: value.hostname.toLowerCase(), email: value.email };
+  }
+  if (value.action === "add-portal-alias-cloudflare") {
+    const { hostname, certificate, privateKey, caRoot = "" } = value;
+    if (typeof hostname !== "string" || !isPem(certificate, "BEGIN CERTIFICATE") || !isPem(privateKey, "BEGIN") || (caRoot && !isPem(caRoot, "BEGIN CERTIFICATE")) || value.confirmation !== "ADD PORTAL ALIAS") deny("Invalid Cloudflare portal alias payload.");
+    return { action: value.action, hostname: hostname.toLowerCase(), certificate, privateKey, caRoot };
+  }
   deny("Unsupported certificate action.");
 }
 function send(socket, payload) { socket.end(`${JSON.stringify(payload)}\n`); }
 
 mkdirSync(SOCKET_DIRECTORY, { recursive: true, mode: 0o750 }); chmodSync(SOCKET_DIRECTORY, 0o750);
 if (existsSync(SOCKET_PATH)) rmSync(SOCKET_PATH, { force: true });
+let configurationMutationInFlight = false;
 const daemon = net.createServer((socket) => {
   let data = ""; socket.setTimeout(35_000, () => send(socket, { ok: false, error: "Certificate request timed out." }));
   socket.on("data", (chunk) => {
@@ -257,8 +446,17 @@ const daemon = net.createServer((socket) => {
     const newline = data.indexOf("\n"); if (newline < 0) return;
     try {
       const request = validateRequest(JSON.parse(data.slice(0, newline)));
-      const action = request.action === "status" ? status() : request.action === "domain-status" ? domainStatus() : request.action === "install-cloudflare-origin" ? installCloudflare(request) : request.action === "update-domain-letsencrypt" ? updateDomainLetsEncrypt(request) : activateLetsEncrypt(request);
-      action.then((output) => send(socket, { ok: true, output })).catch((error) => send(socket, { ok: false, error: String(error.message ?? error).slice(0, 4000) }));
+      const mutatesConfiguration = request.action !== "status" && request.action !== "domain-status";
+      if (mutatesConfiguration && configurationMutationInFlight) deny("A certificate or portal-hostname change is already in progress. Wait for it to complete before retrying.");
+      if (mutatesConfiguration) configurationMutationInFlight = true;
+      const action = request.action === "status" ? status()
+        : request.action === "domain-status" ? domainStatus()
+          : request.action === "install-cloudflare-origin" ? installCloudflare(request)
+            : request.action === "update-domain-letsencrypt" ? updateDomainLetsEncrypt(request)
+              : request.action === "add-portal-alias-letsencrypt" ? addPortalAliasLetsEncrypt(request)
+                : request.action === "add-portal-alias-cloudflare" ? addPortalAliasCloudflare(request)
+                  : activateLetsEncrypt(request);
+      action.then((output) => send(socket, { ok: true, output })).catch((error) => send(socket, { ok: false, error: String(error.message ?? error).slice(0, 4000) })).finally(() => { if (mutatesConfiguration) configurationMutationInFlight = false; });
     } catch (error) { send(socket, { ok: false, error: String(error.message ?? error).slice(0, 1000) }); }
   }); socket.on("error", () => undefined);
 });

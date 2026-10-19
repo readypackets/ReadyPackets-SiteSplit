@@ -256,12 +256,17 @@ log "Installing host nginx reverse proxy for loopback-only Docker application ac
 apt-get update -qq
 apt-get install -y --no-install-recommends nginx nginx-extras certbot
 host_regex="${DOMAIN//./\\\\.}"
+all_server_names="$DOMAIN"
+app_server_names="$DOMAIN"
+portal_alias_server_names='""'
 # Install HTTP-only ACME configuration first. The complete template references a
 # certificate that does not exist until Certbot has issued it, so installing the
 # TLS server block first would make nginx validation fail on a fresh host.
 acme_config="$(mktemp)"
 sed -n '1,50p' "$PROJECT_DIR/deploy/nginx.conf" > "$acme_config"
-sed -e "s/portal\.readypackets\.com/${DOMAIN}/g" -e "s/__RP_HOST_REGEX__/${host_regex}/g" "$acme_config" > /etc/nginx/sites-available/readypackets
+sed -e "s/portal\.readypackets\.com/${DOMAIN}/g" \
+  -e "s/__RP_HTTP_SERVER_NAMES__/${all_server_names}/g" \
+  -e "s/__RP_CANONICAL_DOMAIN__/${DOMAIN}/g" "$acme_config" > /etc/nginx/sites-available/readypackets
 rm -f "$acme_config"
 ln -sf /etc/nginx/sites-available/readypackets /etc/nginx/sites-enabled/readypackets
 rm -f /etc/nginx/sites-enabled/default
@@ -291,7 +296,14 @@ elif [[ "$TLS_PROVIDER" == "cloudflare-origin" ]]; then
   write_tls_include "cloudflare-origin" "${CLOUDFLARE_TLS_DIR}/certificate.pem" "${CLOUDFLARE_TLS_DIR}/private-key.pem"
 fi
 if [[ "$TLS_PROVIDER" != "none" ]]; then
-  sed -e "s/portal\.readypackets\.com/${DOMAIN}/g" -e "s/__RP_HOST_REGEX__/${host_regex}/g" "$PROJECT_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/readypackets
+  sed -e "s/portal\.readypackets\.com/${DOMAIN}/g" \
+    -e "s/__RP_HTTP_SERVER_NAMES__/${all_server_names}/g" \
+    -e "s/__RP_PORTAL_ALIAS_SERVER_NAMES__/${portal_alias_server_names}/g" \
+    -e "s/__RP_APP_SERVER_NAMES__/${app_server_names}/g" \
+    -e "s/__RP_APP_HOST_REGEX__/${host_regex}/g" \
+    -e "s/__RP_CANONICAL_DOMAIN__/${DOMAIN}/g" \
+    -e 's|# __RP_MORE_CLEAR_HEADERS__|# headers-more module handling is not configured by the Docker bootstrap.|g' \
+    "$PROJECT_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/readypackets
   nginx -t && systemctl reload nginx
   curl -fsS -H "Host: $DOMAIN" -H 'X-Forwarded-Proto: https' http://127.0.0.1:3000/api/health >/dev/null
   log "Docker ReadyPackets installation is healthy at https://${DOMAIN}."

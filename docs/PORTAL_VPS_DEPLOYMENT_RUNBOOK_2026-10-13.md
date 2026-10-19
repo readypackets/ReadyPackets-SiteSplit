@@ -62,6 +62,17 @@ Every selected canonical hostname and explicit portal alias must be present in t
 
 Never paste a Cloudflare token, GitHub key, password, private key, database dump, portal environment file, or backup key into chat, source control, terminal history, or a URL.
 
+### Add a portal alias after installation
+
+After a reviewed platform update that includes alias administration is installed, sign in as an administrator and use **System → Domain & URL → Add a portal redirect alias**. The console lists the canonical URL, active aliases, and remaining capacity; it supports no more than five aliases and records success or failure in security and activity logs. The canonical `APP_URL` does not change, and aliases never become application origins or independent authentication/session URLs.
+
+1. Create the alias DNS record for the portal VPS. Do not use a wildcard and do not use `readypackets.com` or `www.readypackets.com`.
+2. With **Let’s Encrypt**, verify every published IPv4/IPv6 path reaches the VPS on port `80`. The controller temporarily enables only the ACME HTTP-01 path for the pending hostname, requests a SAN certificate for the canonical host plus every current alias, validates all SANs, then enables the alias TLS redirect. If issuance or verification fails, it restores the prior root-owned Nginx, TLS, and environment files.
+3. With **Cloudflare Origin CA**, create a replacement Origin certificate in Cloudflare covering the canonical hostname, every active alias, and the pending alias. Keep every portal hostname proxied and use **Full (strict)**. In the console, provide the replacement certificate/key only in the protected modal; the controller validates the key pair and every hostname before it writes root-owned files.
+4. Confirm the displayed operation phrase. The controller runs `nginx -t`, reloads only after validation, checks canonical local HTTPS health, and requires the new alias to return exactly `308 https://<canonical>/api/health` before it commits the protected alias list.
+
+The redirect is deliberately terminal at Nginx. It does not proxy the alias into Node, issue a session cookie, trust an alias in CSRF/CORS checks, or reflect a client-controlled host in the redirect target.
+
 ## 3. Route A — private GitHub repository deployment
 
 ### 3.1 Create a read-only repository deploy key
