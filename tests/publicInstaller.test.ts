@@ -21,4 +21,8 @@ describe("public-source fresh installer defaults", () => {
     expect(source).toContain("RP_ADMIN_PASSWORD|RP_GITHUB_CONFIG_TOKEN|RP_GITHUB_CONFIG_PASSPHRASE|RP_CLOUDFLARE_ORIGIN_KEY|RP_CLOUDFLARE_API_TOKEN");
     expect(source).toContain("Do not pass a Cloudflare API token through an environment variable");
   });
+
+  it("checks Docker public HTTPS directly instead of inheriting an arbitrary egress proxy", () => {
+    expect(source).toContain("curl --noproxy '*' -fsS --connect-timeout 5 --max-time 15");
+  });
 });

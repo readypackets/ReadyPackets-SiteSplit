@@ -421,7 +421,7 @@ elif [[ "$TLS_PROVIDER" != "none" ]]; then
   # Docker completion has already verified the local reverse-proxy path. Public
   # DNS/TLS propagation is advisory here for the same reason as native installs.
   step "Attempting public HTTPS reachability (advisory)."
-  curl -fsS --connect-timeout 5 --max-time 15 "https://${DOMAIN}/api/health" >/dev/null \
+  curl --noproxy '*' -fsS --connect-timeout 5 --max-time 15 "https://${DOMAIN}/api/health" >/dev/null \
     || warn "Public HTTPS is not reachable yet; verify DNS, proxy, firewall, and certificate propagation."
 fi
 printf '\n\033[1;32m[ReadyPackets install complete]\033[0m Source commit: %s\n' "$resolved"

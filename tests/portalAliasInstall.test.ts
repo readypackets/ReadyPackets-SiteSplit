@@ -152,6 +152,9 @@ describe("explicit portal aliases", () => {
     expect(verifierSource).toContain('--portal-alias) PORTAL_ALIASES+=("${2:-}")');
     expect(verifierSource).toContain("Portal alias redirect: PASS");
     expect(verifierSource).toContain('expected="https://${DOMAIN}/api/health"');
+    expect(verifierSource).toContain("Public checks bypass inherited proxy variables");
+    expect(verifierSource).toContain("curl --noproxy '*' --fail --silent --show-error");
+    expect(verifierSource).toContain("actual=\"$(curl --noproxy '*' --silent --show-error");
   });
 
   it("does not silently drop aliases from certificate controls, upgrades, or portable restores", () => {

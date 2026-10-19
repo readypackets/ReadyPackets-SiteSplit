@@ -3,6 +3,9 @@
 # Local service health is authoritative for installation success. Public reachability
 # is separately evaluated because DNS, certificate issuance, Cloudflare proxying,
 # and external firewall propagation may legitimately lag a fresh server build.
+# Public checks bypass inherited proxy variables: an enterprise egress proxy can
+# replace the public certificate chain or impose its own block page, which would
+# make an origin-host health diagnostic misleading.
 set -Eeuo pipefail
 
 DOMAIN=""
@@ -57,7 +60,7 @@ fi
 printf 'Local installation health: PASS\n'
 [[ "$LOCAL_ONLY" == "true" ]] && exit 0
 
-if curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+if curl --noproxy '*' --fail --silent --show-error --connect-timeout 5 --max-time 15 \
   "https://${DOMAIN}/api/health" >/dev/null; then
   printf 'Public HTTPS health: PASS\n'
 else
@@ -74,7 +77,7 @@ fi
 
 for portal_alias in "${PORTAL_ALIASES[@]}"; do
   expected="https://${DOMAIN}/api/health"
-  actual="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null \
+  actual="$(curl --noproxy '*' --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null \
     --write-out '%{http_code} %{redirect_url}' "https://${portal_alias}/api/health" || true)"
   if [[ "$actual" != "308 ${expected}" ]]; then
     printf 'Portal alias redirect: PENDING (%s returned %s; expected 308 %s)\n' "$portal_alias" "${actual:-no response}" "$expected" >&2

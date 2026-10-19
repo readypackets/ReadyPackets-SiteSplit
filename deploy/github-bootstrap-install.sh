@@ -266,7 +266,7 @@ if [[ "$MODE" == "native" ]]; then
   fi
 else
   log "Checking the Docker portal health endpoint."
-  curl --fail --silent --show-error --connect-timeout 5 --max-time 20 "https://${DOMAIN}/api/health/ready" >/dev/null \
+  curl --noproxy '*' --fail --silent --show-error --connect-timeout 5 --max-time 20 "https://${DOMAIN}/api/health/ready" >/dev/null \
     || warn "Docker deployment completed, but public HTTPS is not reachable yet. Verify DNS, proxy, firewall, and certificate propagation."
 fi
 
