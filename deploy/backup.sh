@@ -22,7 +22,7 @@ set -Eeuo pipefail
 APP_ROOT="${RP_APP_ROOT:-/opt/readypackets}"
 ENV_FILE="${RP_ENV_FILE:-/etc/readypackets/portal.env}"
 DATA_DIR="${RP_DATA_DIR:-/var/lib/readypackets}"
-RECOVERY_HISTORY_FILE="${RP_RECOVERY_HISTORY_FILE:-/var/lib/readypackets/recovery-history.jsonl}"
+RECOVERY_HISTORY_FILE="${RP_RECOVERY_HISTORY_FILE:-/var/lib/readypackets/backup-control/recovery-history.jsonl}"
 OUTPUT_DIR="/var/backups/readypackets"
 RETENTION_DAYS=30
 DB_ONLY="false"

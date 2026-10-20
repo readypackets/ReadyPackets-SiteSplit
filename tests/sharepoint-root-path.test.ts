@@ -6,6 +6,10 @@ describe("SharePoint base-folder normalization", () => {
     expect(normalizeSharePointRootFolderPath("RP_Intake_Raw/ReadyPackets")).toBe("RP_Intake_Raw/ReadyPackets");
   });
 
+  it("normalizes a configured ReadyPacket/Orders path without changing its selected hierarchy", () => {
+    expect(normalizeSharePointRootFolderPath(" /ReadyPacket\\Orders/ ")).toBe("ReadyPacket/Orders");
+  });
+
   it("moves a selected managed customers folder back to its base", () => {
     expect(normalizeSharePointRootFolderPath("RP_Intake_Raw/ReadyPackets/customers")).toBe("RP_Intake_Raw/ReadyPackets");
   });

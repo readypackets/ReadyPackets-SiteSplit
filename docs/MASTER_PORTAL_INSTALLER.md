@@ -29,6 +29,8 @@ After confirmation, it performs the complete native installation:
 6. Runs the existing hardened native installer: Node.js 22, MySQL 8, Nginx, systemd, the self-hosted conversion toolchain, protected backups, restricted controllers, migrations, schema contract, TLS, local readiness, and public HTTPS verification.
 7. Creates the first local administrator with a generated one-time password displayed once on the VPS console.
 
+The default dedicated-host installation is **portal-only**: the canonical portal hostname serves the sign-in, registration (when enabled), password-recovery, customer workspace, and administrator console—not the public ReadyPackets marketing pages. Navigation such as “Public site” goes to the separately hosted marketing URL (`MARKETING_SITE_URL`, defaulting to `https://www.readypackets.com`) without making that host a portal origin, cookie domain, or API trust entry.
+
 The fresh installation must report:
 
 ```text
@@ -130,5 +132,9 @@ The helper refuses split-host deployments and retrieves one immutable, explicitl
 4. Confirm the backup timer and configure encrypted off-host backups.
 5. Perform a full backup and an isolated restore drill before accepting production customer data.
 6. Configure email, payment, SharePoint/Graph, SAML, SIEM/syslog, and consented analytics only through the authenticated administrator portal.
+
+### Platform Setup profile
+
+After the administrator signs in, **Administration → Platform setup** includes SharePoint site synchronization and the daily protected backup schedule. It can also download or import a versioned `readypackets-platform-setup-profile-v1.json` file for a future self-hosted portal. The profile contains only reviewable identifiers and non-secret choices; it intentionally excludes passwords, client secrets, OAuth tokens, certificates, private keys, Stripe secrets, webhook signing secrets, and host/network configuration. Imported webhooks remain disabled until reviewed, and Entra/access controls must be configured and enabled deliberately.
 
 For detailed diagnostics, certificate verification, operational acceptance, and recovery boundaries, see the [Portal VPS Deployment Runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md).

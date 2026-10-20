@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ReadyPackets backup operations control plane. Invoked through a narrowly scoped
-# sudo rule by the application service; it never accepts shell fragments or paths.
+# ReadyPackets backup operations control plane. Invoked only by the root-owned
+# fixed-action socket daemon; it never accepts shell fragments or paths.
 set -Eeuo pipefail
 umask 077
 
@@ -10,17 +10,29 @@ EXPORT_DIR="${RP_EXPORT_DIR:-/var/lib/readypackets/storage/admin-exports}"
 CONFIG_IMPORT_DIR="${RP_CONFIG_IMPORT_DIR:-/var/lib/readypackets/storage/config-restore-imports}"
 BACKUP_IMPORT_DIR="${RP_BACKUP_IMPORT_DIR:-/var/lib/readypackets/storage/backup-restore-imports}"
 TARGETS_FILE="${RP_BACKUP_SYNC_TARGETS_FILE:-/etc/readypackets/backup-sync-targets.conf}"
-RESTORE_STATUS_FILE="${RP_BACKUP_RESTORE_STATUS_FILE:-/var/lib/readypackets/backup-restore-status.conf}"
-RECOVERY_HISTORY_FILE="${RP_RECOVERY_HISTORY_FILE:-/var/lib/readypackets/recovery-history.jsonl}"
+STATE_DIR="${RP_BACKUP_CONTROL_STATE_DIR:-/var/lib/readypackets/backup-control}"
+RESTORE_STATUS_FILE="${RP_BACKUP_RESTORE_STATUS_FILE:-${STATE_DIR}/restore-status.conf}"
+RECOVERY_HISTORY_FILE="${RP_RECOVERY_HISTORY_FILE:-${STATE_DIR}/recovery-history.jsonl}"
 TIMER_UNIT="readypackets-backup.timer"
 SERVICE_UNIT="readypackets-backup.service"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "Must run as root" >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "systemctl is unavailable" >&2; exit 1; }
-# The daemon is deliberately denied CAP_CHOWN. These set-group-ID directories
-# are provisioned root:readypackets by the installer, so newly-created exports
-# inherit the service group without a forbidden ownership-changing syscall.
-install -d -m 2750 "$BACKUP_DIR" "$EXPORT_DIR"
+# The controller is deliberately denied CAP_CHOWN. These fixed paths are
+# provisioned by the installer (and by the backup service pre-start hook), then
+# only verified here. Repeating `install -d -m` inside the sandbox invokes a
+# chmod syscall even when the directory exists, which systemd correctly rejects.
+verify_fixed_directory() {
+  local directory="$1" expected="$2"
+  [[ -d "$directory" ]] || { echo "Required protected directory is missing: $directory. Re-run the ReadyPackets installer or backup-control repair as root." >&2; exit 1; }
+  [[ "$(stat -c '%U:%G:%a' "$directory")" == "$expected" ]] || {
+    echo "Protected directory has unsafe ownership or permissions: $directory. Re-run the ReadyPackets installer or backup-control repair as root." >&2
+    exit 1
+  }
+}
+verify_fixed_directory "$BACKUP_DIR" "root:readypackets:2750"
+verify_fixed_directory "$EXPORT_DIR" "root:readypackets:2750"
+verify_fixed_directory "$STATE_DIR" "root:root:700"
 # shellcheck disable=SC1090
 source "$APP_ROOT/deploy/recovery-history.sh"
 # These two staging directories are created by the root installer. The daemon
@@ -34,7 +46,6 @@ for restore_dir in "$CONFIG_IMPORT_DIR" "$BACKUP_IMPORT_DIR"; do
     exit 1
   }
 done
-install -d -m 0700 "$(dirname "$RESTORE_STATUS_FILE")"
 
 safe_name() {
   [[ "$1" =~ ^readypackets-[0-9TZ-]+\.tar\.gz(\.age|\.gpg)?$ ]] || { echo "Invalid backup filename" >&2; exit 1; }

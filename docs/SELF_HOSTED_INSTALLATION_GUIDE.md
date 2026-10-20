@@ -15,6 +15,7 @@ The recommended one-script procedure is [Guided Master Installer](MASTER_PORTAL_
 - The fresh-server bootstrap refuses an existing source directory or live portal service. Existing environments must use the approved update or recovery procedure instead.
 - The installation applies **51 forward-only migrations** and fails closed unless it verifies **44 critical schema-contract tables**.
 - Secrets are generated locally and stored at `/etc/readypackets/portal.env`, readable only by root and the service account group. Do not commit, transmit, or rotate the encryption keys after protected data exists.
+- The default dedicated-host installation is portal-only: the portal hostname serves authentication and authenticated workspaces, while marketing links use the separately hosted `MARKETING_SITE_URL` without trusting it as a portal host or API origin.
 
 ## Recommended starting capacity
 
@@ -65,6 +66,7 @@ For a replacement server, first complete and validate a new installation, then u
 - Verify `readypackets.service`, Nginx, MySQL, TLS, local readiness, and public health.
 - Confirm an encrypted off-host backup destination; run a full backup and isolated restore drill before accepting customer files.
 - Configure email, payment, SharePoint/Graph, SAML, SIEM/syslog, cookie consent, and optional analytics only through the authenticated administrator portal.
+- Use **Administration → Platform setup** to configure SharePoint synchronization and the protected daily backup schedule. Download a secret-free standard setup profile there when preparing a future deployment; import it only to reuse non-secret choices and re-enter all credentials on the target system.
 - Record the deployed commit, server region, owner, backup location, TLS choice, recovery drill date, and approved change record.
 
 ## Temporary-public source window

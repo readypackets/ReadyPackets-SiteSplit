@@ -144,8 +144,8 @@ if (isProduction && appUrl.protocol !== "https:") {
 
 // APP_URL remains the canonical portal/API origin so existing mail links, SAML
 // callbacks, native clients, and session-facing services remain stable. The
-// optional public origin is a separate, anonymous marketing surface. Leaving it
-// unset retains the legacy one-host deployment behaviour.
+// optional public origin is a separate, anonymous marketing surface. Portal-only
+// mode keeps external marketing navigation out of trusted portal host checks.
 const publicSiteUrlRaw = optional("PUBLIC_SITE_URL") ?? appUrl.origin;
 let publicSiteUrl: URL;
 try {
@@ -157,9 +157,34 @@ try {
 if (isProduction && publicSiteUrl.protocol !== "https:") {
   problems.push("PUBLIC_SITE_URL must use https in production");
 }
+const portalOnly = bool("PORTAL_ONLY", false);
+
+// This is navigation-only configuration for a separately hosted marketing
+// website. Unlike PUBLIC_SITE_URL, it never participates in host validation,
+// Origin checks, static bundle selection, or cookie scope.
+const marketingSiteUrlRaw = optional("MARKETING_SITE_URL") ?? "https://www.readypackets.com";
+let marketingSiteUrl: URL;
+try {
+  marketingSiteUrl = new URL(marketingSiteUrlRaw);
+  if (
+    marketingSiteUrl.protocol !== "https:" ||
+    marketingSiteUrl.username ||
+    marketingSiteUrl.password ||
+    marketingSiteUrl.pathname !== "/" ||
+    marketingSiteUrl.search ||
+    marketingSiteUrl.hash
+  ) {
+    problems.push("MARKETING_SITE_URL must be an HTTPS origin without credentials, path, query, or fragment");
+    marketingSiteUrl = new URL("https://www.readypackets.com");
+  }
+} catch {
+  problems.push(`MARKETING_SITE_URL must be an absolute HTTPS origin, received "${marketingSiteUrlRaw}"`);
+  marketingSiteUrl = new URL("https://www.readypackets.com");
+}
 
 const allowedOrigins = list("ALLOWED_ORIGINS");
-const allowedHostnames = new Set<string>([appUrl.hostname, publicSiteUrl.hostname]);
+const allowedHostnames = new Set<string>([appUrl.hostname]);
+if (!portalOnly) allowedHostnames.add(publicSiteUrl.hostname);
 for (const origin of allowedOrigins) {
   try {
     allowedHostnames.add(new URL(origin).hostname);
@@ -204,7 +229,10 @@ export const env = {
   appHostname: appUrl.hostname,
   publicSiteUrl: publicSiteUrl.origin,
   publicHostname: publicSiteUrl.hostname,
-  siteSplitEnabled: publicSiteUrl.hostname !== appUrl.hostname,
+  /** External navigation only; not an application host, Origin, or cookie domain. */
+  marketingSiteUrl: marketingSiteUrl.origin,
+  portalOnly,
+  siteSplitEnabled: portalOnly || publicSiteUrl.hostname !== appUrl.hostname,
   allowedHostnames: [...allowedHostnames],
 
   databaseUrl: secret("DATABASE_URL", 12),

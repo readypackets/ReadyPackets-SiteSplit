@@ -5,7 +5,6 @@
  * subscription plans, and API access logs.
  */
 import { TRPCError } from "@trpc/server";
-import net from "node:net";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { and, asc, count, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
@@ -43,6 +42,7 @@ import { adminProcedure, staffProcedure, protectedProcedure, router } from "../t
 import { recordActivity } from "../observability/audit.js";
 import { setFeatureFlag } from "../services/settings.js";
 import { configureGitHubVault, getGitHubVaultStatus, publishGitHubVaultBackup, testGitHubVault } from "../services/githubConfigVault.js";
+import { parseBackupControl, runBackupControl } from "../services/backupControl.js";
 
 // ── Subscription plans ────────────────────────────────────────────────────────
 const subscriptionRouter = router({
@@ -539,15 +539,10 @@ const announcementsRouter = router({
 });
 
 // ── System backups ────────────────────────────────────────────────────────────
-const BACKUP_CONTROL_SOCKET = "/run/readypackets/backup-control.sock";
 const BACKUP_DIR = "/var/backups/readypackets";
 const BACKUP_EXPORT_DIR = "/var/lib/readypackets/storage/admin-exports";
 const BACKUP_FILENAME = /^readypackets-[0-9TZ-]+\.tar\.gz(?:\.(?:age|gpg))?$/;
 const SCOPED_RECOVERY_FILENAME = /^readypackets-(?:identities|orders)-recovery-[0-9TZ-]+\.rprecovery$/;
-
-function parseBackupControl(output: string) {
-  return Object.fromEntries(output.split("\n").map((line) => line.split("=", 2)).filter(([key, value]) => Boolean(key) && value !== undefined));
-}
 
 const recoveryHistoryEntrySchema = z.object({
   operation: z.enum(["backup", "restore"]),
@@ -569,28 +564,6 @@ function parseRecoveryHistory(output: string) {
       return [];
     }
   }).slice(0, 200);
-}
-
-function runBackupControl(args: string[], stdin = ""): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ path: BACKUP_CONTROL_SOCKET });
-    let response = "";
-    const timer = setTimeout(() => { socket.destroy(); reject(new Error("Backup control request timed out.")); }, 30_000);
-    socket.setEncoding("utf8");
-    socket.once("connect", () => socket.write(`${JSON.stringify({ action: args[0], args: args.slice(1), stdin })}\n`));
-    socket.on("data", (chunk) => { response += chunk; if (response.includes("\n")) socket.end(); });
-    socket.once("error", (error) => { clearTimeout(timer); reject(error); });
-    socket.once("close", () => {
-      clearTimeout(timer);
-      try {
-        const payload = JSON.parse(response.trim()) as { ok?: boolean; output?: string; error?: string };
-        // Root helpers terminate human-readable output with a newline. Normalize it
-        // at the privilege boundary so filename-based actions never pass whitespace
-        // into the protected export reader or a browser download payload.
-        payload.ok ? resolve((payload.output ?? "").trim()) : reject(new Error(payload.error ?? "Backup control rejected the request."));
-      } catch { reject(new Error("Backup control returned an invalid response.")); }
-    });
-  });
 }
 
 async function availableBackupFiles() {

@@ -482,6 +482,11 @@ PORT=3000
 BIND_HOST=127.0.0.1
 APP_URL=https://${DOMAIN}
 PUBLIC_SITE_URL=https://${PUBLIC_DOMAIN:-$DOMAIN}
+# A portal hostname must never fall back to the legacy all-in-one marketing
+# bundle. A separately hosted marketing URL remains an outbound navigation
+# destination only unless an explicit same-VPS public domain is configured.
+PORTAL_ONLY=$([[ -z "${PUBLIC_DOMAIN:-}" ]] && printf true || printf false)
+MARKETING_SITE_URL=https://${PUBLIC_DOMAIN:-www.readypackets.com}
 # Only the canonical portal and optional public website reach Node. Approved
 # PORTAL_ALIASES are terminated by nginx and 308-redirected before cookies or
 # application routes are available.
@@ -1059,6 +1064,10 @@ rm -f /etc/sudoers.d/readypackets-backup-control
 rm -f /etc/sudoers.d/readypackets-platform-update
 install -d -m 0700 -o root -g root /var/backups/readypackets/platform-upgrades
 install -d -m 0700 -o root -g root /var/lib/readypackets/platform-upgrades
+# Root-owned backup state must be established before the hardened socket daemon
+# starts. The daemon intentionally verifies these fixed paths rather than trying
+# to chmod them on each browser request under its capability-restricted sandbox.
+install -d -m 0700 -o root -g root /var/lib/readypackets/backup-control
 # The set-group-ID directory lets the hardened root controller create exports
 # readable only by the portal service group without a CAP_CHOWN syscall.
 install -d -m 2750 -o root -g readypackets /var/backups/readypackets

@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, PasswordInput } from "@/components/ui/Field";
 import { Alert, Card } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
+import { marketingSiteUrl } from "@/lib/marketing";
 
 export function AuthShell({
   title,
@@ -35,7 +36,7 @@ export function AuthShell({
       <div className="flex flex-1 items-center justify-center px-4 py-10 sm:py-16">
         <div className="w-full max-w-md">
           <div className="text-center">
-            <Link href="/" className="inline-block" aria-label={`${BRAND.companyShortName} home`}>
+            <a href={marketingSiteUrl()} className="inline-block" aria-label={`${BRAND.companyShortName} website`}>
               <img
                 src={BRAND_ASSETS.light.squareLockup}
                 alt={`${BRAND.wordmark} logo`}
@@ -43,7 +44,7 @@ export function AuthShell({
                 height={2048}
                 className="mx-auto size-32 object-contain"
               />
-            </Link>
+            </a>
           </div>
 
           <Card className="mt-7" as="main">
@@ -271,7 +272,7 @@ export function LoginPage() {
           </>
         ) : (
           <>
-            Registration is currently closed. <Link href="/contact">Contact us</Link> for access.
+            Registration is currently closed. <a href={marketingSiteUrl("/contact")}>Contact us</a> for access.
           </>
         )
       }

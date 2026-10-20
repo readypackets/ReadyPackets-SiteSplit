@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Alert, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
+import { marketingSiteUrl } from "@/lib/marketing";
 import { cn, initialsOf } from "@/lib/utils";
 
 export interface NavItem {
@@ -151,7 +152,7 @@ export function PortalLayout({
 
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col overflow-y-auto bg-navy px-3 py-5 lg:flex">
-        <Link href="/" className="mx-1 mb-6 block" aria-label={`${BRAND.companyShortName} home`}>
+        <a href={marketingSiteUrl()} className="mx-1 mb-6 block" aria-label={`${BRAND.companyShortName} website`}>
           <img
             src={BRAND_ASSETS.dark.compactMark}
             alt={`${BRAND.wordmark} logo`}
@@ -159,7 +160,7 @@ export function PortalLayout({
             height={508}
             className="size-14 object-contain"
           />
-        </Link>
+        </a>
 
         {variant === "admin" ? (
           <p className="mx-3 mb-4 rounded-md bg-gold/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-gold">
@@ -254,13 +255,13 @@ export function PortalLayout({
             <Menu className="size-5" aria-hidden="true" />
           </Button>
 
-          <Link
-            href="/"
+          <a
+            href={marketingSiteUrl()}
             className="hidden items-center gap-1.5 text-sm font-medium text-body no-underline hover:text-ink sm:flex"
           >
             <ChevronLeft className="size-4" aria-hidden="true" />
             Public site
-          </Link>
+          </a>
 
           <div className="flex-1" />
 

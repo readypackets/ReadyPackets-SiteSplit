@@ -16,6 +16,7 @@ import { Checkbox, Input, PasswordInput, Select } from "@/components/ui/Field";
 import { Alert, Card, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { PasswordStrength, evaluatePasswordLocally } from "@/components/PasswordStrength";
+import { marketingSiteUrl } from "@/lib/marketing";
 import { AuthShell } from "./Login";
 
 interface RegisterForm {
@@ -128,9 +129,12 @@ export function RegisterPage() {
           Contact us and we will arrange access directly, or sign in if you already have an account.
         </p>
         <div className="mt-5 flex flex-col gap-2">
-          <LinkButton href="/contact" fullWidth>
+          <a
+            href={marketingSiteUrl("/contact")}
+            className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-teal px-4 text-sm font-semibold text-white no-underline shadow-sm transition-colors hover:bg-teal-dark"
+          >
             Contact us
-          </LinkButton>
+          </a>
           <LinkButton href="/login" variant="outline" fullWidth>
             Sign in
           </LinkButton>

@@ -128,34 +128,67 @@ function encodeDrivePath(path: string): string {
 
 export interface SharePointFolderChoice { id: string; name: string; path: string }
 
+/**
+ * Graph response bodies can include request metadata and provider diagnostics.
+ * Keep them out of administrator-facing validation errors.
+ */
+class SharePointGraphRequestError extends Error {
+  constructor(readonly status: number) {
+    super(`Microsoft Graph request failed (HTTP ${status}).`);
+    this.name = "SharePointGraphRequestError";
+  }
+}
+
+export const SHAREPOINT_BASE_FOLDER_NOT_FOUND_MESSAGE = "SharePoint folder not found; browse and select the folder or correct the base path. If it exists, confirm this app has Sites.Selected access to the selected site.";
+
 /** List existing folders beneath a configured drive path without creating or altering anything. */
 export async function browseSharePointFolders(path = ""): Promise<{ currentPath: string; parentPath: string | null; folders: SharePointFolderChoice[] }> {
   const config = await getGraphRuntimeConfig();
   if (!config.enabled || !config.driveId) throw new Error("Save valid Microsoft Graph and SharePoint settings before browsing folders.");
   const normalized = path.trim() ? normalizeSharePointRelativePath(path) : "";
-  const currentId = normalized
-    ? ((await graphRequest("GET", `/drives/${config.driveId}/root:/${encodeDrivePath(normalized)}`)) as { id?: string }).id
-    : "root";
-  if (!currentId) throw new Error("The selected SharePoint folder could not be found.");
+  let current: { id?: string; folder?: unknown } | null = null;
+  try {
+    current = normalized
+      ? (await graphRequest("GET", `/drives/${encodeURIComponent(config.driveId)}/root:/${encodeDrivePath(normalized)}?$select=id,folder`)) as { id?: string; folder?: unknown }
+      : null;
+  } catch (error) {
+    if (normalized && error instanceof SharePointGraphRequestError && error.status === 404) {
+      throw new Error(SHAREPOINT_BASE_FOLDER_NOT_FOUND_MESSAGE);
+    }
+    throw error;
+  }
+  if (normalized && (!current?.id || current.folder === undefined)) {
+    throw new Error("The selected SharePoint path is not an existing folder.");
+  }
+  const currentId = current?.id ?? "root";
   const childrenPath = normalized
-    ? `/drives/${config.driveId}/items/${currentId}/children?$select=id,name,folder&$top=200`
-    : `/drives/${config.driveId}/root/children?$select=id,name,folder&$top=200`;
+    ? `/drives/${encodeURIComponent(config.driveId)}/items/${encodeURIComponent(currentId)}/children?$select=id,name,folder&$top=200`
+    : `/drives/${encodeURIComponent(config.driveId)}/root/children?$select=id,name,folder&$top=200`;
   const children = (await graphRequest("GET", childrenPath)) as { value?: Array<{ id?: string; name?: string; folder?: unknown }> };
   const folders = (children.value ?? []).flatMap((item) => item.id && item.name && item.folder !== undefined ? [{ id: item.id, name: item.name, path: normalized ? `${normalized}/${item.name}` : item.name }] : []);
   const parts = normalized.split("/").filter(Boolean);
   return { currentPath: normalized, parentPath: parts.length > 1 ? parts.slice(0, -1).join("/") : parts.length === 1 ? "" : null, folders };
 }
 
-/** Verify credentials, selected site, drive, and existing root path without writing any SharePoint content. */
+/**
+ * Verify credentials, selected site, drive, and an existing base folder without
+ * writing any SharePoint content. The browse request is deliberately reused so
+ * tests never create a missing administrator-selected folder.
+ */
 export async function testSharePointConnection(): Promise<{ siteName: string; driveName: string; rootFolderPath: string; folderCount: number }> {
   const config = await getGraphRuntimeConfig();
   if (!config.enabled || !config.siteId || !config.driveId) throw new Error("Complete and save tenant, client, secret, site, and document-library settings before testing the connection.");
-  const [site, drive, root] = await Promise.all([
+  const [site, drive] = await Promise.all([
     graphRequest("GET", `/sites/${encodeURIComponent(config.siteId)}?$select=id,displayName,name`) as Promise<{ displayName?: string; name?: string }>,
     graphRequest("GET", `/drives/${encodeURIComponent(config.driveId)}?$select=id,name`) as Promise<{ name?: string }>,
-    browseSharePointFolders(config.rootFolderPath),
   ]);
-  return { siteName: site.displayName ?? site.name ?? "SharePoint site", driveName: drive.name ?? "Document library", rootFolderPath: root.currentPath, folderCount: root.folders.length };
+  try {
+    const root = await browseSharePointFolders(config.rootFolderPath);
+    return { siteName: site.displayName ?? site.name ?? "SharePoint site", driveName: drive.name ?? "Document library", rootFolderPath: root.currentPath, folderCount: root.folders.length };
+  } catch (error) {
+    if (!(error instanceof SharePointGraphRequestError) || error.status !== 404) throw error;
+    throw new Error(SHAREPOINT_BASE_FOLDER_NOT_FOUND_MESSAGE);
+  }
 }
 
 interface GraphCredentials {
@@ -225,10 +258,7 @@ async function graphRequestWithToken(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Graph API ${method} ${path} failed (${response.status}): ${text.slice(0, 400)}`);
-  }
+  if (!response.ok) throw new SharePointGraphRequestError(response.status);
 
   if (response.status === 204) return null;
   return response.json();

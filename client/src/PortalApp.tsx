@@ -15,7 +15,7 @@ import { trpc } from "@/lib/trpc";
 import { PortalLayout, type NavSection } from "@/components/layout/PortalLayout";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Spinner } from "@/components/ui/Button";
-import { NotFoundPage } from "@/pages/public/Content";
+import { PortalNotFoundPage } from "@/pages/portal/PortalNotFound";
 import { LoginPage } from "@/pages/auth/Login";
 import { ForgotPasswordPage, RegisterPage, ResetPasswordPage, VerifyEmailPage } from "@/pages/auth/Register";
 import { PortalDashboard } from "@/pages/portal/Dashboard";
@@ -171,7 +171,7 @@ function PortalRoutes() {
     <Route path="/portal/checkout" component={Checkout} />
     <Route path="/portal/wizard" component={Wizard} />
     <Route path="/portal/policies" component={PoliciesPage} />
-    <Route component={NotFoundPage} />
+    <Route component={PortalNotFoundPage} />
   </Switch></PortalLayout>;
 }
 
@@ -246,7 +246,7 @@ function AdminRoutes() {
     <Route path="/admin/payouts" component={AdminPayoutsPage} />
     <Route path="/admin/changelog" component={AdminChangelogPage} />
     <Route path="/admin/policy-center" component={PolicyCenterPage} />
-    <Route component={NotFoundPage} />
+    <Route component={PortalNotFoundPage} />
   </Switch></AdminLayout>;
 }
 
@@ -260,7 +260,7 @@ function AuthRoutes() {
     <Route path="/verify-email" component={VerifyEmailPage} />
     <Route path="/forgot-password" component={ForgotPasswordPage} />
     <Route path="/reset-password" component={ResetPasswordPage} />
-    <Route component={NotFoundPage} />
+    <Route component={PortalNotFoundPage} />
   </Switch>;
 }
 
@@ -273,6 +273,7 @@ export function PortalApp() {
     <Route path="/reset-password" component={AuthRoutes} />
     <Route path={/^\/admin(?=$|\/)/}><RequireAuth><AdminRoutes /></RequireAuth></Route>
     <Route path={/^\/portal(?=$|\/)/}><RequireAuth><PortalRoutes /></RequireAuth></Route>
-    <Route component={NotFoundPage} />
+    <Route path={/^\/$/}><Redirect to="/login" replace /></Route>
+    <Route component={PortalNotFoundPage} />
   </Switch>;
 }

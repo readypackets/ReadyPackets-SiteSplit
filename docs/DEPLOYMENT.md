@@ -167,7 +167,9 @@ Every setting is documented in `.env.example`. Configuration is validated at sta
 | Variable | Notes |
 | --- | --- |
 | `APP_URL` | Canonical **portal/API** URL. Determines session-facing links, SAML/native callback identity, and the authenticated host. |
-| `PUBLIC_SITE_URL` | Optional anonymous marketing-site URL. Set it to a distinct HTTPS hostname to enable the isolated public and portal bundles; omit it for the legacy one-host deployment. |
+| `PUBLIC_SITE_URL` | Optional same-VPS anonymous marketing-site URL. Set it to a distinct HTTPS hostname only when this portal VPS intentionally also hosts the public bundle. |
+| `PORTAL_ONLY` | `true` for the recommended topology: serve only the portal bundle on `APP_URL`; never treat an external marketing hostname as a portal host, cookie domain, or API origin. |
+| `MARKETING_SITE_URL` | Navigation-only HTTPS origin for the separately hosted public website. It is injected into the portal shell for outward links and is never accepted as an application host or Origin. |
 | `PORTAL_ALIASES` | Installer-managed comma-separated redirect aliases. Keep `APP_URL` canonical; aliases must never be added as application origins because they redirect before host-only portal cookies are issued. |
 | `DATABASE_URL` | `mysql://user:password@host:3306/database` |
 | `SESSION_SECRET` | At least 32 characters of random data |
@@ -213,6 +215,12 @@ For a certificate from another authority, place the chain and key on the host, u
 ## Backups
 
 The nightly timer runs at 02:30 local time with a randomised delay. Each run produces one archive containing the database dump, the uploaded files, a manifest, and checksums.
+
+The installer pre-provisions `/var/backups/readypackets`, protected browser-download staging, restore-upload staging, and `/var/lib/readypackets/backup-control` with fixed root-controlled ownership and modes before the capability-restricted socket controller starts. The controller verifies those fixed directories on requests; it does not attempt `chmod` or `chown` inside its systemd sandbox. If an existing host reports that backup control is unavailable because permission changes were denied, update through the approved platform-update path or re-run the reviewed native installer with its canonical `--domain` and `--skip-packages` parameters—do not relax the service sandbox.
+
+### Standard Platform Setup profile
+
+**Administration → Platform setup** can download and import a portable versioned JSON setup profile. It preserves non-secret choices such as email transport fields, SharePoint site/library/base-folder identifiers, backup schedule and target labels, public Stripe key, and webhook destinations. It intentionally excludes all secrets and host identity: passwords, client secrets, OAuth tokens, certificates, private keys, Stripe secret/webhook keys, webhook signing secrets, `APP_URL`, TLS, database values, and access-control activation. Import requires the replacement operator to enter secrets again; imported webhooks are saved disabled for review. Use encrypted `.rpconfig` migration archives—not setup profiles—only when the documented full configuration-transfer process is approved.
 
 ```bash
 sudo /usr/local/sbin/readypackets-backup                          # run now

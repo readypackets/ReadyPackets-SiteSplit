@@ -197,7 +197,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
   cat > "$ENV_FILE" <<ENV
 APP_URL=https://${DOMAIN}
 PUBLIC_SITE_URL=https://${PUBLIC_DOMAIN:-$DOMAIN}
-ALLOWED_ORIGINS=https://${DOMAIN},https://${PUBLIC_DOMAIN:-$DOMAIN}
+PORTAL_ONLY=$([[ -z "${PUBLIC_DOMAIN:-}" ]] && printf true || printf false)
+MARKETING_SITE_URL=https://${PUBLIC_DOMAIN:-www.readypackets.com}
+ALLOWED_ORIGINS=https://${DOMAIN}$([[ -n "${PUBLIC_DOMAIN:-}" ]] && printf ',https://%s' "$PUBLIC_DOMAIN")
 HEALTHCHECK_HOST=${DOMAIN}
 MYSQL_DATABASE=readypackets
 MYSQL_USER=readypackets

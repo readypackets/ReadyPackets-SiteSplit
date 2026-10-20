@@ -109,7 +109,7 @@ const publicClientDist = resolveSplitClientDist("dist-public", legacyClientDist)
 const portalClientDist = resolveSplitClientDist("dist-portal", legacyClientDist);
 
 function isPublicSurface(req: Request): boolean {
-  return env.siteSplitEnabled && req.hostname === env.publicHostname;
+  return env.siteSplitEnabled && !env.portalOnly && req.hostname === env.publicHostname;
 }
 
 function clientDistFor(req: Request): string {
@@ -176,7 +176,8 @@ async function serveIndex(req: Request, res: Response): Promise<void> {
       .replaceAll("__PAGE_DESCRIPTION__", escapeXml(metadata.description))
       .replaceAll("__PAGE_ROBOTS__", metadata.robots)
       .replaceAll("__CANONICAL_URL__", escapeXml(metadata.canonical))
-      .replaceAll("__PORTAL_ORIGIN__", escapeXml(env.appUrl));
+      .replaceAll("__PORTAL_ORIGIN__", escapeXml(env.appUrl))
+      .replaceAll("__MARKETING_ORIGIN__", escapeXml(env.marketingSiteUrl));
     res
       .status(200)
       .type("text/html; charset=utf-8")
@@ -241,7 +242,8 @@ export function createApp(): Express {
       return;
     }
     if (!isPublicSurface(req) && publicPath) {
-      res.redirect(302, new URL(`${req.path}${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`, env.publicSiteUrl).toString());
+      const marketingOrigin = env.portalOnly ? env.marketingSiteUrl : env.publicSiteUrl;
+      res.redirect(302, new URL(`${req.path}${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`, marketingOrigin).toString());
       return;
     }
     next();
