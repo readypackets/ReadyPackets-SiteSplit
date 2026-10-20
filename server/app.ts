@@ -475,9 +475,19 @@ export function createApp(): Express {
       }
     },
   };
+  const legacyStatic = express.static(legacyClientDist, staticOptions);
   const publicStatic = express.static(publicClientDist, staticOptions);
   const portalStatic = express.static(portalClientDist, staticOptions);
   app.use((req: Request, res: Response, next: NextFunction) => {
+    // A native install builds all three client directories. In legacy one-host
+    // mode the shell comes from `legacyClientDist`; serving `/assets` from the
+    // otherwise-present split portal directory creates an HTML-to-asset hash
+    // mismatch and a blank browser page. Keep the static directory and shell
+    // selection coupled until a distinct public hostname enables split mode.
+    if (!env.siteSplitEnabled) {
+      legacyStatic(req, res, next);
+      return;
+    }
     (isPublicSurface(req) ? publicStatic : portalStatic)(req, res, next);
   });
 
