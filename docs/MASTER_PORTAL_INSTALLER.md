@@ -101,6 +101,12 @@ Do **not** run a fresh installer over an existing portal. If the VPS-local `read
 
 The helper requires the expected clean native source checkout and protected environment ownership/mode before it proceeds. It first checks the current boot, then retained logs from the previous 14 days for the exact error. If the journal has already rotated, it stops unless the operator uses its intentionally verbose `--confirm-known-express5-journal-error` flag after separately verifying that exact error. It retrieves immutable source, preserves the existing TLS certificate/private key, aliases, database, files, backup history, and administrator account, skips seed data, and never asks for a Cloudflare token. A different service error requires investigation; do not apply this helper speculatively.
 
+### Repair only the confirmed split portal blank-page build issue
+
+If the portal service and local Nginx health checks pass but the browser receives a blank portal page after the Express recovery, use [`deploy/repair-split-portal-bundle.sh`](../deploy/repair-split-portal-bundle.sh) only with its required `--confirm-known-split-bundle-cycle` option. It addresses the known React/vendor manual-chunk initialization cycle in the former split Vite build configuration.
+
+The helper retrieves one immutable client-build-only commit, refuses a target that changes packages, server/deployment code, or migrations, builds only `client/dist-portal` in a detached worktree, rejects a circular-chunk build, validates the resulting shell and every direct JS/CSS asset through local Nginx TLS, then atomically swaps that one client bundle directory. It checks `/etc/readypackets/portal.env` before and after and automatically restores the previous portal bundle if validation fails. It never restarts the service or changes `server.js`, TLS, Nginx, Cloudflare, aliases, database, storage, backups, administrator accounts, or integration settings.
+
 ## What the script never does
 
 - It never accepts a GitHub personal access token, repository password, portal password, Cloudflare token, or TLS private key as a command-line parameter.
