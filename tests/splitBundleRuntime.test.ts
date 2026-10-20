@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 const root = process.cwd();
 const splitViteConfigPath = resolve(root, "vite.split.config.ts");
 const splitViteSource = readFileSync(splitViteConfigPath, "utf8");
+const legacyViteConfigPath = resolve(root, "vite.config.ts");
+const legacyViteSource = readFileSync(legacyViteConfigPath, "utf8");
 const portalViteConfigPath = resolve(root, "vite.portal.config.ts");
 const portalViteSource = readFileSync(portalViteConfigPath, "utf8");
 const repairPath = resolve(root, "deploy/repair-split-portal-bundle.sh");
@@ -16,6 +18,9 @@ describe("split client runtime chunking", () => {
     expect(splitViteSource).toContain("Rollup's graph-aware automatic chunking preserves the");
     expect(splitViteSource).not.toContain("manualChunks");
     expect(splitViteSource).not.toContain('return "vendor"');
+    expect(legacyViteSource).toContain("Keep automatic graph-aware chunking.");
+    expect(legacyViteSource).not.toContain("manualChunks");
+    expect(legacyViteSource).not.toContain('return "vendor"');
   });
 
   it("keeps the split bundle CSP nonce transformation enabled", () => {
