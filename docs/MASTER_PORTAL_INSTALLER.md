@@ -107,6 +107,12 @@ If the portal service and local Nginx health checks pass but the browser receive
 
 The helper retrieves one immutable client-build-only commit, refuses a target that changes packages, server/deployment code, or migrations, and reads only non-secret routing metadata to select the active bundle: `client/dist` for a one-host portal or `client/dist-portal` when a separate public-site hostname is configured. It builds that one bundle in a detached worktree, rejects a circular-chunk build, validates the resulting shell and every direct JS/CSS asset through local Nginx TLS, then atomically swaps only that active client bundle directory. It checks `/etc/readypackets/portal.env` before and after and automatically restores the previous client bundle if validation fails. It never restarts the service or changes `server.js`, TLS, Nginx, Cloudflare, aliases, database, storage, backups, administrator accounts, or integration settings.
 
+### Repair only the confirmed one-host legacy asset 404
+
+If a one-host portal is blank and the local Nginx request for the exact JavaScript file named by the delivered `index.html` returns HTTP 404, use [`deploy/repair-legacy-static-assets.sh`](../deploy/repair-legacy-static-assets.sh) with `--confirm-known-legacy-asset-404`. This is the corrective path for the legacy runtime defect where `index.html` was selected from `client/dist` but `/assets/*` was incorrectly served from the separate `client/dist-portal` directory.
+
+The helper refuses split-host deployments and retrieves one immutable, explicitly scoped server static-route repair. It builds a corrected legacy client bundle and server bundle in a detached worktree, atomically stages both beside the live files, makes the one required service restart, validates the health endpoint, shell, CSP header, and every direct hashed JavaScript/CSS asset through local Nginx TLS, then retains the changes only on success. Any failed activation or validation restores the previous server/client bundles and restarts the old service automatically. It verifies the protected environment file is byte-for-byte unchanged and does not migrate the database, reseed data, or alter TLS, Nginx, Cloudflare, aliases, user accounts, files, backups, or integrations.
+
 ## What the script never does
 
 - It never accepts a GitHub personal access token, repository password, portal password, Cloudflare token, or TLS private key as a command-line parameter.
