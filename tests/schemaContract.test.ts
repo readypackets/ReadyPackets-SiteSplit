@@ -86,6 +86,14 @@ describe("critical database schema contract", () => {
     );
   });
 
+  it("blocks startup when immutable customer or order identifier history is absent", async () => {
+    const incompleteRows = contractRows().filter((row) => row.tableName !== "order_id_change_history");
+
+    await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
+      "order_id_change_history (table missing)",
+    );
+  });
+
   it("uses explicit metadata aliases so MySQL column-name casing cannot hide existing tables", async () => {
     let statement = "";
     const connection = {

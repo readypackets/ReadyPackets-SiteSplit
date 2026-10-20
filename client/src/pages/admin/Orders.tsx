@@ -761,6 +761,10 @@ export function AdminOrderDetailPage() {
   const [deleteReason, setDeleteReason] = useState("");
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
+  const [changeOrderIdOpen, setChangeOrderIdOpen] = useState(false);
+  const [newOrderNumber, setNewOrderNumber] = useState("");
+  const [orderIdChangeReason, setOrderIdChangeReason] = useState("");
+  const [orderIdChangeConfirmation, setOrderIdChangeConfirmation] = useState("");
   const [workflowId, setWorkflowId] = useState("");
   const [phaseUploadOpen, setPhaseUploadOpen] = useState(false);
   const [phaseUpload, setPhaseUpload] = useState("phase_1");
@@ -812,6 +816,17 @@ export function AdminOrderDetailPage() {
       toast.success("Order renamed", "The updated title is now visible to the customer and staff.");
     },
     onError(error) { toast.error("Could not rename the order", errorMessage(error)); },
+  });
+  const changeOrderId = trpc.admin.changeOrderId.useMutation({
+    async onSuccess() {
+      setChangeOrderIdOpen(false);
+      setNewOrderNumber("");
+      setOrderIdChangeReason("");
+      setOrderIdChangeConfirmation("");
+      await refetchAll();
+      toast.success("Order reference changed", "The order detail now reflects the new order reference.");
+    },
+    onError(error) { toast.error("Could not change order reference", errorMessage(error)); },
   });
   const emailInvoice = trpc.invoices.sendCustomerCopy.useMutation({
     async onSuccess(result) {
@@ -1012,6 +1027,18 @@ export function AdminOrderDetailPage() {
   const configuredStatusLabel = (value: string) => (configuredStatuses.data ?? []).find((option) => option.key === value)?.label ?? STATUS_LABELS[value] ?? value;
   const systemTransitions = ORDER_TRANSITIONS[order.status as keyof typeof ORDER_TRANSITIONS];
   const allowedNext = systemTransitions ?? (configuredStatuses.data ?? []).filter((option) => option.active && option.key !== order.status).map((option) => option.key);
+  const orderIdChangeReady =
+    newOrderNumber.trim().length > 0 &&
+    orderIdChangeReason.trim().length >= 10 &&
+    orderIdChangeConfirmation === "CHANGE ORDER ID";
+
+  function closeChangeOrderIdModal() {
+    if (changeOrderId.isPending) return;
+    setChangeOrderIdOpen(false);
+    setNewOrderNumber("");
+    setOrderIdChangeReason("");
+    setOrderIdChangeConfirmation("");
+  }
 
   return (
     <>
@@ -1022,6 +1049,11 @@ export function AdminOrderDetailPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" leadingIcon={<Pencil className="size-4" aria-hidden="true" />} onClick={() => { setRenameValue(order.projectName ?? ""); setRenameOpen(true); }}>Rename order</Button>
+            {session.isAdmin ? (
+              <Button variant="outline" onClick={() => setChangeOrderIdOpen(true)}>
+                Change order reference
+              </Button>
+            ) : null}
             {["paid", "partially_refunded"].includes(order.paymentStatus) ? <><LinkButton href={`/admin/orders/${order.id}/invoice`} variant="outline">Invoice</LinkButton>{session.isAdmin ? <LinkButton href={`/admin/finance?orderId=${order.id}`} variant="danger">Refund</LinkButton> : null}</> : null}
             {session.isAdmin ? (
               <Button
@@ -1578,6 +1610,76 @@ export function AdminOrderDetailPage() {
       <Modal open={Boolean(unlockTarget)} onClose={() => setUnlockTarget(null)} title="Unlock customer workflow phase" description="This reopens customer changes for the selected phase. The action is audited and should be used only when a correction is needed." footer={<><Button variant="outline" onClick={() => setUnlockTarget(null)}>Cancel</Button><Button variant="danger" busy={unlockWorkflowPhase.isPending} disabled={unlockConfirmation !== "UNLOCK PHASE" || unlockReason.trim().length < 10} onClick={() => { if (unlockTarget) unlockWorkflowPhase.mutate({ orderId, phaseKey: unlockTarget.phaseKey, reason: unlockReason.trim(), confirmation: "UNLOCK PHASE" }); }}>Unlock phase</Button></>}><div className="space-y-4"><Alert tone="warning">Unlocking allows the customer to add, remove, or update files, recordings, and answers until they submit this phase again.</Alert><Input label="Reason for unlock" value={unlockReason} onChange={(event) => setUnlockReason(event.target.value)} help="Required; recorded in the audit trail." maxLength={1000} /><Input label="Type UNLOCK PHASE to confirm" value={unlockConfirmation} onChange={(event) => setUnlockConfirmation(event.target.value)} /></div></Modal>
 
       <Modal open={renameOpen} onClose={() => setRenameOpen(false)} title="Rename order" description="This changes the project title only. The order number, customer, payment evidence, files, workflow, and invoice remain unchanged."><div className="space-y-4"><Input autoFocus label="Order title" value={renameValue} maxLength={190} onChange={(event) => setRenameValue(event.target.value)} placeholder="e.g., Building Mount Olympus" /><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setRenameOpen(false)}>Cancel</Button><Button busy={renameOrder.isPending} disabled={!renameValue.trim()} onClick={() => renameOrder.mutate({ orderId, projectName: renameValue.trim() })}>Save title</Button></div></div></Modal>
+
+      {session.isAdmin ? (
+        <Modal
+          open={changeOrderIdOpen}
+          onClose={closeChangeOrderIdModal}
+          title="Change order reference"
+          description="Use this audited exception only when an order reference must be corrected."
+          dismissible={!changeOrderId.isPending}
+          footer={
+            <>
+              <Button variant="outline" onClick={closeChangeOrderIdModal} disabled={changeOrderId.isPending}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="change-order-id-form"
+                busy={changeOrderId.isPending}
+                disabled={!orderIdChangeReady}
+              >
+                Change order reference
+              </Button>
+            </>
+          }
+        >
+          <form
+            id="change-order-id-form"
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!orderIdChangeReady) return;
+              changeOrderId.mutate({
+                orderId,
+                orderNumber: newOrderNumber.trim(),
+                reason: orderIdChangeReason.trim(),
+                confirmation: "CHANGE ORDER ID",
+              });
+            }}
+          >
+            <Alert tone="warning">
+              <strong>Business policy:</strong> order reference changes may be blocked if immutable financial or external evidence exists.
+            </Alert>
+            <Input
+              label="New order reference"
+              value={newOrderNumber}
+              onChange={(event) => setNewOrderNumber(event.target.value)}
+              autoComplete="off"
+              required
+              data-autofocus
+            />
+            <Textarea
+              label="Reason for change"
+              help="Explain the business need in at least 10 characters. This is retained for audit review."
+              value={orderIdChangeReason}
+              onChange={(event) => setOrderIdChangeReason(event.target.value)}
+              minLength={10}
+              maxLength={255}
+              required
+            />
+            <Input
+              label="Type CHANGE ORDER ID to confirm"
+              value={orderIdChangeConfirmation}
+              onChange={(event) => setOrderIdChangeConfirmation(event.target.value)}
+              placeholder="CHANGE ORDER ID"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+          </form>
+        </Modal>
+      ) : null}
 
       <ConfirmDialog
         open={deleteOpen}

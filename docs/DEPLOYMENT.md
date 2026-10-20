@@ -87,6 +87,8 @@ The installer performs the following, in order:
 13. Runs one backup immediately and reports the artefact, because an untested backup is not a backup, and installation is a better time to discover a broken one than a restore.
 14. Verifies that the service is active and the readiness probe succeeds.
 
+The installer and approved in-place upgrade path also apply forward-only migrations. Current releases include append-only customer and order identifier-history tables. Do not skip migrations or manually recreate these tables: administrator ID corrections depend on their unique retired-ID ledgers to prevent a former customer or order reference from ever being reused.
+
 ### Create the first administrator
 
 ```bash

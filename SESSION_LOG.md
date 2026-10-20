@@ -4442,3 +4442,22 @@ The new design and review documents, alongside this session log entry, are queue
 **Publication state:** Pending final source review, commit, private GitHub `main` push/synchronization check, and immutable commit record.
 
 **Source commit:** The reviewed implementation above was committed locally as `467e6842ed44b997d904440004706ddcaf4d6c14` (`feat: harden portal setup and backups`). Final session-log publication and private GitHub `main` synchronization verification follow.
+
+---
+## 2026-10-20 — Administrator-managed customer and order identifiers
+
+**User request:** Add the ability for an administrator to set and/or change the customer ID and order ID.
+
+**Delivered capability:** Administration now provides an accessible, administrator-only **Change customer ID** action on customer detail and **Change order reference** action on order detail. Each operation requires a replacement value, a meaningful audit reason of at least ten characters, and an exact typed confirmation (`CHANGE CUSTOMER ID` or `CHANGE ORDER ID`). The API enforces the same controls server-side; client state is not trusted.
+
+**Customer ID integrity:** Customer changes accept only the current opaque `RP-CUS-` format. The operation atomically updates the current `customer_number` and compatibility `public_id`, inserts an append-only `customer_id_change_history` ledger row, and writes a warning-severity administrative activity event containing the before/after identifier and documented reason. Retired values have a database-enforced unique history entry and cannot be reissued to another account. Existing orders, invoices, SharePoint snapshots, and external material are intentionally not rewritten. If the optional account-login whitelist contains the former ID, the same transaction replaces it with the new ID so the customer is not accidentally locked out; settings cache invalidation and a security event follow successful completion.
+
+**Order reference integrity:** Order changes accept only the current opaque `RP-ORD-` format. The operation atomically records the former reference in append-only `order_id_change_history`, updates the active order, and records an administrator activity event. It permanently reserves a retired reference and rejects a value currently assigned or retained in history. To preserve financial and external reconciliation, it refuses the change as soon as any invoice, payment, refund, actual uploaded file, SharePoint sync/location, conversion/transfer job, webhook delivery, MNDA acceptance, or intake submission exists. The feature never rewrites immutable external evidence.
+
+**Schema and upgrade safety:** Added forward-only migration `0056_identifier_change_history.sql` and matching Drizzle definitions. The two history tables are part of the critical schema contract, so the application cannot start against a partial upgrade where the administrator UI exists but durable former-ID protection does not. The release advances the schema baseline from 51 to 52 forward-only migrations and from 44 to 46 critical schema-contract tables.
+
+**Documentation and audit coverage:** Updated the Administrator Guide, Deployment Guide, and README with the current ID formats, exact confirmation phrases, append-only history, and evidence-blocking policy. Added `tests/adminIdentifierManagement.test.ts` for current-format enforcement, normalization, immutable-evidence labels, administrator-only confirmations, history/migration contracts, and UI policy wording; added a schema-contract absence regression.
+
+**Validation completed:** Focused identifier/schema/audit/startup regressions passed **24 tests across 4 files**. The full non-database suite passed **270 tests across 44 files**. TypeScript typecheck, zero-warning ESLint, installer Bash syntax, forward-only migration statement-shape validation, `git diff --check`, and production legacy/public/portal/server builds passed. The build emitted only the existing Vite large-chunk advisories; generated artifacts were removed. `pnpm audit --prod` reported no known production dependency vulnerabilities. No live VPS, database, customer record, SharePoint site, payment provider, external webhook, secret, or credential was accessed.
+
+**Publication state:** Pending final staged-review, commit, private GitHub `main` push/synchronization confirmation, and immutable commit record.

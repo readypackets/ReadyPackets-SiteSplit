@@ -211,6 +211,8 @@ export const criticalSchemaContract: Readonly<Record<string, readonly string[]>>
   conversion_jobs: ["id", "order_id", "source_file_id", "source_file_version", "source_storage_key", "source_sha256", "conversion_profile_id", "profile_revision", "profile_operation", "target_bindings_json", "status", "idempotency_key", "correlation_id", "attempts", "run_after", "created_at", "updated_at"],
   file_derivatives: ["id", "source_file_id", "source_file_version", "source_storage_key", "source_sha256", "conversion_profile_id", "artifact_file_id", "output_sha256", "output_mime", "output_extension", "tool_fingerprint", "created_at"],
   sharepoint_transfer_jobs: ["id", "order_id", "source_file_id", "target_binding_id", "operation_type", "storage_key_snapshot", "sha256_snapshot", "file_name_snapshot", "mime_snapshot", "phase_snapshot", "idempotency_key", "correlation_id", "status", "attempts", "run_after", "created_at", "updated_at"],
+  customer_id_change_history: ["id", "user_id", "previous_customer_id", "new_customer_id", "reason", "changed_by_user_id", "created_at"],
+  order_id_change_history: ["id", "order_id", "previous_order_number", "new_order_number", "reason", "changed_by_user_id", "created_at"],
 };
 
 export type SchemaContractConnection = Pick<Connection, "query">;

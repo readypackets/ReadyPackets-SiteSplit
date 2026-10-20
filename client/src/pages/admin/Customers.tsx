@@ -914,6 +914,10 @@ export function AdminCustomerDetailPage() {
   const [roleOpen, setRoleOpen] = useState(false);
   const [newRole, setNewRole] = useState("customer");
   const [resetOpen, setResetOpen] = useState(false);
+  const [changeCustomerIdOpen, setChangeCustomerIdOpen] = useState(false);
+  const [newCustomerId, setNewCustomerId] = useState("");
+  const [customerIdChangeReason, setCustomerIdChangeReason] = useState("");
+  const [customerIdChangeConfirmation, setCustomerIdChangeConfirmation] = useState("");
 
   const setNotesMutation = trpc.admin.setCustomerNotes.useMutation({
     async onSuccess() {
@@ -957,6 +961,20 @@ export function AdminCustomerDetailPage() {
     },
   });
 
+  const changeCustomerId = trpc.admin.changeCustomerId.useMutation({
+    async onSuccess() {
+      setChangeCustomerIdOpen(false);
+      setNewCustomerId("");
+      setCustomerIdChangeReason("");
+      setCustomerIdChangeConfirmation("");
+      await detail.refetch();
+      toast.success("Customer ID changed", "The customer detail now reflects the new customer ID.");
+    },
+    onError(error) {
+      toast.error("Could not change customer ID", errorMessage(error));
+    },
+  });
+
   const revokeSessions = trpc.adminSecurity.revokeAllSessionsForUser.useMutation({
     onSuccess() {
       toast.success("All sessions revoked", "The user has been signed out everywhere.");
@@ -970,6 +988,18 @@ export function AdminCustomerDetailPage() {
     () => detail.data?.lifetimeValueCents ?? 0,
     [detail.data?.lifetimeValueCents],
   );
+  const customerIdChangeReady =
+    newCustomerId.trim().length > 0 &&
+    customerIdChangeReason.trim().length >= 10 &&
+    customerIdChangeConfirmation === "CHANGE CUSTOMER ID";
+
+  function closeChangeCustomerIdModal() {
+    if (changeCustomerId.isPending) return;
+    setChangeCustomerIdOpen(false);
+    setNewCustomerId("");
+    setCustomerIdChangeReason("");
+    setCustomerIdChangeConfirmation("");
+  }
 
   if (detail.isLoading) {
     return (
@@ -1031,6 +1061,11 @@ export function AdminCustomerDetailPage() {
               >
                 Change role
               </Button>
+              {user.role === "customer" ? (
+                <Button variant="outline" onClick={() => setChangeCustomerIdOpen(true)}>
+                  Change customer ID
+                </Button>
+              ) : null}
               <Button
                 variant={user.status === "suspended" ? "primary" : "danger"}
                 onClick={() => setSuspendOpen(true)}
@@ -1300,6 +1335,76 @@ export function AdminCustomerDetailPage() {
           </Alert>
         ) : null}
       </Modal>
+
+      {session.isAdmin ? (
+        <Modal
+          open={changeCustomerIdOpen}
+          onClose={closeChangeCustomerIdModal}
+          title="Change customer ID"
+          description="Use this audited exception only when a customer identifier must be corrected."
+          dismissible={!changeCustomerId.isPending}
+          footer={
+            <>
+              <Button variant="outline" onClick={closeChangeCustomerIdModal} disabled={changeCustomerId.isPending}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="change-customer-id-form"
+                busy={changeCustomerId.isPending}
+                disabled={!customerIdChangeReady}
+              >
+                Change customer ID
+              </Button>
+            </>
+          }
+        >
+          <form
+            id="change-customer-id-form"
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!customerIdChangeReady) return;
+              changeCustomerId.mutate({
+                userId,
+                customerId: newCustomerId.trim(),
+                reason: customerIdChangeReason.trim(),
+                confirmation: "CHANGE CUSTOMER ID",
+              });
+            }}
+          >
+            <Alert tone="warning">
+              <strong>Business policy:</strong> customer historical orders remain unchanged.
+            </Alert>
+            <Input
+              label="New customer ID"
+              value={newCustomerId}
+              onChange={(event) => setNewCustomerId(event.target.value)}
+              autoComplete="off"
+              required
+              data-autofocus
+            />
+            <Textarea
+              label="Reason for change"
+              help="Explain the business need in at least 10 characters. This is retained for audit review."
+              value={customerIdChangeReason}
+              onChange={(event) => setCustomerIdChangeReason(event.target.value)}
+              minLength={10}
+              maxLength={255}
+              required
+            />
+            <Input
+              label="Type CHANGE CUSTOMER ID to confirm"
+              value={customerIdChangeConfirmation}
+              onChange={(event) => setCustomerIdChangeConfirmation(event.target.value)}
+              placeholder="CHANGE CUSTOMER ID"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+          </form>
+        </Modal>
+      ) : null}
     </>
   );
 }

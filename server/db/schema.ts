@@ -276,6 +276,28 @@ export const userProfileValues = mysqlTable(
   }),
 );
 
+/**
+ * Append-only ledger for administrator-approved customer ID changes. The
+ * unique historic value prevents a retired public ID from ever being assigned
+ * to a different account, preserving a durable lookup and audit trail.
+ */
+export const customerIdChangeHistory = mysqlTable(
+  "customer_id_change_history",
+  {
+    id: id(),
+    userId: int("user_id").notNull(),
+    previousCustomerId: varchar("previous_customer_id", { length: 24 }).notNull(),
+    newCustomerId: varchar("new_customer_id", { length: 24 }).notNull(),
+    reason: varchar("reason", { length: 255 }).notNull(),
+    changedByUserId: int("changed_by_user_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => ({
+    previousIdUnique: uniqueIndex("customer_id_change_history_previous_unique").on(table.previousCustomerId),
+    userCreatedIdx: index("customer_id_change_history_user_created_idx").on(table.userId, table.createdAt),
+  }),
+);
+
 export const delegates = mysqlTable(
   "delegates",
   {
@@ -467,6 +489,28 @@ export const orders = mysqlTable(
     workflowIdx: index("orders_workflow_idx").on(table.workflowId),
     testOrderIdx: index("orders_test_order_idx").on(table.isTestOrder),
     paymentRequirementIdx: index("orders_payment_requirement_idx").on(table.paymentRequirement),
+  }),
+);
+
+/**
+ * Append-only ledger for the narrowly permitted pre-evidence order reference
+ * changes. A retired reference remains reserved forever and may be used to
+ * reconcile older internal records without reassigning it to another order.
+ */
+export const orderIdChangeHistory = mysqlTable(
+  "order_id_change_history",
+  {
+    id: id(),
+    orderId: int("order_id").notNull(),
+    previousOrderNumber: varchar("previous_order_number", { length: 64 }).notNull(),
+    newOrderNumber: varchar("new_order_number", { length: 64 }).notNull(),
+    reason: varchar("reason", { length: 255 }).notNull(),
+    changedByUserId: int("changed_by_user_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => ({
+    previousNumberUnique: uniqueIndex("order_id_change_history_previous_unique").on(table.previousOrderNumber),
+    orderCreatedIdx: index("order_id_change_history_order_created_idx").on(table.orderId, table.createdAt),
   }),
 );
 

@@ -6,13 +6,15 @@
  * are soft deletes wherever a record has legal or financial significance.
  */
 import { TRPCError } from "@trpc/server";
-import { and, asc, count, desc, eq, gte, inArray, isNull, like, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import {
   changelogEntries,
   changelogEntryVersions,
   contactMessages,
+  conversionJobs,
+  customerIdChangeHistory,
   customReports,
   emailTemplates,
   emailLog,
@@ -25,7 +27,9 @@ import {
   intakeSubmissions,
   mndaAcceptances,
   activityLogs,
+  invoices,
   orderStatusHistory,
+  orderIdChangeHistory,
   orderNotes,
   orderQuestionTemplates,
   orderQuestions,
@@ -34,6 +38,12 @@ import {
   orderItems,
   orderPhaseLocks,
   orderWorkflows,
+  orderSharepointLocations,
+  payments,
+  refunds,
+  siteSettings,
+  sharepointSyncLog,
+  sharepointTransferJobs,
   conversionProfiles,
   sharepointTargetBindings,
   workflowStageRuns,
@@ -51,10 +61,11 @@ import {
   ticketReplies,
   tickets,
   users,
+  webhookDeliveries,
   webhookEndpoints,
 } from "../db/schema.js";
-import { decryptField, encryptField, hashPassword, randomToken } from "../security/crypto.js";
-import { getSetting, getSettingBool, getSettingNumber, setSetting } from "../services/settings.js";
+import { decryptField, encryptField, hashPassword, isPublicUserId, randomToken } from "../security/crypto.js";
+import { getSetting, getSettingBool, getSettingJson, getSettingNumber, invalidateSettingsCache, setSetting } from "../services/settings.js";
 import { getOrderStatusOptions, normalizeOrderStatusOptions, ORDER_STATUS_OPTIONS_SETTING } from "../services/orderStatusConfig.js";
 import { createOrderMessageReceipts } from "../services/orderMessages.js";
 import {
@@ -84,6 +95,7 @@ import {
 import { getCatalog } from "../services/catalog.js";
 import { getCatalogPresentationSettings } from "../services/catalogPresentation.js";
 import { queueTemplatedEmail, wrapHtmlBody } from "../services/email.js";
+import { normalizeAdministratorIdentifier, ORDER_REFERENCE_PATTERN, orderReferenceEvidenceLabels } from "../services/identifierManagement.js";
 import { adminProcedure, staffProcedure, router } from "../trpc/trpc.js";
 import { ORDER_STATUSES, PRODUCT_TIERS, USER_ROLES } from "../../shared/domain.js";
 import { insertedId } from "../db/result.js";
@@ -1243,6 +1255,175 @@ export const adminRouter = router({
         ipAddress: ctx.clientIp,
       });
       return { ok: true as const };
+    }),
+
+  /**
+   * Changes a customer-facing ID without allowing retired identifiers to be
+   * reissued. Existing order references and external path snapshots deliberately
+   * remain untouched so a customer ID correction cannot rewrite evidence.
+   */
+  changeCustomerId: adminProcedure
+    .input(
+      z.object({
+        userId: z.number().int().positive(),
+        customerId: z.string().trim().min(1).max(24),
+        reason: z.string().trim().min(10).max(255),
+        confirmation: z.literal("CHANGE CUSTOMER ID"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const customerId = normalizeAdministratorIdentifier(input.customerId);
+      if (!isPublicUserId(customerId)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Customer IDs must use the RP-CUS- prefix followed by 6 to 8 permitted uppercase characters." });
+      }
+
+      const [target] = await db
+        .select({ id: users.id, role: users.role, customerNumber: users.customerNumber, publicId: users.publicId, deletedAt: users.deletedAt })
+        .from(users)
+        .where(eq(users.id, input.userId))
+        .limit(1);
+      if (!target || target.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Active customer account not found." });
+      if (target.role !== "customer") throw new TRPCError({ code: "BAD_REQUEST", message: "Only customer accounts may use the customer ID management control." });
+      const previousCustomerId = target.customerNumber ?? target.publicId;
+      if (!previousCustomerId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account does not have a customer ID to change." });
+      if (customerId === previousCustomerId.toUpperCase()) throw new TRPCError({ code: "BAD_REQUEST", message: "The requested customer ID is already assigned to this account." });
+
+      const [activeConflict, historicConflict] = await Promise.all([
+        db.select({ id: users.id }).from(users).where(or(eq(users.customerNumber, customerId), eq(users.publicId, customerId))).limit(1),
+        db.select({ id: customerIdChangeHistory.id }).from(customerIdChangeHistory).where(eq(customerIdChangeHistory.previousCustomerId, customerId)).limit(1),
+      ]);
+      if (activeConflict[0] || historicConflict[0]) {
+        throw new TRPCError({ code: "CONFLICT", message: "This customer ID is already assigned or was retired and cannot be reused." });
+      }
+
+      const allowlist = (await getSettingJson<string[]>("access.login_whitelist_public_ids", []))
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim().toUpperCase())
+        .filter(Boolean);
+      const replaceInAllowlist = allowlist.includes(previousCustomerId.toUpperCase());
+      const nextAllowlist = replaceInAllowlist
+        ? [...new Set(allowlist.map((value) => value === previousCustomerId.toUpperCase() ? customerId : value))]
+        : allowlist;
+
+      try {
+        await db.transaction(async (tx) => {
+          await tx.insert(customerIdChangeHistory).values({
+            userId: input.userId,
+            previousCustomerId,
+            newCustomerId: customerId,
+            reason: input.reason,
+            changedByUserId: ctx.session.user.id,
+          });
+          await tx.update(users).set({ customerNumber: customerId, publicId: customerId }).where(eq(users.id, input.userId));
+          if (replaceInAllowlist) {
+            await tx.insert(siteSettings).values({
+              settingKey: "access.login_whitelist_public_ids",
+              settingValue: JSON.stringify(nextAllowlist),
+              valueType: "json",
+              category: "security",
+              isSecret: false,
+              updatedByUserId: ctx.session.user.id,
+            }).onDuplicateKeyUpdate({ set: { settingValue: JSON.stringify(nextAllowlist), updatedByUserId: ctx.session.user.id, updatedAt: new Date() } });
+          }
+          await tx.insert(activityLogs).values({
+            actorUserId: ctx.session.user.id,
+            actorRole: ctx.session.user.role,
+            action: "customer.id_changed",
+            entityType: "user",
+            entityId: String(input.userId),
+            severity: "warning",
+            summary: "Administrator changed a customer identifier; historical order references were preserved.",
+            changes: { previousCustomerId, newCustomerId: customerId, reason: input.reason, loginWhitelistUpdated: replaceInAllowlist },
+            ipAddress: ctx.clientIp,
+          });
+        });
+      } catch (error) {
+        if (String(error).includes("Duplicate entry")) {
+          throw new TRPCError({ code: "CONFLICT", message: "This customer ID is already assigned or was retired and cannot be reused." });
+        }
+        throw error;
+      }
+      invalidateSettingsCache();
+      await recordSecurityEvent({ eventType: "settings.changed", severity: "warning", message: "Administrator changed a customer identifier", userId: input.userId, ipAddress: ctx.clientIp, metadata: { actorUserId: ctx.session.user.id, loginWhitelistUpdated: replaceInAllowlist } });
+      return { ok: true as const, customerId, loginWhitelistUpdated: replaceInAllowlist };
+    }),
+
+  /**
+   * Changes an order reference only while it has no financial, customer-file,
+   * SharePoint, conversion, or webhook evidence. Once evidence exists, the
+   * reference is immutable to protect reconciliation and external snapshots.
+   */
+  changeOrderId: adminProcedure
+    .input(
+      z.object({
+        orderId: z.number().int().positive(),
+        orderNumber: z.string().trim().min(1).max(64),
+        reason: z.string().trim().min(10).max(255),
+        confirmation: z.literal("CHANGE ORDER ID"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const orderNumber = normalizeAdministratorIdentifier(input.orderNumber);
+      if (!ORDER_REFERENCE_PATTERN.test(orderNumber)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Order IDs must use the RP-ORD current opaque reference format." });
+      }
+      const [order] = await db.select({ id: orders.id, orderNumber: orders.orderNumber, deletedAt: orders.deletedAt }).from(orders).where(eq(orders.id, input.orderId)).limit(1);
+      if (!order || order.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Active order not found." });
+      if (orderNumber === order.orderNumber.toUpperCase()) throw new TRPCError({ code: "BAD_REQUEST", message: "The requested order ID is already assigned to this order." });
+
+      const [activeConflict, historicConflict, invoiceRows, paymentRows, refundRows, fileRows, syncRows, locationRows, conversionRows, transferRows, webhookRows, mndaRows, intakeRows] = await Promise.all([
+        db.select({ id: orders.id }).from(orders).where(eq(orders.orderNumber, orderNumber)).limit(1),
+        db.select({ id: orderIdChangeHistory.id }).from(orderIdChangeHistory).where(eq(orderIdChangeHistory.previousOrderNumber, orderNumber)).limit(1),
+        db.select({ id: invoices.id }).from(invoices).where(eq(invoices.orderId, input.orderId)).limit(1),
+        db.select({ id: payments.id }).from(payments).where(eq(payments.orderId, input.orderId)).limit(1),
+        db.select({ id: refunds.id }).from(refunds).where(eq(refunds.orderId, input.orderId)).limit(1),
+        db.select({ id: files.id }).from(files).where(and(eq(files.orderId, input.orderId), eq(files.isPlaceholder, false), isNull(files.deletedAt))).limit(1),
+        db.select({ id: sharepointSyncLog.id }).from(sharepointSyncLog).where(eq(sharepointSyncLog.orderId, input.orderId)).limit(1),
+        db.select({ id: orderSharepointLocations.id }).from(orderSharepointLocations).where(eq(orderSharepointLocations.orderId, input.orderId)).limit(1),
+        db.select({ id: conversionJobs.id }).from(conversionJobs).where(eq(conversionJobs.orderId, input.orderId)).limit(1),
+        db.select({ id: sharepointTransferJobs.id }).from(sharepointTransferJobs).where(eq(sharepointTransferJobs.orderId, input.orderId)).limit(1),
+        db.select({ id: webhookDeliveries.id }).from(webhookDeliveries).where(eq(webhookDeliveries.orderId, input.orderId)).limit(1),
+        db.select({ id: mndaAcceptances.id }).from(mndaAcceptances).where(eq(mndaAcceptances.orderId, input.orderId)).limit(1),
+        db.select({ id: intakeSubmissions.id }).from(intakeSubmissions).where(eq(intakeSubmissions.orderId, input.orderId)).limit(1),
+      ]);
+      if (activeConflict[0] || historicConflict[0]) throw new TRPCError({ code: "CONFLICT", message: "This order ID is already assigned or was retired and cannot be reused." });
+      const evidence = orderReferenceEvidenceLabels({
+        invoice: Boolean(invoiceRows[0]),
+        payment: Boolean(paymentRows[0]),
+        refund: Boolean(refundRows[0]),
+        file: Boolean(fileRows[0]),
+        sharepoint: Boolean(syncRows[0] || locationRows[0]),
+        conversionOrTransfer: Boolean(conversionRows[0] || transferRows[0]),
+        webhook: Boolean(webhookRows[0]),
+        mnda: Boolean(mndaRows[0]),
+        intake: Boolean(intakeRows[0]),
+      });
+      if (evidence.length) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Order ID cannot change because immutable ${evidence.join(", ")} evidence exists. Historical order references are intentionally preserved.` });
+      }
+
+      try {
+        await db.transaction(async (tx) => {
+          await tx.insert(orderIdChangeHistory).values({ orderId: input.orderId, previousOrderNumber: order.orderNumber, newOrderNumber: orderNumber, reason: input.reason, changedByUserId: ctx.session.user.id });
+          await tx.update(orders).set({ orderNumber }).where(and(eq(orders.id, input.orderId), isNull(orders.deletedAt)));
+          await tx.insert(activityLogs).values({
+            actorUserId: ctx.session.user.id,
+            actorRole: ctx.session.user.role,
+            action: "order.id_changed",
+            entityType: "order",
+            entityId: String(input.orderId),
+            severity: "warning",
+            summary: "Administrator changed a pre-evidence order identifier.",
+            changes: { previousOrderNumber: order.orderNumber, newOrderNumber: orderNumber, reason: input.reason, externalEvidenceChecked: true },
+            ipAddress: ctx.clientIp,
+          });
+        });
+      } catch (error) {
+        if (String(error).includes("Duplicate entry")) throw new TRPCError({ code: "CONFLICT", message: "This order ID is already assigned or was retired and cannot be reused." });
+        throw error;
+      }
+      await recordSecurityEvent({ eventType: "settings.changed", severity: "warning", message: "Administrator changed a pre-evidence order identifier", userId: ctx.session.user.id, ipAddress: ctx.clientIp, metadata: { orderId: input.orderId } });
+      return { ok: true as const, orderNumber };
     }),
 
   setCustomerStatus: adminProcedure

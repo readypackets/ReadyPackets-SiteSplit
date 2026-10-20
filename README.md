@@ -51,6 +51,7 @@ Security is the organising principle of the build rather than a later hardening 
 - **Upload validation** by magic bytes rather than declared extension, with double-extension rejection, an explicit deny list of executable and scriptable formats, and forced attachment disposition on every download.
 - **Multi-factor authentication** mandatory for administrative accounts, with optional IP allow-listing for the administrative surface.
 - **Audit logging** of every security-relevant event and every administrative mutation, with sensitive values redacted from logs.
+- **Protected identifier corrections** for administrators: retired customer and pre-evidence order references are permanently reserved, changes require a reason and exact confirmation, and financial/customer/external evidence blocks order-reference rewrites.
 
 ## Quick start
 

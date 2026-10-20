@@ -46,6 +46,12 @@ Where a response is ambiguous or missing, raise a **clarification question** rat
 
 Archiving an order requires a typed confirmation and a reason. It is a soft delete: the record is retained and recoverable, and the action is logged with the actor.
 
+### Correcting an order reference
+
+An administrator can select **Change order reference** from an order’s header for a narrowly controlled correction. Enter a current opaque `RP-ORD-…` reference, a meaningful business reason, and the exact phrase `CHANGE ORDER ID`. Retired references are permanently reserved and cannot be reassigned to another order.
+
+This is available only before the order has immutable evidence. The portal refuses the change when an invoice, payment, refund, actual file, SharePoint location/sync, conversion or transfer job, outbound webhook delivery, MNDA acceptance, or intake submission exists. Do not attempt a database edit to bypass this rule: order references in financial and external records must remain reconcilable.
+
 ## Customers
 
 The customer list supports search across name, email, and company, and filtering by role and status. Search works against encrypted columns through a keyed blind index, so the address is never stored in plaintext yet lookup behaves normally.
@@ -55,6 +61,12 @@ The customer detail view shows the profile, order history, tickets, and lifetime
 Suspending an account blocks sign-in but preserves all data, and is the correct response to a payment dispute or a terms violation. Deletion is handled as an erasure request with a workflow and an audit trail rather than an immediate destructive action, because customer records are frequently referenced by orders and financial history.
 
 When creating a staff account, the system generates the password and displays it once. Transmit it out of band, and require enrolment of a factor on first sign-in — which the server will enforce regardless for administrative roles.
+
+### Correcting a customer ID
+
+For a customer account, an administrator can select **Change customer ID** on the customer detail page. The replacement must use the current `RP-CUS-` opaque format; enter a documented reason and type `CHANGE CUSTOMER ID` exactly. The old value is retained in an append-only history ledger and permanently cannot be issued to another account.
+
+Changing a customer ID does not rewrite existing order IDs, invoices, past deliveries, SharePoint paths, or external snapshots. Those records intentionally preserve the identifier in use when they were created. If the optional account-login whitelist contains the old customer ID, the portal atomically replaces it with the new value so the customer is not inadvertently locked out. The action is recorded in both activity and security audit streams.
 
 ## Catalogue
 
