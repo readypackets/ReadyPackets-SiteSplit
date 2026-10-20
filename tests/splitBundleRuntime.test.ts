@@ -33,15 +33,20 @@ describe("split portal bundle recovery helper", () => {
   it("is syntactically valid and limited to the immutable client-only correction", () => {
     const syntax = spawnSync("bash", ["-n", repairPath], { encoding: "utf8" });
     expect(syntax.status, syntax.stderr).toBe(0);
-    expect(repairSource).toContain('readonly COMMIT="d5b25e18b3f6b52ab3d82c02a9775f368c9e8cc1"');
+    expect(repairSource).toContain('readonly COMMIT="ff92e369a897cba121b894f9a8aaa8eaedaaa733"');
     expect(repairSource).toContain("--confirm-known-split-bundle-cycle");
-    expect(repairSource).toContain('pnpm run build:portal');
+    expect(repairSource).toContain('printf \'%s\\037%s\\n\' "${APP_URL:-}" "${PUBLIC_SITE_URL:-}"');
+    expect(repairSource).toContain('ACTIVE_DIST_NAME="dist"');
+    expect(repairSource).toContain('BUILD_COMMAND="build:legacy"');
+    expect(repairSource).toContain('ACTIVE_DIST_NAME="dist-portal"');
+    expect(repairSource).toContain('BUILD_COMMAND="build:portal"');
+    expect(repairSource).toContain('NODE_ENV=production pnpm run "$BUILD_COMMAND"');
     expect(repairSource).toContain('TARGET_PARENT="$(git -C "$SOURCE_DIR" rev-parse "${RESOLVED_COMMIT}^")"');
     expect(repairSource).toContain('diff --quiet "$TARGET_PARENT" "$RESOLVED_COMMIT" -- package.json pnpm-lock.yaml');
     expect(repairSource).toContain('diff --quiet "$TARGET_PARENT" "$RESOLVED_COMMIT" -- drizzle/migrations server deploy');
     expect(repairSource).toContain('ENV_DIGEST_BEFORE="$(sha256sum "$ENV_FILE"');
-    expect(repairSource).toContain('mv -- "${APP_DIR}/client/dist-portal" "$PREVIOUS_PORTAL_DIST"');
-    expect(repairSource).toContain('restore_previous_portal_dist');
+    expect(repairSource).toContain('mv -- "$ACTIVE_CLIENT_DIST" "$PREVIOUS_CLIENT_DIST"');
+    expect(repairSource).toContain('restore_previous_client_dist');
     expect(repairSource).toContain('--resolve "${DOMAIN}:443:127.0.0.1"');
     expect(repairSource).not.toContain('deploy/install.sh');
     expect(repairSource).not.toContain('systemctl restart');
