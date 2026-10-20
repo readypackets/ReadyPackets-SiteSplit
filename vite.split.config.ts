@@ -34,19 +34,12 @@ export function createSplitViteConfig(html: "public.html" | "portal.html", outDi
       assetsInlineLimit: 0,
       rollupOptions: {
         input: path.join(here, "client", html),
-        output: {
-          entryFileNames: "assets/[name].[hash].js",
-          chunkFileNames: "assets/[name].[hash].js",
-          assetFileNames: "assets/[name].[hash][extname]",
-          manualChunks(id) {
-            if (!id.includes("node_modules")) return undefined;
-            if (id.includes("/react/") || id.includes("/react-dom/") || id.includes("/react-router/") || id.includes("/scheduler/") || id.includes("/use-sync-external-store/")) return "react";
-            if (id.includes("/@trpc/") || id.includes("/@tanstack/")) return "data";
-            if (id.includes("/lucide-react/")) return "icons";
-            if (id.includes("/recharts/") || id.includes("/d3-")) return "charts";
-            return "vendor";
-          },
-        },
+        // Do not force arbitrary node modules into hand-written chunks. Several
+        // portal dependencies import React hooks transitively, and a manual
+        // `vendor` versus `react` split creates circular ES module execution
+        // order. That can fail before ErrorBoundary mounts and leave a blank
+        // browser page. Rollup's graph-aware automatic chunking preserves the
+        // dependency order; emitted asset names remain content-hashed by Vite.
       },
     },
     esbuild: { drop: process.env.NODE_ENV === "production" ? ["console", "debugger"] : [], legalComments: "none" },
