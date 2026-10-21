@@ -4519,3 +4519,17 @@ The new design and review documents, alongside this session log entry, are queue
 **Validation:** HomeView delimiter/encoding structure check passed. The complete non-database test suite passed **280 tests across 46 files**. Typecheck, zero-warning lint, `git diff --check`, and `pnpm audit --prod` (**no known vulnerabilities**) passed. The published portal CI remains green; the next native-mobile GitHub macOS simulator job is the authoritative Swift compiler confirmation. The source commit, final log commit, and workflow confirmation are pending.
 
 **Source commit:** The native SwiftUI HomeView rewrite, mobile compiler-structure regression, and this evidence were committed as `32cf39fefe338e687a053b2536a3936ca63195c9` (`fix: compile native home view`). Final log publication and GitHub macOS simulator confirmation follow.
+
+---
+## 2026-10-21 — Native Swift 6 authentication and Security API corrections
+
+**Compiler evidence:** After the HomeView parser correction, the GitHub macOS simulator compiled further and precisely reported four independent Swift/iOS API defects: an unhandled throwing OAuth completion call in the `ASWebAuthenticationSession` callback; a `URLRequest` local variable shadowing the secure request retry method; an invalid `kSecAttrMatchLimit` Keychain query key; and an unavailable `CocoaError.userAuthenticationRequired` member in LocalAuthentication fallback handling. Portal CI passed, as did the mobile source-contract and Android API 36 jobs; only the iOS compiler exposed these native-only defects.
+
+**Corrections:**
+- The browser authentication callback now handles both callback URLs and cancellation/system errors. It clears the persisted PKCE state/verifier on every unsuccessful completion and returns success/failure through the main-actor app container, which drives the existing signed-in/signed-out state and accessible toast alert.
+- Renamed the local outbound `URLRequest` to `urlRequest`, preserving one secure 401-refresh retry through the actual request method.
+- Replaced the unavailable Keychain query key with `kSecMatchLimit` and retained the `kSecMatchLimitOne` value.
+- Replaced the unavailable Cocoa error fallback with `LAError(.biometryNotAvailable)`, preserving a precise user-visible biometric-unavailable condition.
+- Extended native source contracts to prevent these exact compiler/API regressions.
+
+**Validation:** Focused native/login/workflow/policy checks passed **19 tests across 4 files**. The complete non-database suite passed **281 tests across 46 files**. Typecheck, zero-warning lint, source integrity checks, production dependency audit (**no known vulnerabilities**), and changed-source credential scan passed. The authoritative next step is the GitHub macOS simulator build; source commit, final session-log commit, and workflow confirmation are pending.

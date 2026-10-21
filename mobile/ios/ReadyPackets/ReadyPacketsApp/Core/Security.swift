@@ -57,7 +57,7 @@ actor TokenStore {
             kSecAttrService: service,
             kSecAttrAccount: account,
             kSecReturnData: true,
-            kSecAttrMatchLimit: kSecMatchLimitOne,
+            kSecMatchLimit: kSecMatchLimitOne,
         ]
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
@@ -93,7 +93,7 @@ enum BiometricGate {
         let context = LAContext()
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-            throw error ?? CocoaError(.userAuthenticationRequired)
+            throw error ?? LAError(.biometryNotAvailable)
         }
         try await context.evaluatePolicy(
             .deviceOwnerAuthenticationWithBiometrics,

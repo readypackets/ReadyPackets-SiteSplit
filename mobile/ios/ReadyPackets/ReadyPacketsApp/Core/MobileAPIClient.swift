@@ -40,13 +40,13 @@ actor MobileAPIClient {
 
     private func request<T: Decodable>(path: String, method: String, body: Encodable?, idempotencyKey: String?, as type: T.Type, attemptedRefresh: Bool = false) async throws -> T {
         let access = try await validAccessToken()
-        var request = URLRequest(url: AppConfig.portalBaseURL.appending(path: "/api/mobile/v1" + path))
-        request.httpMethod = method
-        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
-        if let body { request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try JSONEncoder().encode(AnyEncodable(body)) }
-        let (data, response) = try await session.data(for: request)
+        var urlRequest = URLRequest(url: AppConfig.portalBaseURL.appending(path: "/api/mobile/v1" + path))
+        urlRequest.httpMethod = method
+        urlRequest.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let idempotencyKey { urlRequest.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
+        if let body { urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type"); urlRequest.httpBody = try JSONEncoder().encode(AnyEncodable(body)) }
+        let (data, response) = try await session.data(for: urlRequest)
         if let http = response as? HTTPURLResponse, http.statusCode == 401, !attemptedRefresh {
             _ = try await refresh()
             return try await request(path: path, method: method, body: body, idempotencyKey: idempotencyKey, as: type, attemptedRefresh: true)

@@ -24,7 +24,20 @@ final class AppContainer: ObservableObject {
     @Published var toast: String?
     let tokenStore = TokenStore()
     lazy var api = MobileAPIClient(tokenStore: tokenStore)
-    lazy var auth = AuthCoordinator(api: api, tokenStore: tokenStore)
+    lazy var auth: AuthCoordinator = {
+        let coordinator = AuthCoordinator(api: api, tokenStore: tokenStore)
+        coordinator.onAuthorizationResult = { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                state = .signedIn
+            case .failure(let error):
+                state = .signedOut
+                toast = error.localizedDescription
+            }
+        }
+        return coordinator
+    }()
 
     func restore() async {
         guard await tokenStore.refreshToken != nil else { state = .signedOut; return }

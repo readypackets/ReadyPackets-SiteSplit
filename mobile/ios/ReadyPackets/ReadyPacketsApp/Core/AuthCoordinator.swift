@@ -13,6 +13,7 @@ final class AuthCoordinator {
     private let installationID: String
     private var webAuthenticationSession: ASWebAuthenticationSession?
     private let presentationContext = AuthenticationPresentationContext()
+    var onAuthorizationResult: ((Result<Void, Error>) -> Void)?
 
     init(api: MobileAPIClient, tokenStore: TokenStore) {
         self.api = api
@@ -50,9 +51,10 @@ final class AuthCoordinator {
         let session = ASWebAuthenticationSession(
             url: url,
             callbackURLScheme: AppConfig.redirectURI.scheme,
-        ) { [weak self] callback, _ in
-            guard let callback else { return }
-            Task { await self?.complete(with: callback) }
+        ) { [weak self] callback, sessionError in
+            Task { @MainActor [weak self] in
+                await self?.handleBrowserCallback(callback, sessionError: sessionError)
+            }
         }
         session.presentationContextProvider = presentationContext
         session.prefersEphemeralWebBrowserSession = false
@@ -104,6 +106,32 @@ final class AuthCoordinator {
         state = nil
         verifier = nil
         webAuthenticationSession = nil
+    }
+
+    private func handleBrowserCallback(_ callback: URL?, sessionError: Error?) async {
+        defer { webAuthenticationSession = nil }
+        guard let callback else {
+            await clearPendingAuthorizationAttempt()
+            onAuthorizationResult?(.failure(sessionError ?? APIProblem(
+                title: "Sign-in did not complete",
+                code: "browser_session_cancelled",
+                detail: "Please begin sign-in again when you are ready.",
+            )))
+            return
+        }
+        do {
+            try await complete(with: callback)
+            onAuthorizationResult?(.success(()))
+        } catch {
+            await clearPendingAuthorizationAttempt()
+            onAuthorizationResult?(.failure(error))
+        }
+    }
+
+    private func clearPendingAuthorizationAttempt() async {
+        await tokenStore.clearAuthorizationAttempt()
+        state = nil
+        verifier = nil
     }
 
     private static func randomURLSafeString(byteCount: Int) throws -> String {

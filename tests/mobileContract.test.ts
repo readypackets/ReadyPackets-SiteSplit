@@ -104,4 +104,24 @@ describe("native mobile contract safeguards", () => {
     expect(homeView).toContain("private func load() async {");
     expect(homeView).not.toContain("NavigationStack { ScrollView { VStack");
   });
+
+  it("keeps iOS browser authentication, request retries, Keychain reads, and biometric fallbacks compile-safe", async () => {
+    const [auth, app, client, security] = await Promise.all([
+      text("mobile/ios/ReadyPackets/ReadyPacketsApp/Core/AuthCoordinator.swift"),
+      text("mobile/ios/ReadyPackets/ReadyPacketsApp/ReadyPacketsApp.swift"),
+      text("mobile/ios/ReadyPackets/ReadyPacketsApp/Core/MobileAPIClient.swift"),
+      text("mobile/ios/ReadyPackets/ReadyPacketsApp/Core/Security.swift"),
+    ]);
+
+    expect(auth).toContain("var onAuthorizationResult: ((Result<Void, Error>) -> Void)?");
+    expect(auth).toContain("await self?.handleBrowserCallback(callback, sessionError: sessionError)");
+    expect(auth).toContain("await clearPendingAuthorizationAttempt()");
+    expect(app).toContain("coordinator.onAuthorizationResult");
+    expect(client).toContain("var urlRequest = URLRequest");
+    expect(client).toContain("session.data(for: urlRequest)");
+    expect(client).not.toContain("var request = URLRequest(url: AppConfig.portalBaseURL.appending(path: \"/api/mobile/v1\" + path))");
+    expect(security).toContain("kSecMatchLimit: kSecMatchLimitOne");
+    expect(security).not.toContain("kSecAttrMatchLimit");
+    expect(security).toContain("LAError(.biometryNotAvailable)");
+  });
 });
