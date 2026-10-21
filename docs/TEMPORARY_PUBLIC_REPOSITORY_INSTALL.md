@@ -34,7 +34,7 @@ The established production topology keeps the marketing website independently ho
 The normal and preferred process keeps the portal repository private and uses the read-only deploy-key bootstrap in the [production runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md). If temporary public visibility has been explicitly approved after the history review above, use the dedicated portal-only bootstrap—not the older dual-host `one-click-install.sh`:
 
 ```bash
-BOOTSTRAP_COMMIT=540f39438494411e3187be8ab0f25c442a1f9d38
+BOOTSTRAP_COMMIT=fbff2103acee99bc1b936948c94b9d8e728fcc43
 curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
   "https://raw.githubusercontent.com/readypackets/ReadyPackets-SiteSplit/${BOOTSTRAP_COMMIT}/deploy/temporary-public-portal-only-install.sh" \
   -o /root/readypackets-fresh-install.sh \
@@ -44,7 +44,7 @@ curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
   && sudo bash /root/readypackets-fresh-install.sh
 ```
 
-The script is interactive by design and is safe only on a brand-new Ubuntu 24.04 VPS. It pins and verifies the exact reviewed source commit, asks for the canonical portal hostname, up to five redirect-only aliases, the first administrator, and the TLS method. It deliberately **does not** ask for or configure `www.readypackets.com`; the portal receives `PORTAL_ONLY=true` and its outward marketing navigation continues to use the separate website.
+The script is interactive by design and is safe only on a brand-new Ubuntu **24.04 or 26.04 LTS** VPS. It pins and verifies the exact reviewed source commit, asks for the canonical portal hostname, up to five redirect-only aliases, the first administrator, and the TLS method. It deliberately **does not** ask for or configure `www.readypackets.com`; the portal receives `PORTAL_ONLY=true` and its outward marketing navigation continues to use the separate website.
 
 For automatic Cloudflare Origin CA, create the portal record (and every selected alias) as **Proxied**, set the zone to **Full (strict)**, and use the non-echoed prompt for a short-lived token scoped only to **Zone → SSL and Certificates → Edit**. The token is held in a temporary root-only file and removed when the script exits.
 

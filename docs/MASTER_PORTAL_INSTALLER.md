@@ -2,7 +2,7 @@
 
 **Script:** [`deploy/master-install.sh`](../deploy/master-install.sh)
 **Repository:** <https://github.com/readypackets/ReadyPackets-SiteSplit> (private)
-**Use:** A **brand-new Ubuntu 24.04 LTS VPS** for the dedicated, self-hosted ReadyPackets Portal.
+**Use:** A **brand-new Ubuntu 24.04 or 26.04 LTS VPS** for the dedicated, self-hosted ReadyPackets Portal.
 
 > This is the recommended guided installation path. It does not update, repair, or restore an existing portal. It refuses existing ReadyPackets runtime, source, configuration, data, or systemd state. Use **Admin → Platform updates** for a working portal and [Full Backup and Recovery](FULL_BACKUP_RESTORE.md) for a replacement-server recovery.
 
@@ -39,7 +39,7 @@ Applied 52 migration(s); 46 critical tables verified.
 
 ## Before you start
 
-1. Use a new Ubuntu 24.04 LTS VPS with a public IPv4 address and sudo/root access.
+1. Use a new Ubuntu 24.04 or 26.04 LTS VPS with a public IPv4 address and sudo/root access.
 2. Reserve `readypackets.com` and `www.readypackets.com` for the independently hosted ReadyPackets website. Use a dedicated portal hostname, such as `my.readypackets.com` or `portal.readypackets.com`.
 3. Create an `A` record for the canonical portal hostname to the VPS. If aliases are selected, create an `A` or appropriate proxied DNS record for **every** alias to the same VPS before beginning. Keep `3000/tcp` and `3306/tcp` private; only `80/tcp` and `443/tcp` are public for portal traffic.
 4. For automatic Cloudflare Origin CA, proxy every portal DNS record and set Cloudflare to **Full (strict)**. Prepare a short-lived zone-scoped token with only **Zone → SSL and Certificates → Edit**. The script asks for it in a non-echoed prompt only after deployment confirmation.

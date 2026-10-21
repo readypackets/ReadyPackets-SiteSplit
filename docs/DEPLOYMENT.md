@@ -12,7 +12,7 @@ This guide covers both supported deployment models end to end, including TLS, em
 | CPU | 1 vCPU | 2 vCPU |
 | Memory | 2 GB | 4 GB |
 | Disk | 20 GB SSD | 40 GB SSD, growing with uploads |
-| Operating system | Ubuntu 22.04, Ubuntu 24.04, or Debian 12 | Ubuntu 24.04 LTS |
+| Operating system | Ubuntu 22.04, Ubuntu 24.04, Ubuntu 26.04, or Debian 12 | Ubuntu 24.04 or 26.04 LTS |
 | Node.js | 22.x | 22.x LTS |
 | MySQL | 8.0 | 8.4 |
 | Reverse proxy | nginx 1.24 | nginx 1.27 |

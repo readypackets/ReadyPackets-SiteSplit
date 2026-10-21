@@ -4573,3 +4573,16 @@ This closes the observed native Swift compile sequence. The final session-log pu
 - **Native mobile validation** — run `39679627101`: mobile API/source contracts, unsigned iOS simulator build, and Android API 36 compile/tests all succeeded.
 
 The bootstrap script was also rechecked for Bash syntax and non-empty published source after validation. Final session-log publication follows.
+
+---
+## 2026-10-21 — Ubuntu 26.04 LTS fresh-VPS installer support
+
+**Observed installer result:** The temporary-public portal-only bootstrap download, SHA-256 integrity check, and Bash syntax check completed successfully on the operator’s new VPS. It then stopped at its deliberate Ubuntu 24.04-only guard before apt packages, application source, MySQL, Nginx, TLS, configuration, services, users, database data, or portal state were changed. The server remains a safe fresh-install target.
+
+**Compatibility decision:** Ubuntu 26.04 LTS is an official Canonical LTS release with Ubuntu Server support and five years of security and critical bug-fix maintenance through April 2031. The native installer’s required runtime stack uses standard `apt` packages and systemd services; no 24.04-specific package or systemd assumption was identified in the reviewed fresh-host path. Support is intentionally bounded to clean Ubuntu 24.04 or 26.04 LTS servers rather than broadly accepting arbitrary releases.
+
+**Delivered:** Updated the temporary-public portal-only bootstrap and private guided master installer to verify `/etc/os-release`, require `ID=ubuntu`, and accept only `VERSION_ID` `24.04` or `26.04`. Other distributions and versions still fail closed before source retrieval or deployment. Updated fresh-VPS, self-hosted, master-installer, temporary-public, and general deployment documentation to state the supported releases. Added regression assertions for the exact two-version allowlist and the updated guided-installer help contract.
+
+**Immutable bootstrap boundary:** The Ubuntu 26.04-compatible fresh-installer source was committed as `fbff2103acee99bc1b936948c94b9d8e728fcc43` (`fix: support Ubuntu 26 fresh installs`). The temporary-public documentation now pins its bootstrap retrieval to that new immutable revision. The bootstrap continues to install the separately reviewed application source release `45d84b020bc5b7824309cc8af8ced22ae4380bc1`, verify that SHA before deployment, keep `www.readypackets.com` outside the VPS, and retain all prior token, alias, local-readiness, and fresh-host safeguards.
+
+**Validation:** Focused installer checks passed **24 tests across 4 files**. The full non-database suite passed **283 tests across 46 files**. Typecheck, zero-warning lint, Bash syntax for both fresh-install entrypoints, `git diff --check`, and `pnpm audit --prod` (**no known vulnerabilities**) passed. Official Ubuntu 26.04 release notes and Canonical’s release announcement were reviewed. No live portal, VPS state, DNS, Cloudflare setting, credential, or customer data was changed by this source release. Final session-log publication and GitHub workflow verification follow.

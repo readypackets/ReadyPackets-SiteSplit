@@ -2,7 +2,7 @@
 
 **Audience:** Infrastructure administrators installing the ReadyPackets Portal on a new Ubuntu VPS.
 
-The recommended production deployment is the authenticated ReadyPackets Portal on its own native Ubuntu 24.04 LTS VPS, for example `my.readypackets.com` or `portal.readypackets.com`. It is separate from the public ReadyPackets website at `www.readypackets.com`, which may remain hosted on Hostinger or another static host.
+The recommended production deployment is the authenticated ReadyPackets Portal on its own native Ubuntu 24.04 or 26.04 LTS VPS, for example `my.readypackets.com` or `portal.readypackets.com`. It is separate from the public ReadyPackets website at `www.readypackets.com`, which may remain hosted on Hostinger or another static host.
 
 The recommended one-script procedure is [Guided Master Installer](MASTER_PORTAL_INSTALLER.md). It safely captures the name, canonical portal hostname, optional bounded canonical-redirect aliases, first administrator, TLS method, and reviewed release on the new VPS. The authoritative detailed controls remain in [Portal Production VPS Deployment Runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md).
 
