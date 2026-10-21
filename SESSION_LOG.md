@@ -4546,3 +4546,10 @@ The new design and review documents, alongside this session log entry, are queue
 **Validation:** Native delimiter/source audit passed. Focused native contracts, login, CI workflow, TypeScript, zero-warning lint, and source integrity checks passed. The complete non-database suite passed **282 tests across 46 files**. `pnpm audit --prod` reported **no known vulnerabilities**; changed-source credential scan was clear. The authoritative next step is the GitHub macOS simulator build; source commit, final session-log commit, and workflow confirmation are pending.
 
 **Source commit:** The native Orders/Profile SwiftUI rewrites, compiler-safety regression, and this evidence were committed as `7d9a2728dfd144841003cc2765547609837c3416` (`fix: compile native order and profile views`). Final log publication and GitHub macOS simulator confirmation follow.
+
+**Final GitHub validation:** Both authoritative workflows passed on the published native-view repair head `e14ca1eb8ee4877f5c3d0faff355c033428ae53c`:
+
+- **ReadyPackets Portal CI** — run `39676577193`: dependency audit and the full TypeScript/test/security-probe job succeeded.
+- **Native mobile validation** — run `39676577330`: mobile API contract/source safeguards, an unsigned **iOS simulator build**, and Android API 36 compile/tests all succeeded.
+
+This closes the observed native Swift compile sequence. The final session-log publication commit follows.
