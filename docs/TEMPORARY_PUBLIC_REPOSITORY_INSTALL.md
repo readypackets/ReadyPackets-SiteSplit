@@ -24,14 +24,31 @@ git grep -nEI 'github_pat_|ghp_|cfut_|BEGIN( [A-Z]+)? PRIVATE KEY|DATA_ENCRYPTIO
 
 If this reveals a real secret, revoke/rotate it and remediate the Git history before any public exposure. Removing only the current file is not sufficient.
 
-## Important split-host limitation
+## Normal portal-only VPS installation
 
-The anonymous guided bootstrap (`deploy/one-click-install.sh`) requires both the portal hostname and a public-site hostname because it installs the portal repository's dual-host bundles onto one VPS. It is **not the appropriate path** for the established topology where:
+The established production topology keeps the marketing website independently hosted and sends authenticated users to a dedicated portal VPS:
 
 - `www.readypackets.com` is independently hosted on Hostinger; and
 - `my.readypackets.com` or `portal.readypackets.com` is the dedicated portal VPS.
 
-For that normal architecture, keep the portal repository private and use the read-only deploy-key bootstrap in the [production runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md), even if public visibility is temporarily available.
+The normal and preferred process keeps the portal repository private and uses the read-only deploy-key bootstrap in the [production runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md). If temporary public visibility has been explicitly approved after the history review above, use the dedicated portal-only bootstrap—not the older dual-host `one-click-install.sh`:
+
+```bash
+BOOTSTRAP_COMMIT=540f39438494411e3187be8ab0f25c442a1f9d38
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  "https://raw.githubusercontent.com/readypackets/ReadyPackets-SiteSplit/${BOOTSTRAP_COMMIT}/deploy/temporary-public-portal-only-install.sh" \
+  -o /root/readypackets-fresh-install.sh \
+  && sudo chown root:root /root/readypackets-fresh-install.sh \
+  && sudo chmod 0700 /root/readypackets-fresh-install.sh \
+  && sudo bash -n /root/readypackets-fresh-install.sh \
+  && sudo bash /root/readypackets-fresh-install.sh
+```
+
+The script is interactive by design and is safe only on a brand-new Ubuntu 24.04 VPS. It pins and verifies the exact reviewed source commit, asks for the canonical portal hostname, up to five redirect-only aliases, the first administrator, and the TLS method. It deliberately **does not** ask for or configure `www.readypackets.com`; the portal receives `PORTAL_ONLY=true` and its outward marketing navigation continues to use the separate website.
+
+For automatic Cloudflare Origin CA, create the portal record (and every selected alias) as **Proxied**, set the zone to **Full (strict)**, and use the non-echoed prompt for a short-lived token scoped only to **Zone → SSL and Certificates → Edit**. The token is held in a temporary root-only file and removed when the script exits.
+
+After a successful source checkout, return the repository to private visibility. The running portal is not disrupted by that visibility change.
 
 ## If a temporary-public dual-host deployment is explicitly approved
 

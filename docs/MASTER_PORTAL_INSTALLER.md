@@ -97,6 +97,8 @@ curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
 
 This remains a last-resort source-retrieval option. See [Temporary Public-Repository Installation](TEMPORARY_PUBLIC_REPOSITORY_INSTALL.md). Return the repository to private visibility immediately after installation.
 
+For the normal portal-only VPS topology with the marketing website hosted separately, use the dedicated `temporary-public-portal-only-install.sh` procedure in that document. It does not configure or claim the marketing hostname and is the approved temporary-public alternative to the private deploy-key route. The older `one-click-install.sh` remains only for an explicitly approved dual-host deployment where both names are intentionally served from the same VPS.
+
 ### Repair only the confirmed Express 5 startup error
 
 Do **not** run a fresh installer over an existing portal. If the VPS-local `readypackets` journal specifically records `Missing parameter name at index 1: *`, use [`deploy/repair-express5-startup.sh`](../deploy/repair-express5-startup.sh). It is a narrow repair for the legacy Express 4 anonymous SPA wildcard that is rejected by Express 5.

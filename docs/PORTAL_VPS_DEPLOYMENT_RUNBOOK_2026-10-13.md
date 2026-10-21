@@ -213,7 +213,7 @@ Use this path only when the repository has intentionally been made public for a 
 
 Before changing repository visibility, confirm that no commit contains customer data, `portal.env`, database exports, backup archives, credentials, tokens, private keys, origin certificates, encryption keys, or deployment keys. Review [Temporary Public-Repository Installation](TEMPORARY_PUBLIC_REPOSITORY_INSTALL.md) before use.
 
-The guided bootstrap is only appropriate if you deliberately configure the public-host portion of the dual-host portal application on the same VPS. For the normal Hostinger website + portal-VPS topology, use Route A; it prevents the VPS from claiming the website hostname.
+For the normal Hostinger website + portal-VPS topology, use the immutable `temporary-public-portal-only-install.sh` command in [Temporary Public-Repository Installation](TEMPORARY_PUBLIC_REPOSITORY_INSTALL.md). It installs only the dedicated portal hostname, keeps `www.readypackets.com` outside the VPS configuration, and prompts for the Cloudflare token only through a masked terminal prompt. The older `one-click-install.sh` is only appropriate when an explicitly approved dual-host deployment intentionally serves both portal and public-site bundles from one VPS.
 
 ## 5. Route C — updating an existing portal
 
