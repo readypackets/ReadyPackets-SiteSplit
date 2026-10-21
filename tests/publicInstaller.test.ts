@@ -41,6 +41,9 @@ describe("public-source fresh installer defaults", () => {
     expect(portalOnlySource).toContain('is_reserved_marketing_host "$alias"');
     expect(portalOnlySource).toContain('node /opt/readypackets/dist/create-admin.js');
     expect(portalOnlySource).toContain('verify-public-connectivity.sh');
+    expect(portalOnlySource).toContain('case "${VERSION_ID:-}" in');
+    expect(portalOnlySource).toContain('24.04|26.04) ;;');
+    expect(portalOnlySource).toContain("supports a new Ubuntu 24.04 or 26.04 LTS VPS only");
     expect(portalOnlySource).not.toContain("--public-domain");
     expect(portalOnlySource).not.toContain("git clone");
   });

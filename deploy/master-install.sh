@@ -44,7 +44,7 @@ ReadyPackets Portal guided master installer
 Usage:
   sudo bash master-install.sh
 
-This interactive installer is for a brand-new Ubuntu 24.04 LTS VPS only. It:
+This interactive installer is for a brand-new Ubuntu 24.04 or 26.04 LTS VPS only. It:
   1. Captures a canonical portal host, up to five optional redirect aliases,
      ReadyPackets display name, administrator name/email, TLS choice, and an
      exact reviewed portal release.
@@ -130,6 +130,17 @@ is_reserved_public_website_hostname() {
   [[ "$1" == "readypackets.com" || "$1" == "www.readypackets.com" ]]
 }
 
+require_supported_ubuntu_lts() {
+  [[ -r /etc/os-release ]] || fail "This installer requires Ubuntu 24.04 or 26.04 LTS."
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  [[ "${ID:-}" == "ubuntu" ]] || fail "This installer supports Ubuntu Server only."
+  case "${VERSION_ID:-}" in
+    24.04|26.04) ;;
+    *) fail "This installer supports a new Ubuntu 24.04 or 26.04 LTS VPS only." ;;
+  esac
+}
+
 capture_portal_aliases() {
   local raw alias known
   local -a requested_aliases=()
@@ -158,6 +169,7 @@ capture_portal_aliases() {
 fresh_host_guard() {
   [[ $EUID -eq 0 ]] || fail "Run through sudo or as root."
   [[ -t 0 && -t 1 ]] || fail "This guided master installer requires an interactive terminal. Use deploy/github-bootstrap-install.sh for approved automation."
+  require_supported_ubuntu_lts
 
   local path
   for path in "$DEFAULT_PROJECT_DIR" /opt/readypackets /etc/readypackets /var/lib/readypackets; do

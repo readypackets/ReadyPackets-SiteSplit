@@ -14,7 +14,10 @@ describe("guided portal master installer", () => {
     const help = spawnSync("bash", [installerPath, "--help"], { encoding: "utf8" });
     expect(help.status, help.stderr).toBe(0);
     expect(help.stdout).toContain("guided master installer");
-    expect(help.stdout).toContain("brand-new Ubuntu 24.04 LTS VPS only");
+    expect(help.stdout).toContain("brand-new Ubuntu 24.04 or 26.04 LTS VPS only");
+    expect(source).toContain("require_supported_ubuntu_lts");
+    expect(source).toContain('case "${VERSION_ID:-}" in');
+    expect(source).toContain("24.04|26.04) ;;");
     expect(help.stdout).toContain("No GitHub personal-access token");
   });
 

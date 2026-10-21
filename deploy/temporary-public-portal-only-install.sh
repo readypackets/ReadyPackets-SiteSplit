@@ -2,7 +2,7 @@
 # ReadyPackets Portal — temporary-public, portal-only fresh VPS installer.
 #
 # Purpose: install one reviewed immutable ReadyPackets portal release onto a
-# brand-new Ubuntu 24.04 VPS while the source repository is intentionally
+# brand-new Ubuntu 24.04 or 26.04 LTS VPS while the source repository is intentionally
 # public for a short, approved period. This is for the established topology:
 #   * portal VPS: my.readypackets.com (plus optional redirect aliases)
 #   * independent marketing site: www.readypackets.com (not served by this VPS)
@@ -83,11 +83,15 @@ prompt_default() {
 require_new_ubuntu_vps() {
   [[ $EUID -eq 0 ]] || fail "Run this script with sudo or as root."
   [[ -t 0 && -t 1 ]] || fail "Run from an interactive SSH terminal; secrets are requested only through masked prompts."
-  [[ -r /etc/os-release ]] || fail "This installer requires Ubuntu 24.04 LTS."
+  [[ -r /etc/os-release ]] || fail "This installer requires Ubuntu 24.04 or 26.04 LTS."
   # shellcheck disable=SC1091
   . /etc/os-release
-  [[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "24.04" ]] \
-    || fail "This installer supports a new Ubuntu 24.04 LTS VPS only."
+  [[ "${ID:-}" == "ubuntu" ]] \
+    || fail "This installer supports Ubuntu Server only."
+  case "${VERSION_ID:-}" in
+    24.04|26.04) ;;
+    *) fail "This installer supports a new Ubuntu 24.04 or 26.04 LTS VPS only." ;;
+  esac
 
   local path
   for path in "$SOURCE_DIR" /opt/readypackets /etc/readypackets /var/lib/readypackets; do
@@ -264,7 +268,7 @@ main() {
 ReadyPackets Portal — temporary-public fresh VPS installer
 ===========================================================
 
-This is only for a brand-new Ubuntu 24.04 VPS and an intentionally temporary
+This is only for a brand-new Ubuntu 24.04 or 26.04 LTS VPS and an intentionally temporary
 public source repository. It deploys the portal only; it does not claim or
 serve readypackets.com or www.readypackets.com, which remain on the separate
 marketing host. It never accepts passwords, tokens, or keys on a command line.
