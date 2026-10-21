@@ -94,4 +94,14 @@ describe("native mobile contract safeguards", () => {
     expect(project).toContain("PBXFileSystemSynchronizedBuildFileExceptionSet");
     expect(project).toContain("membershipExceptions = (Info.plist,);");
   });
+
+  it("keeps the Home tab in a conventional SwiftUI view declaration for simulator compilation", async () => {
+    const homeView = await text("mobile/ios/ReadyPackets/ReadyPacketsApp/Features/HomeView.swift");
+
+    expect(homeView).toMatch(/struct HomeView: View \{\s+@EnvironmentObject private var container: AppContainer/);
+    expect(homeView).toContain("var body: some View {");
+    expect(homeView).toContain("NavigationStack {");
+    expect(homeView).toContain("private func load() async {");
+    expect(homeView).not.toContain("NavigationStack { ScrollView { VStack");
+  });
 });
