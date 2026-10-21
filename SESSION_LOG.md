@@ -4533,3 +4533,5 @@ The new design and review documents, alongside this session log entry, are queue
 - Extended native source contracts to prevent these exact compiler/API regressions.
 
 **Validation:** Focused native/login/workflow/policy checks passed **19 tests across 4 files**. The complete non-database suite passed **281 tests across 46 files**. Typecheck, zero-warning lint, source integrity checks, production dependency audit (**no known vulnerabilities**), and changed-source credential scan passed. The authoritative next step is the GitHub macOS simulator build; source commit, final session-log commit, and workflow confirmation are pending.
+
+**Source commit:** The native Swift 6 OAuth callback, request retry, Keychain, and LocalAuthentication corrections plus their regression contract were committed as `6490b268bfa742003c884a1bfaf60b6a4c541de9` (`fix: compile native security flows`). Final session-log publication and GitHub macOS simulator confirmation follow.
