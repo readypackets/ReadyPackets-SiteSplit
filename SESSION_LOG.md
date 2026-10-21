@@ -4535,3 +4535,12 @@ The new design and review documents, alongside this session log entry, are queue
 **Validation:** Focused native/login/workflow/policy checks passed **19 tests across 4 files**. The complete non-database suite passed **281 tests across 46 files**. Typecheck, zero-warning lint, source integrity checks, production dependency audit (**no known vulnerabilities**), and changed-source credential scan passed. The authoritative next step is the GitHub macOS simulator build; source commit, final session-log commit, and workflow confirmation are pending.
 
 **Source commit:** The native Swift 6 OAuth callback, request retry, Keychain, and LocalAuthentication corrections plus their regression contract were committed as `6490b268bfa742003c884a1bfaf60b6a4c541de9` (`fix: compile native security flows`). Final session-log publication and GitHub macOS simulator confirmation follow.
+
+---
+## 2026-10-21 — Native Orders and Profile SwiftUI compiler corrections
+
+**Compiler evidence:** After the native security-flow correction, GitHub’s macOS simulator compiled through those files and exposed three remaining SwiftUI source issues: `OrdersView` assigned to the immutable caught `error` instead of its state property; both Orders and Profile referenced a nonexistent `Brand.warning`; and Profile’s compressed `Form`/`Section` builder caused a generic `Section` parameter inference failure.
+
+**Corrections:** Rewrote only `OrdersView.swift` and `ProfileView.swift` into equivalent conventional SwiftUI view declarations. They preserve customer-visible order lists, current-order navigation, attention status, order detail, MFA/device data, account deletion request, sign-out, refresh behavior, accessibility, and error states. Caught network errors now use explicit `self.error` state assignment; attention and MFA-attention indicators use the existing ReadyPackets gold token rather than a nonexistent color. The Profile screen also exposes its existing connection failure state in a labeled section.
+
+**Validation:** Native delimiter/source audit passed. Focused native contracts, login, CI workflow, TypeScript, zero-warning lint, and source integrity checks passed. The complete non-database suite passed **282 tests across 46 files**. `pnpm audit --prod` reported **no known vulnerabilities**; changed-source credential scan was clear. The authoritative next step is the GitHub macOS simulator build; source commit, final session-log commit, and workflow confirmation are pending.

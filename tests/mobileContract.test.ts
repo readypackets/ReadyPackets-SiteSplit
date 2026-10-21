@@ -124,4 +124,20 @@ describe("native mobile contract safeguards", () => {
     expect(security).not.toContain("kSecAttrMatchLimit");
     expect(security).toContain("LAError(.biometryNotAvailable)");
   });
+
+  it("keeps order and profile SwiftUI views compiler-safe and preserves their customer security cues", async () => {
+    const [orders, profile] = await Promise.all([
+      text("mobile/ios/ReadyPackets/ReadyPacketsApp/Features/OrdersView.swift"),
+      text("mobile/ios/ReadyPackets/ReadyPacketsApp/Features/ProfileView.swift"),
+    ]);
+
+    expect(orders).toContain("struct OrdersView: View {");
+    expect(orders).toContain("self.error = error.localizedDescription");
+    expect(orders).toContain(".foregroundStyle(Brand.gold)");
+    expect(orders).not.toContain("catch { error =");
+    expect(profile).toContain("struct ProfileView: View {");
+    expect(profile).toContain('Section("Account") {');
+    expect(profile).toContain("profile.mfaEnabled ? Brand.teal : Brand.gold");
+    expect(profile).not.toContain("Brand.warning");
+  });
 });
