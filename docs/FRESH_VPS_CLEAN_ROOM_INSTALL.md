@@ -52,10 +52,10 @@ The installer shows a final review. Confirm the domain, source repository, pinne
 A correct fresh installation prints a migration completion line in this form before it installs/starts ReadyPackets:
 
 ```text
-Applied 51 migration(s); 44 critical tables verified.
+Applied 52 migration(s); 46 critical tables verified.
 ```
 
-The exact number of migrations and verified tables may increase in a later reviewed release. For this release, the expected completion line is **`Applied 51 migration(s); 44 critical tables verified.`** The required invariant is that the installer completes without a schema-contract error. If it prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
+The exact number of migrations and verified tables may increase in a later reviewed release. For this release, the expected completion line is **`Applied 52 migration(s); 46 critical tables verified.`** The required invariant is that the installer completes without a schema-contract error. If it prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
 
 ## 5. Post-install verification
 

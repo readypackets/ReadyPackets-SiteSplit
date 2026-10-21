@@ -16,6 +16,7 @@ import { Input, PasswordInput } from "@/components/ui/Field";
 import { Alert, Card } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { marketingSiteUrl } from "@/lib/marketing";
+import { LoginSlideshow } from "@/components/auth/LoginSlideshow";
 
 export function AuthShell({
   title,
@@ -262,22 +263,30 @@ export function LoginPage() {
   }
 
   return (
-    <AuthShell
-      title="Sign in"
-      description="Access your orders, deliverables, and support history."
-      footer={
-        session.registrationEnabled ? (
-          <>
-            New to {BRAND.companyShortName}? <Link href="/register">Create an account</Link>
-          </>
-        ) : (
-          <>
-            Registration is currently closed. <a href={marketingSiteUrl("/contact")}>Contact us</a> for access.
-          </>
-        )
-      }
-    >
-      <form onSubmit={submitCredentials} noValidate className="space-y-5">
+    <div className="flex min-h-screen flex-col bg-surface-soft">
+      <a href="#auth-main" className="skip-link">
+        Skip to sign-in form
+      </a>
+      <div className="grid min-h-screen lg:grid-cols-[minmax(0,1.1fr)_minmax(32rem,0.9fr)]">
+        <main id="auth-main" className="order-1 flex items-center justify-center px-4 py-10 sm:px-8 sm:py-14 lg:order-2 lg:px-12 xl:px-16">
+          <div className="w-full max-w-md">
+            <div className="text-center">
+              <a href={marketingSiteUrl()} className="inline-block" aria-label={`${BRAND.companyShortName} website`}>
+                <img
+                  src={BRAND_ASSETS.light.squareLockup}
+                  alt={`${BRAND.wordmark} logo`}
+                  width={2048}
+                  height={2048}
+                  className="mx-auto size-28 object-contain sm:size-32"
+                />
+              </a>
+            </div>
+
+            <Card className="mt-7">
+              <h1 className="text-xl font-semibold text-ink">Sign in</h1>
+              <p className="mt-1.5 text-sm text-body">Access your orders, deliverables, and support history.</p>
+              <div className="mt-6">
+                <form onSubmit={submitCredentials} noValidate className="space-y-5">
         {maintenanceBlocking ? (
           <Alert tone="warning" title="Maintenance in progress">
             {session.maintenance?.message}
@@ -351,17 +360,37 @@ export function LoginPage() {
               : "Single Sign-On will be available after an administrator enables a SAML identity provider."}
           </p>
         </div>
-      </form>
+                </form>
+              </div>
 
-      <div className="mt-6 border-t border-line pt-5">
-        <p className="flex items-start gap-2 text-xs text-muted">
-          <KeyRound className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            Sessions are protected with a strict same-site cookie and expire automatically. Review
-            and revoke active sessions at any time from your security settings.
-          </span>
-        </p>
+              <div className="mt-6 border-t border-line pt-5">
+                <p className="flex items-start gap-2 text-xs text-muted">
+                  <KeyRound className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    Sessions are protected with a strict same-site cookie and expire automatically. Review
+                    and revoke active sessions at any time from your security settings.
+                  </span>
+                </p>
+              </div>
+            </Card>
+
+            <div className="mt-5 text-center text-sm text-body">
+              {session.registrationEnabled ? (
+                <>
+                  New to {BRAND.companyShortName}? <Link href="/register">Create an account</Link>
+                </>
+              ) : (
+                <>
+                  Registration is currently closed. <a href={marketingSiteUrl("/contact")}>Contact us</a> for access.
+                </>
+              )}
+            </div>
+
+            <p className="mt-8 text-center text-xs text-muted">{BRAND.copyright()}</p>
+          </div>
+        </main>
+        <LoginSlideshow />
       </div>
-    </AuthShell>
+    </div>
   );
 }

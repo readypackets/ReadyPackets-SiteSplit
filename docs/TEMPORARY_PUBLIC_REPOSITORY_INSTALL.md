@@ -53,7 +53,7 @@ For that normal architecture, keep the portal repository private and use the rea
    ```
 
 5. At the prompts, supply both dedicated hostnames, select the appropriate TLS method, specify the approved full commit SHA rather than accepting a moving branch tip, and review the redacted plan before entering the confirmation phrase.
-6. Confirm the installer prints **`Applied 51 migration(s); 44 critical tables verified.`** and passes local/readiness checks.
+6. Confirm the installer prints **`Applied 52 migration(s); 46 critical tables verified.`** and passes local/readiness checks.
 7. Make the repository private immediately after the source has been cloned and the installer has recorded the installed commit. The running portal is not interrupted by that visibility change.
 8. Run the same MFA, backup, restore-drill, and public-health verification required for every production portal.
 
