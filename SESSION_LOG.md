@@ -4586,3 +4586,10 @@ The bootstrap script was also rechecked for Bash syntax and non-empty published 
 **Immutable bootstrap boundary:** The Ubuntu 26.04-compatible fresh-installer source was committed as `fbff2103acee99bc1b936948c94b9d8e728fcc43` (`fix: support Ubuntu 26 fresh installs`). The temporary-public documentation now pins its bootstrap retrieval to that new immutable revision. The bootstrap continues to install the separately reviewed application source release `45d84b020bc5b7824309cc8af8ced22ae4380bc1`, verify that SHA before deployment, keep `www.readypackets.com` outside the VPS, and retain all prior token, alias, local-readiness, and fresh-host safeguards.
 
 **Validation:** Focused installer checks passed **24 tests across 4 files**. The full non-database suite passed **283 tests across 46 files**. Typecheck, zero-warning lint, Bash syntax for both fresh-install entrypoints, `git diff --check`, and `pnpm audit --prod` (**no known vulnerabilities**) passed. Official Ubuntu 26.04 release notes and Canonical’s release announcement were reviewed. No live portal, VPS state, DNS, Cloudflare setting, credential, or customer data was changed by this source release. Final session-log publication and GitHub workflow verification follow.
+
+**Final GitHub validation:** The Ubuntu 26.04 installer-support release at `f1202dddb3f95969fffb1a63fbd7180ec5c5bfbf` passed both authoritative workflows:
+
+- **ReadyPackets Portal CI** — run `39688272806`: typecheck, full portal test/security-probe job, and production dependency audit succeeded.
+- **Native mobile validation** — run `39688272799`: mobile source/API safeguards, unsigned iOS simulator build, and Android API 36 compile/tests all succeeded.
+
+Final session-log publication follows; the temporary-public bootstrap download is pinned to `fbff2103acee99bc1b936948c94b9d8e728fcc43`, the installer-containing source revision.
