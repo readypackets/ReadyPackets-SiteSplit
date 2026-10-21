@@ -11,6 +11,7 @@ targets:
       - path: ReadyPacketsApp
     settings:
       base:
+        PRODUCT_NAME: ReadyPackets
         PRODUCT_BUNDLE_IDENTIFIER: com.readypackets.mobile
         INFOPLIST_FILE: ReadyPacketsApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: ReadyPacketsApp/ReadyPackets.entitlements

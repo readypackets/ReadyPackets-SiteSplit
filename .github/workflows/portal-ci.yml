@@ -54,8 +54,8 @@ jobs:
       # Test-only values. Real deployments generate their own; the application
       # refuses to start in production if a development default is detected.
       SESSION_SECRET: ci_session_secret_value_at_least_32_chars_long
-      DATA_ENCRYPTION_KEY: 1111111111111111111111111111111111111111111111111111111111111111
-      EMAIL_INDEX_KEY: 2222222222222222222222222222222222222222222222222222222222222222
+      DATA_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      EMAIL_INDEX_KEY: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
       TRUST_PROXY_HOPS: 1
       STORAGE_DRIVER: local
       STORAGE_LOCAL_ROOT: ./var/storage

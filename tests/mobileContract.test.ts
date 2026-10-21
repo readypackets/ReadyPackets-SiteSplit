@@ -80,4 +80,15 @@ describe("native mobile contract safeguards", () => {
     expect(publicRouter).toContain('router.post("/contact"');
     expect(publicRouter).not.toContain("mobile:write");
   });
+
+  it("gives the unsigned iOS simulator build an explicit non-empty application product name", async () => {
+    const [manifest, project] = await Promise.all([
+      text("mobile/ios/ReadyPackets/project.yml"),
+      text("mobile/ios/ReadyPackets/ReadyPackets.xcodeproj/project.pbxproj"),
+    ]);
+
+    expect(manifest).toContain("PRODUCT_NAME: ReadyPackets");
+    expect(project.match(/PRODUCT_NAME = ReadyPackets;/g)).toHaveLength(2);
+    expect(project).toContain("path = ReadyPackets.app;");
+  });
 });
