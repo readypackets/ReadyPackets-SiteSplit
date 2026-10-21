@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 const installerPath = resolve(process.cwd(), "deploy/one-click-install.sh");
 const source = readFileSync(installerPath, "utf8");
+const portalOnlyInstallerPath = resolve(process.cwd(), "deploy/temporary-public-portal-only-install.sh");
+const portalOnlySource = readFileSync(portalOnlyInstallerPath, "utf8");
 
 describe("public-source fresh installer defaults", () => {
   it("has valid Bash syntax", () => {
@@ -24,5 +26,22 @@ describe("public-source fresh installer defaults", () => {
 
   it("checks Docker public HTTPS directly instead of inheriting an arbitrary egress proxy", () => {
     expect(source).toContain("curl --noproxy '*' -fsS --connect-timeout 5 --max-time 15");
+  });
+
+  it("keeps the normal temporary-public installer portal-only, immutable, and secret-safe", () => {
+    const result = spawnSync("bash", ["-n", portalOnlyInstallerPath], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(portalOnlySource).toContain('readonly RELEASE_COMMIT="45d84b020bc5b7824309cc8af8ced22ae4380bc1"');
+    expect(portalOnlySource).toContain('git -C "$SOURCE_DIR" fetch --depth=1 origin "$RELEASE_COMMIT"');
+    expect(portalOnlySource).toContain('[[ "${resolved,,}" == "$RELEASE_COMMIT" ]]');
+    expect(portalOnlySource).toContain('read -r -s -p "Cloudflare Origin CA token: " token');
+    expect(portalOnlySource).toContain('shred -u -- "$TOKEN_FILE"');
+    expect(portalOnlySource).toContain('--portal-alias "$alias"');
+    expect(portalOnlySource).toContain('is_reserved_marketing_host "$DOMAIN"');
+    expect(portalOnlySource).toContain('is_reserved_marketing_host "$alias"');
+    expect(portalOnlySource).toContain('node /opt/readypackets/dist/create-admin.js');
+    expect(portalOnlySource).toContain('verify-public-connectivity.sh');
+    expect(portalOnlySource).not.toContain("--public-domain");
+    expect(portalOnlySource).not.toContain("git clone");
   });
 });
