@@ -88,7 +88,10 @@ describe("native mobile contract safeguards", () => {
     ]);
 
     expect(manifest).toContain("PRODUCT_NAME: ReadyPackets");
+    expect(manifest).toContain("excludes:\n          - Info.plist");
     expect(project.match(/PRODUCT_NAME = ReadyPackets;/g)).toHaveLength(2);
     expect(project).toContain("path = ReadyPackets.app;");
+    expect(project).toContain("PBXFileSystemSynchronizedBuildFileExceptionSet");
+    expect(project).toContain("membershipExceptions = (Info.plist,);");
   });
 });

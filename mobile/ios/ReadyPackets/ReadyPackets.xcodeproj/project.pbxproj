@@ -6,7 +6,7 @@
 	objects = {
 		A1B2C3D4E5F60708090A0B01 /* ReadyPackets.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ReadyPackets.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D4E5F60708090A0B02 /* Products */ = {isa = PBXGroup; children = (A1B2C3D4E5F60708090A0B01 /* ReadyPackets.app */,); name = Products; sourceTree = "<group>"; };
-		A1B2C3D4E5F60708090A0B03 /* ReadyPacketsApp */ = {isa = PBXFileSystemSynchronizedRootGroup; path = ReadyPacketsApp; sourceTree = "<group>"; };
+		A1B2C3D4E5F60708090A0B03 /* ReadyPacketsApp */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A1B2C3D4E5F60708090A0B16 /* ReadyPackets build file exceptions */,); path = ReadyPacketsApp; sourceTree = "<group>"; };
 		A1B2C3D4E5F60708090A0B04 = {isa = PBXGroup; children = (A1B2C3D4E5F60708090A0B03 /* ReadyPacketsApp */, A1B2C3D4E5F60708090A0B02 /* Products */,); sourceTree = "<group>"; };
 		A1B2C3D4E5F60708090A0B05 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A1B2C3D4E5F60708090A0B06 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
@@ -19,6 +19,7 @@
 		A1B2C3D4E5F60708090A0B13 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; DEVELOPMENT_TEAM = ""; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; }; name = Debug; };
 		A1B2C3D4E5F60708090A0B14 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; DEVELOPMENT_TEAM = ""; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; }; name = Release; };
 		A1B2C3D4E5F60708090A0B15 /* Project object */ = {isa = PBXProject; attributes = { BuildIndependentTargetsInParallel = YES; LastSwiftUpdateCheck = 1600; LastUpgradeCheck = 1600; TargetAttributes = { A1B2C3D4E5F60708090A0B08 = { CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = A1B2C3D4E5F60708090A0B12 /* Project configuration list */; compatibilityVersion = "Xcode 16.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = A1B2C3D4E5F60708090A0B04; productRefGroup = A1B2C3D4E5F60708090A0B02 /* Products */; projectDirPath = ""; projectRoot = ""; targets = (A1B2C3D4E5F60708090A0B08 /* ReadyPackets */,); };
+		A1B2C3D4E5F60708090A0B16 /* ReadyPackets build file exceptions */ = {isa = PBXFileSystemSynchronizedBuildFileExceptionSet; membershipExceptions = (Info.plist,); target = A1B2C3D4E5F60708090A0B08 /* ReadyPackets */; };
 	};
 	rootObject = A1B2C3D4E5F60708090A0B15 /* Project object */;
 }

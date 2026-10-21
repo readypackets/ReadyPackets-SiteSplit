@@ -74,6 +74,14 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # The native installer and Docker runtime both provide these local-only
+      # converters. Install them in CI so policy-import coverage exercises the
+      # same supported self-hosted contract rather than a missing executable.
+      - name: Install policy document converters
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends antiword poppler-utils
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile=false
 

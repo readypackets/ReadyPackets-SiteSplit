@@ -32,4 +32,11 @@ describe("GitHub Actions workflow safety", () => {
       }
     }
   });
+
+  it("provisions the same local policy conversion executables as self-hosted deployments", () => {
+    const workflow = readFileSync(repositoryPath(".github/workflows/portal-ci.yml"), "utf8");
+
+    expect(workflow).toContain("name: Install policy document converters");
+    expect(workflow).toContain("sudo apt-get install --yes --no-install-recommends antiword poppler-utils");
+  });
 });

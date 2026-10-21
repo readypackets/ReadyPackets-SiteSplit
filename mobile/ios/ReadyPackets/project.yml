@@ -9,6 +9,8 @@ targets:
     platform: iOS
     sources:
       - path: ReadyPacketsApp
+        excludes:
+          - Info.plist
     settings:
       base:
         PRODUCT_NAME: ReadyPackets
