@@ -10,13 +10,13 @@
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/brand/readypackets-full-lockup-square-light-512.png",
+      "src": "/brand/readypackets-approved-icon-light-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/brand/readypackets-full-lockup-square-light-512.png",
+      "src": "/brand/readypackets-approved-icon-light-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

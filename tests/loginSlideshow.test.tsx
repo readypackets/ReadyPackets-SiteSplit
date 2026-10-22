@@ -85,7 +85,7 @@ describe("login slideshow", () => {
       imageKey: "mark",
     }]);
     expect(slides).toHaveLength(1);
-    expect(slides[0]?.image).toBe("/brand/readypackets-mark-dark.svg");
+    expect(slides[0]?.image).toBe("/brand/readypackets-approved-header-icon-dark.png");
     expect(slides[0]?.title).toBe("Track your engagement securely.");
     expect(renderLoginSlides([{ title: "Missing required fields" }])).toEqual(LOGIN_SLIDES);
   });

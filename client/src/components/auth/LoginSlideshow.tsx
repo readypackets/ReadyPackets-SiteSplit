@@ -20,9 +20,11 @@ export interface LoginSlide {
 }
 
 const LOCAL_LOGIN_SLIDESHOW_ASSETS = {
-  full: BRAND_ASSETS.dark.full,
-  mark: BRAND_ASSETS.mark.dark.svg,
-  square: BRAND_ASSETS.dark.squareLockup,
+  full: BRAND_ASSETS.dark.wordmark,
+  mark: BRAND_ASSETS.dark.icon,
+  // Retain the stored configuration key for backwards compatibility, but render
+  // the approved wordmark rather than the retired square lockup.
+  square: BRAND_ASSETS.dark.wordmark,
 } as const;
 
 export function renderLoginSlides(value: unknown): LoginSlide[] {

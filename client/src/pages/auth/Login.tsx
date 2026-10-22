@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { KeyRound, LogIn, Mail, ShieldCheck } from "lucide-react";
-import { BRAND, BRAND_ASSETS } from "@shared/brand";
+import { BRAND } from "@shared/brand";
 import { trpc, errorMessage, refreshCsrfToken } from "@/lib/trpc";
 import { useSession } from "@/lib/session";
 import { Button, LinkButton } from "@/components/ui/Button";
@@ -17,6 +17,7 @@ import { Alert, Card } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { marketingSiteUrl } from "@/lib/marketing";
 import { LoginSlideshow } from "@/components/auth/LoginSlideshow";
+import { ApprovedBrandLogo } from "@/components/brand/ApprovedBrandLogo";
 
 export function AuthShell({
   title,
@@ -38,13 +39,7 @@ export function AuthShell({
         <div className="w-full max-w-md">
           <div className="text-center">
             <a href={marketingSiteUrl()} className="inline-block" aria-label={`${BRAND.companyShortName} website`}>
-              <img
-                src={BRAND_ASSETS.light.squareLockup}
-                alt={`${BRAND.wordmark} logo`}
-                width={2048}
-                height={2048}
-                className="mx-auto size-32 object-contain"
-              />
+              <ApprovedBrandLogo variant="light" label="" className="mx-auto w-full max-w-72" />
             </a>
           </div>
 
@@ -273,13 +268,7 @@ export function LoginPage() {
           <div className="w-full max-w-md">
             <div className="text-center">
               <a href={marketingSiteUrl()} className="inline-block" aria-label={`${BRAND.companyShortName} website`}>
-                <img
-                  src={BRAND_ASSETS.light.squareLockup}
-                  alt={`${BRAND.wordmark} logo`}
-                  width={2048}
-                  height={2048}
-                  className="mx-auto size-28 object-contain sm:size-32"
-                />
+                <ApprovedBrandLogo variant="light" label="" className="mx-auto w-full max-w-72" />
               </a>
             </div>
 

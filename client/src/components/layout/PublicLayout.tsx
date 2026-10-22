@@ -8,11 +8,12 @@
 import type { ReactNode } from "react";
 import { Link } from "wouter";
 import { Mail, MapPin } from "lucide-react";
-import { BRAND, BRAND_ASSETS } from "@shared/brand";
+import { BRAND } from "@shared/brand";
 import { useSession } from "@/lib/session";
 import { trpc } from "@/lib/trpc";
 import { Alert } from "@/components/ui/Surface";
 import { useCookieConsent } from "@/components/privacy/CookieConsent";
+import { ApprovedBrandLogo } from "@/components/brand/ApprovedBrandLogo";
 import { PublicHeader } from "./PublicHeader";
 
 const FOOTER_SECTIONS = [
@@ -96,15 +97,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
           <div className="grid gap-10 lg:grid-cols-[1.4fr_repeat(3,1fr)]">
             <div>
-              <img
-                src={BRAND_ASSETS.dark.squareLockup}
-                alt={`${BRAND.wordmark} logo`}
-                width={2048}
-                height={2048}
-                className="size-32 object-contain"
-                loading="lazy"
-                decoding="async"
-              />
+              <ApprovedBrandLogo variant="dark" className="w-full max-w-72" />
               <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/70">
                 {BRAND.tagline}. Structured architecture, documentation, and strategy for founders
                 who need their idea to hold up under scrutiny.

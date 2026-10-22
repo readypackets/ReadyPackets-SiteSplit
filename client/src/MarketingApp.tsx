@@ -53,7 +53,7 @@ export function MarketingApp() {
       name: businessProfile?.publicName ?? BRAND.companyShortName,
       legalName: businessProfile?.legalName ?? BRAND.companyLegalName,
       url: origin,
-      logo: `${origin}${BRAND_ASSETS.light.trademark}`,
+      logo: `${origin}${BRAND_ASSETS.light.icon}`,
       email: BRAND.emails.general,
       address: {
         "@type": "PostalAddress",

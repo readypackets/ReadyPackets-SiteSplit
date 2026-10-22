@@ -4683,3 +4683,19 @@ The immutable fetched source remains root-owned. Rather than changing that sourc
 
 
 **Publication and authoritative validation:** The authorization release (`fb99f9563f81047cfb41b0e6ef8719ade86fc0a5`) and the customer-mobile scope clarification (`b2587aa8da9f3eca4774f711ba29b23f82df4339`) were pushed to private `main`; the latter is the validated final source head for the feature. GitHub Actions passed on `b2587aa8da9f3eca4774f711ba29b23f82df4339`: **ReadyPackets Portal CI** run `39775973534`, including the disposable-MySQL migration/seed/full test/security gates, and **Native mobile validation** run `39775973867`, including mobile API/source safeguards, unsigned iOS simulator build, and Android API 36 compile/tests. The observed browser-portal administrator error is corrected in the verified release. This closing log-only publication commit follows.
+
+
+---
+## 2026-10-22 — Approved ReadyPackets logo-only web and native asset release
+
+**User request:** “do not use this old logo anywhere on the site only use the new updated logo.”
+
+**Delivered:** Replaced the Portal’s central brand registry with the supplied, approved updated ReadyPackets asset family: light/dark icon, wordmark, divider, and tagline PNGs. The responsive full-lockup component preserves each source image’s native aspect ratio and publishes one accessible label for the composed mark. Public, Portal, and administrator navigation; the sign-in screen; the administrator-configurable default login slideshow; the public footer; PWA install prompt; browser/favicon and Apple touch icon declarations; web manifest; Organization JSON-LD; transactional email header; and generated-invoice brand metadata now resolve only to that approved asset family. The update contains no external CDN, logo-generation service, Manus dependency, or new runtime package.
+
+**Retired asset removal:** Removed every previous document-flow, square-lockup, compact-mark, and legacy-favicon asset from `client/public/brand`, rather than merely ceasing to reference it. This prevents a deployed Portal from serving the retired artwork by an old direct `/brand/...` URL after the new release is installed. Added the approved 192px and 512px transparent app-icon derivatives and a compatible root `favicon.ico`, all rendered only from the approved supplied light icon. The test suite now contains an explicit public-directory allowlist and fails if a retired logo-family reference or filename returns.
+
+**Native consistency:** Replaced the iOS AppIcon source, Android adaptive-launcher foreground mapping, Android compact icon resource, and shared mobile light wordmark with deterministic derivatives/copies of the approved provided assets. The Android launcher no longer references its prior generic document vector. A native-brand regression pins the approved Android mapping, absence of the retired foreground vector, asset presence, and exact shared-wordmark source identity.
+
+**Validation before publication:** Portal focused and full non-database validation passed **304 tests across 50 files**, including the updated web-brand, slideshow, invoice, and native-brand tests. `pnpm run typecheck`, zero-warning ESLint, all legacy/public/Portal/server production bundles, `pnpm audit --prod`, generated-artifact cleanup, whitespace validation, approved-only source/public-directory scan, and changed-source credential scan passed. The sandbox lacks a usable Java compiler toolchain, so a local Android assembly could not start; this is an environment limitation, not a source failure. The final GitHub Portal CI and native mobile workflows will provide the authoritative disposable-MySQL, iOS-simulator, and Android validation. No live VPS, portal account, website host, CDN/cache, database, customer data, TLS material, secret, or external integration was accessed or changed.
+
+**Publication state:** Pending reviewed source commit/push and GitHub Actions confirmation.

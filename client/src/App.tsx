@@ -164,7 +164,7 @@ function PublicRoutes() {
       name: businessProfile?.publicName ?? BRAND.companyShortName,
       legalName: businessProfile?.legalName ?? BRAND.companyLegalName,
       url: origin,
-      logo: `${origin}${BRAND_ASSETS.light.trademark}`,
+      logo: `${origin}${BRAND_ASSETS.light.icon}`,
       email: BRAND.emails.general,
       address: { "@type": "PostalAddress", streetAddress: [businessProfile?.addressLine1, businessProfile?.addressLine2].filter(Boolean).join(", ") || BRAND.address, addressLocality: businessProfile?.city ?? "Lanham", addressRegion: businessProfile?.state ?? "MD", postalCode: businessProfile?.postalCode ?? "20706", addressCountry: businessProfile?.country ?? "US" },
       contactPoint: { "@type": "ContactPoint", contactType: "Customer Service", email: BRAND.emails.general },

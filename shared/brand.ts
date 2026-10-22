@@ -37,55 +37,25 @@ export const BRAND_COLORS = {
 } as const;
 
 /**
- * Approved logo asset paths. Assets are served from the application's own
- * public directory — never from a CDN or third-party origin.
+ * Approved updated logo asset paths. Assets are served from the application's
+ * own public directory — never from a CDN or third-party origin. Retired
+ * document-flow and square-lockup artwork is intentionally not registered.
  */
 export const BRAND_ASSETS = {
   light: {
-    squareLockup: "/brand/readypackets-full-lockup-square-light.webp",
-    squareLockupPng: "/brand/readypackets-full-lockup-square-light.png",
-    compactMark: "/brand/readypackets-full-lockup-square-light-compact-mark.png",
-    full: "/brand/readypackets-document-flow-light.svg",
-    trademark: "/brand/readypackets-document-flow-light-tm.svg",
-    wordmark: "/brand/readypackets-document-flow-light-wordmark.svg",
-    wordmarkPng: "/brand/readypackets-document-flow-light-wordmark.png",
-    wordmarkTrademark: "/brand/readypackets-document-flow-light-wordmark-tm.svg",
-    wordmarkTrademarkPng: "/brand/readypackets-document-flow-light-wordmark-tm.png",
+    icon: "/brand/readypackets-approved-header-icon-light.png",
+    wordmark: "/brand/readypackets-approved-header-wordmark-light.png",
+    rule: "/brand/readypackets-approved-header-rule-light.png",
+    tagline: "/brand/readypackets-approved-header-tagline-light.png",
   },
   dark: {
-    squareLockup: "/brand/readypackets-full-lockup-square-dark.webp",
-    squareLockupPng: "/brand/readypackets-full-lockup-square-dark.png",
-    compactMark: "/brand/readypackets-full-lockup-square-dark-compact-mark.png",
-    full: "/brand/readypackets-document-flow-dark.svg",
-    trademark: "/brand/readypackets-document-flow-dark-tm.svg",
-    wordmark: "/brand/readypackets-document-flow-dark-wordmark.svg",
-    wordmarkPng: "/brand/readypackets-document-flow-dark-wordmark.png",
-    wordmarkTrademark: "/brand/readypackets-document-flow-dark-wordmark-tm.svg",
-    wordmarkTrademarkPng: "/brand/readypackets-document-flow-dark-wordmark-tm.png",
+    icon: "/brand/readypackets-approved-header-icon-dark.png",
+    wordmark: "/brand/readypackets-approved-header-wordmark-dark.png",
+    rule: "/brand/readypackets-approved-header-rule-dark.png",
+    tagline: "/brand/readypackets-approved-header-tagline-dark.png",
   },
-  mark: {
-    light: {
-      svg: "/brand/readypackets-mark-light.svg",
-      px1024: "/brand/readypackets-mark-light-1024.png",
-      px512: "/brand/readypackets-mark-light-512.png",
-      px256: "/brand/readypackets-mark-light-256.png",
-      px128: "/brand/readypackets-mark-light-128.png",
-      px64: "/brand/readypackets-mark-light-64.png",
-      px32: "/brand/readypackets-mark-light-32.png",
-      px16: "/brand/readypackets-mark-light-16.png",
-    },
-    dark: {
-      svg: "/brand/readypackets-mark-dark.svg",
-      px1024: "/brand/readypackets-mark-dark-1024.png",
-      px512: "/brand/readypackets-mark-dark-512.png",
-      px256: "/brand/readypackets-mark-dark-256.png",
-      px128: "/brand/readypackets-mark-dark-128.png",
-      px64: "/brand/readypackets-mark-dark-64.png",
-      px32: "/brand/readypackets-mark-dark-32.png",
-      px16: "/brand/readypackets-mark-dark-16.png",
-    },
-  },
-  favicon: "/favicon.ico",
+  favicon: "/brand/readypackets-approved-icon-light-192.png",
+  pwaIcon: "/brand/readypackets-approved-icon-light-512.png",
 } as const;
 
 /** Brand pillars, used on the public About page. */

@@ -26,7 +26,7 @@ const invoice: ReadyPacketsInvoice = {
   customerVisible: true,
   publishedAt: new Date("2026-08-18T12:00:00Z"),
   emailQueuedAt: new Date("2026-08-18T12:01:00Z"),
-  brand: { companyName: "ReadyPackets", logoPath: "/brand/readypackets-full-lockup-square-light.webp", supportUrl: "https://www.readypackets.com" },
+  brand: { companyName: "ReadyPackets", logoPath: "/brand/readypackets-approved-header-wordmark-light.png", supportUrl: "https://www.readypackets.com" },
 };
 
 describe("branded invoice PDF", () => {
