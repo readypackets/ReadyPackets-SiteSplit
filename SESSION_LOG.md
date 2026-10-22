@@ -4680,3 +4680,6 @@ The immutable fetched source remains root-owned. Rather than changing that sourc
 
 
 **Follow-up publication note:** The customer-native OpenAPI advance endpoint label was aligned with its existing customer-only route/authentication boundary (“configured customer workflow phase”). This is documentation-only; administrator/staff workflow participation remains limited to the browser Portal route and no mobile authorization surface was broadened. The follow-up documentation and log commit follows.
+
+
+**Publication and authoritative validation:** The authorization release (`fb99f9563f81047cfb41b0e6ef8719ade86fc0a5`) and the customer-mobile scope clarification (`b2587aa8da9f3eca4774f711ba29b23f82df4339`) were pushed to private `main`; the latter is the validated final source head for the feature. GitHub Actions passed on `b2587aa8da9f3eca4774f711ba29b23f82df4339`: **ReadyPackets Portal CI** run `39775973534`, including the disposable-MySQL migration/seed/full test/security gates, and **Native mobile validation** run `39775973867`, including mobile API/source safeguards, unsigned iOS simulator build, and Android API 36 compile/tests. The observed browser-portal administrator error is corrected in the verified release. This closing log-only publication commit follows.
