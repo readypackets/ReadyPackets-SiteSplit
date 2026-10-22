@@ -184,6 +184,7 @@ snapshot_host_artifacts() {
   local -a host_paths=(
     /etc/nginx/sites-available/readypackets
     /etc/nginx/sites-enabled/readypackets
+    /etc/readypackets/maintenance-mode.conf
     /etc/readypackets/tls
     /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
     /etc/fail2ban/jail.d/readypackets.local

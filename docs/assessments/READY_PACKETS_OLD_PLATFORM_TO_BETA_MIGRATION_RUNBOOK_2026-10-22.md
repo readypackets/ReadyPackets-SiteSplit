@@ -156,7 +156,90 @@ Review this output locally. Share only the status/topology lines if help is need
 4. Move the marketing site’s Portal link and customer communications to `https://beta.readypackets.com` only after the acceptance gate passes.
 5. Retain the old host, protected backup, and DNS/TLS capacity for the rollback period. Do not configure its historical hostname as a beta alias while it is still serving legacy records.
 
-## Same-VPS sequence — only for an eligible native host
+## Exact restored legacy combined-host migration — limited recovery path
+
+The uploaded preflight identified the historical combined Portal as release
+`9f608821df78b3d003a349606390fa2b8340ac99`: a native local-storage deployment
+with a 48-entry Drizzle migration ledger. It is **not** eligible to use its
+old in-Portal update controller directly. Current releases include a separate
+root-console helper, `deploy/migrate-legacy-combined-platform.sh`, specifically
+for this exact restored topology.
+
+The helper refuses every other source revision, a dirty checkout, a missing
+release marker, an unexpected schema count, object storage, an existing alias,
+a portal-only installation, a non-apex/www canonical host, a missing root-owned
+runtime environment, a changed branch tip, or a target that lacks the expected
+53-migration baseline. It does not change the hostname or request a certificate.
+It is intentionally unsuitable for a normal Portal update or a production
+cutover.
+
+### Required preflight
+
+1. Keep the VPS snapshot; it is useful operator recovery insurance but does not
+   replace the runner's verified application-level backup and rollback point.
+2. Run the runner in `--check` mode from an interactive root console first. It
+   reads only status/configuration metadata and makes no changes.
+3. Temporarily make the reviewed source repository anonymously readable for the
+   migration window **only**. The helper downloads the approved immutable SHA,
+   checks that it is the current selected branch tip, then never deploys a
+   moving branch. Return the repository to private access when the operation
+   ends.
+4. Reserve a maintenance window. The runner stops the service, pauses the
+   backup timer, creates a verified full legacy archive (with off-host sync
+   deliberately suppressed during the window), captures a root-only rollback
+   snapshot, enables an edge 503 maintenance gate, and holds scheduler work.
+
+### Controlled procedure
+
+Obtain the helper from an immutable bootstrap release, not `main`, and replace
+the placeholders below with the exact published bootstrap and target SHAs:
+
+```bash
+sudo bash -s -- \
+  --check \
+  --commit "TARGET_40_CHARACTER_SHA" \
+  --branch main <<'READY_PACKETS_LEGACY_MIGRATION'
+set -Eeuo pipefail
+BOOTSTRAP_SHA="BOOTSTRAP_40_CHARACTER_SHA"
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  "https://raw.githubusercontent.com/readypackets/ReadyPackets-SiteSplit/${BOOTSTRAP_SHA}/deploy/migrate-legacy-combined-platform.sh" \
+  -o /root/readypackets-legacy-migration.sh
+chmod 0750 /root/readypackets-legacy-migration.sh
+exec bash /root/readypackets-legacy-migration.sh "$@"
+READY_PACKETS_LEGACY_MIGRATION
+```
+
+After the read-only check passes, run the same command without `--check` and
+type `MIGRATE LEGACY READY PACKETS` when prompted. The helper performs these
+gates in order:
+
+1. validates the exact 48-migration legacy release and its clean source marker;
+2. validates the exact target SHA, staged source, TypeScript, full non-database
+   test suite, and production build without pointing tests at the live database;
+3. records non-secret user, administrator, password-hash, order, and file-record
+   counters at a quiescent point;
+4. creates a verified legacy full backup plus a root-only app/source/data/env/
+   database/Nginx/TLS/systemd/controller rollback snapshot;
+5. blocks normal HTTPS traffic with an Nginx 503 gate while allowing only health
+   probes, holds schedulers, applies the 48 → 53 forward-only migration set, and
+   proves local readiness;
+6. compares the non-secret counters and schema ledger, then removes the edge
+   gate and restores the previous backup-timer decision only after all gates
+   succeed.
+
+Any failed gate after the mutation boundary automatically restores the captured
+application, source, database, uploaded local storage, complete environment,
+Nginx/TLS, systemd controls, and previous timer state. The root-only snapshot,
+verified full archive, and redacted local audit record remain available for
+review. Do not delete them or use them as source-control artifacts.
+
+After this controlled legacy migration, validate on the old hostname: local and
+external readiness, administrator MFA, an existing customer sign-in, password
+hash authentication without a reset, representative historic/current orders,
+authorized file access, and integration state. Keep provider side effects
+disabled until this validation is complete.
+
+## Same-VPS sequence — only for an eligible current native host
 
 1. Perform the common prerequisites and isolated restore rehearsal first.
 2. Upgrade the existing host to the reviewed immutable release using **Admin → Platform updates**:

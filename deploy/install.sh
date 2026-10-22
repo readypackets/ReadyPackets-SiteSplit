@@ -24,6 +24,8 @@
 #   --no-seed           Skip catalogue seeding (use when restoring a backup)
 #   --skip-packages     Assume Node, MySQL and nginx are already installed
 #   --preserve-runtime-config  Existing-host upgrade only; retain portal.env byte-for-byte
+#   --allow-legacy-combined-host-transition  Restricted recovery transition for the known retired all-in-one host
+#   --maintenance-mode  Root-only controlled update mode: serve 503 except health probes until a later install removes it
 #   --site-name <name>  Website name used for public page metadata
 #   --github-config-repository owner/repository  Restore latest encrypted vault configuration
 #   --github-config-branch <branch> --github-config-folder <path>
@@ -64,6 +66,13 @@ CLOUDFLARE_ORIGIN_VALIDITY="5475"
 WANT_SEED="true"
 SKIP_PACKAGES="false"
 PRESERVE_RUNTIME_CONFIG="false"
+# This escape hatch is deliberately unavailable to ordinary fresh installs or
+# routine updates. It exists only for the reviewed legacy-combined migration
+# helper, which proves the exact historic release before invoking this installer.
+ALLOW_LEGACY_COMBINED_HOST_TRANSITION="false"
+MAINTENANCE_MODE="false"
+SKIP_FIREWALL_CONFIGURATION="false"
+SKIP_INITIAL_BACKUP_VERIFICATION="false"
 SITE_NAME="ReadyPackets"
 GITHUB_CONFIG_REPOSITORY=""
 GITHUB_CONFIG_BRANCH="main"
@@ -118,6 +127,8 @@ while [[ $# -gt 0 ]]; do
     --no-seed)       WANT_SEED="false"; shift ;;
     --skip-packages) SKIP_PACKAGES="true"; shift ;;
     --preserve-runtime-config) PRESERVE_RUNTIME_CONFIG="true"; shift ;;
+    --allow-legacy-combined-host-transition) ALLOW_LEGACY_COMBINED_HOST_TRANSITION="true"; shift ;;
+    --maintenance-mode) MAINTENANCE_MODE="true"; shift ;;
     --site-name) SITE_NAME="${2:-}"; shift 2 ;;
     --github-config-repository) GITHUB_CONFIG_REPOSITORY="${2:-}"; shift 2 ;;
     --github-config-branch) GITHUB_CONFIG_BRANCH="${2:-}"; shift 2 ;;
@@ -140,6 +151,21 @@ if [[ "$PRESERVE_RUNTIME_CONFIG" == "true" ]]; then
   env_mode="$(stat -c '%a' "$ENV_FILE")"
   [[ "$env_owner" == "root" ]] || die "Refusing to preserve a runtime environment not owned by root."
   (( (8#$env_mode & 0022) == 0 )) || die "Refusing to preserve a group- or world-writable runtime environment."
+fi
+if [[ "$ALLOW_LEGACY_COMBINED_HOST_TRANSITION" == "true" ]]; then
+  [[ "$PRESERVE_RUNTIME_CONFIG" == "true" ]] \
+    || die "--allow-legacy-combined-host-transition requires --preserve-runtime-config."
+  [[ -z "$PUBLIC_DOMAIN" ]] \
+    || die "--allow-legacy-combined-host-transition cannot be combined with --public-domain."
+  # The specialized migration helper has already captured a verified full backup
+  # and must preserve host firewall policy instead of rewriting it or triggering
+  # configured off-host backup synchronization again during the change window.
+  SKIP_FIREWALL_CONFIGURATION="true"
+  SKIP_INITIAL_BACKUP_VERIFICATION="true"
+fi
+if [[ "$MAINTENANCE_MODE" == "true" ]]; then
+  [[ "$PRESERVE_RUNTIME_CONFIG" == "true" ]] \
+    || die "--maintenance-mode requires --preserve-runtime-config."
 fi
 
 # portal.env is intentionally shell-compatible for values such as SITE_NAME.
@@ -207,13 +233,22 @@ is_reserved_public_website_hostname() {
   [[ "$1" == "readypackets.com" || "$1" == "www.readypackets.com" ]]
 }
 
+legacy_combined_hostname_transition_allowed() {
+  [[ "$ALLOW_LEGACY_COMBINED_HOST_TRANSITION" == "true" ]] \
+    && is_reserved_public_website_hostname "$1"
+}
+
 escape_regex() { printf '%s' "$1" | sed 's/[.[\\*^$()+?{|]/\\\\&/g'; }
 
 DOMAIN="${DOMAIN,,}"
 PUBLIC_DOMAIN="${PUBLIC_DOMAIN,,}"
 [[ "$DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$ ]] \
   || die "'${DOMAIN}' does not look like a valid hostname."
-is_reserved_public_website_hostname "$DOMAIN" \
+if [[ "$ALLOW_LEGACY_COMBINED_HOST_TRANSITION" == "true" ]]; then
+  is_reserved_public_website_hostname "$DOMAIN" \
+    || die "--allow-legacy-combined-host-transition is restricted to the retired readypackets.com/www.readypackets.com combined Portal topology."
+fi
+is_reserved_public_website_hostname "$DOMAIN" && ! legacy_combined_hostname_transition_allowed "$DOMAIN" \
   && die "${DOMAIN} is reserved for the independently hosted ReadyPackets website. Use a dedicated portal hostname."
 if [[ -n "$PUBLIC_DOMAIN" ]]; then
   valid_hostname "$PUBLIC_DOMAIN" \
@@ -236,8 +271,8 @@ fi
 add_portal_alias() {
   local alias="$1" known
   valid_hostname "$alias" || die "'${alias}' does not look like a valid portal alias hostname."
-  [[ "$alias" != "$DOMAIN" ]] || die "--portal-alias must differ from the canonical --domain."
-  is_reserved_public_website_hostname "$alias" \
+  [[ "$alias" != "$DOMAIN" ]] || die "--portal-alias must differ from --domain."
+  is_reserved_public_website_hostname "$alias" && ! legacy_combined_hostname_transition_allowed "$alias" \
     && die "${alias} is reserved for the independently hosted ReadyPackets website and cannot be a portal alias."
   [[ -z "$PUBLIC_DOMAIN" || "$alias" != "$PUBLIC_DOMAIN" ]] \
     || die "--portal-alias must differ from --public-domain."
@@ -839,6 +874,30 @@ write_hardened_site() {
 TLS_DIR="/etc/readypackets/tls"
 TLS_INCLUDE="${TLS_DIR}/nginx-tls.conf"
 CLOUDFLARE_TLS_DIR="${TLS_DIR}/cloudflare-origin"
+MAINTENANCE_INCLUDE="${ENV_DIR}/maintenance-mode.conf"
+
+write_maintenance_mode_include() {
+  # Keep this root-owned include present in every native deployment so Nginx
+  # configuration rendering never depends on an optional file. The controlled
+  # update path may enable it before changing source/schema; loopback and edge
+  # readiness remain available while every customer-facing route returns 503.
+  if [[ "$MAINTENANCE_MODE" == "true" ]]; then
+    cat > "$MAINTENANCE_INCLUDE" <<'MAINTENANCE'
+# Controlled ReadyPackets maintenance mode. Only health probes remain reachable.
+if ($uri !~ ^/api/health(?:/ready)?$) {
+    return 503;
+}
+MAINTENANCE
+  else
+    cat > "$MAINTENANCE_INCLUDE" <<'MAINTENANCE'
+# ReadyPackets normal operation. This root-owned include is intentionally blank.
+MAINTENANCE
+  fi
+  chown root:root "$MAINTENANCE_INCLUDE"
+  chmod 0640 "$MAINTENANCE_INCLUDE"
+}
+
+write_maintenance_mode_include
 
 certificate_covers_public_names() {
   local certificate="$1" hostname
@@ -990,14 +1049,18 @@ systemctl reload nginx
 # validate. `ufw reset` is deliberately not used -- it would discard rules an
 # operator added for their own reasons, and on a remote host a reset that
 # reorders SSH is a good way to lock yourself out.
-log "Configuring the firewall"
-ufw --force enable >/dev/null 2>&1 || true
-ufw default deny incoming  >/dev/null
-ufw default allow outgoing >/dev/null
-ufw allow OpenSSH >/dev/null 2>&1 || ufw allow 22/tcp >/dev/null
-ufw allow 80/tcp  >/dev/null
-ufw allow 443/tcp >/dev/null
-# Port 3000 is never opened: the application is reachable only through nginx.
+if [[ "$SKIP_FIREWALL_CONFIGURATION" == "true" ]]; then
+  log "Preserving the existing firewall policy during the restricted legacy combined-host transition"
+else
+  log "Configuring the firewall"
+  ufw --force enable >/dev/null 2>&1 || true
+  ufw default deny incoming  >/dev/null
+  ufw default allow outgoing >/dev/null
+  ufw allow OpenSSH >/dev/null 2>&1 || ufw allow 22/tcp >/dev/null
+  ufw allow 80/tcp  >/dev/null
+  ufw allow 443/tcp >/dev/null
+  # Port 3000 is never opened: the application is reachable only through nginx.
+fi
 
 if [[ "$TLS_PROVIDER" == "letsencrypt" && "$HAVE_CERT" == "false" ]]; then
   log "Requesting a TLS certificate for ${DOMAIN}"
@@ -1203,12 +1266,18 @@ fi
 
 # Run one backup now. An untested backup is not a backup, and discovering that
 # the timer never worked is something that should happen during installation
-# rather than during a restore.
-log "Verifying the backup path with a first run"
-if systemctl start readypackets-backup.service; then
-  log "Backup completed: $(ls -1 /var/backups/readypackets/ 2>/dev/null | tail -1)"
+# rather than during a restore. The legacy migration helper supplies a verified
+# full backup before it reaches this point, and suppresses a duplicate run so
+# an existing remote-sync target cannot receive an extra change-window upload.
+if [[ "$SKIP_INITIAL_BACKUP_VERIFICATION" == "true" ]]; then
+  log "Skipping duplicate backup verification; the restricted legacy migration runner already retained a verified full backup"
 else
-  warn "The first backup failed. Investigate with: journalctl -u readypackets-backup -n 40"
+  log "Verifying the backup path with a first run"
+  if systemctl start readypackets-backup.service; then
+    log "Backup completed: $(ls -1 /var/backups/readypackets/ 2>/dev/null | tail -1)"
+  else
+    warn "The first backup failed. Investigate with: journalctl -u readypackets-backup -n 40"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
