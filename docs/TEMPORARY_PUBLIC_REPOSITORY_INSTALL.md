@@ -34,7 +34,7 @@ The established production topology keeps the marketing website independently ho
 The normal and preferred process keeps the portal repository private and uses the read-only deploy-key bootstrap in the [production runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md). If temporary public visibility has been explicitly approved after the history review above, use the dedicated portal-only bootstrap—not the older dual-host `one-click-install.sh`:
 
 ```bash
-BOOTSTRAP_COMMIT=fbff2103acee99bc1b936948c94b9d8e728fcc43
+BOOTSTRAP_COMMIT=55d1ddb79b0ce336a26463b21d59113552f0d5f3
 curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
   "https://raw.githubusercontent.com/readypackets/ReadyPackets-SiteSplit/${BOOTSTRAP_COMMIT}/deploy/temporary-public-portal-only-install.sh" \
   -o /root/readypackets-fresh-install.sh \
@@ -70,7 +70,7 @@ After a successful source checkout, return the repository to private visibility.
    ```
 
 5. At the prompts, supply both dedicated hostnames, select the appropriate TLS method, specify the approved full commit SHA rather than accepting a moving branch tip, and review the redacted plan before entering the confirmation phrase.
-6. Confirm the installer prints **`Applied 52 migration(s); 46 critical tables verified.`** and passes local/readiness checks.
+6. Confirm the installer prints **`Applied 53 migration(s); 48 critical tables verified.`** and passes local/readiness checks.
 7. Make the repository private immediately after the source has been cloned and the installer has recorded the installed commit. The running portal is not interrupted by that visibility change.
 8. Run the same MFA, backup, restore-drill, and public-health verification required for every production portal.
 
