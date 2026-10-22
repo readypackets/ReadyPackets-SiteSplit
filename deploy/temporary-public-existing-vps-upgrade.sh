@@ -22,8 +22,12 @@ readonly APP_DIR="/opt/readypackets"
 readonly ENV_FILE="/etc/readypackets/portal.env"
 readonly DATA_DIR="/var/lib/readypackets"
 readonly BACKUP_ROOT="/var/backups/readypackets/manual-upgrades"
-readonly WORK_ROOT="/var/lib/readypackets/manual-upgrades"
-readonly LOCK_FILE="/var/lib/readypackets/manual-upgrade.lock"
+# Never stage reviewed source below /var/lib/readypackets: that parent is owned
+# by the runtime service and would let a compromised application process race a
+# root update. /run is root-owned and automatically clears abandoned staging
+# after reboot; the rollback snapshot remains in protected persistent backup.
+readonly WORK_ROOT="/run/readypackets-manual-upgrades"
+readonly LOCK_FILE="${WORK_ROOT}/manual-upgrade.lock"
 readonly SERVICE="readypackets"
 readonly SHA_RE='^[a-f0-9]{40}$'
 readonly BRANCH_RE='^[A-Za-z0-9._/-]{1,128}$'
@@ -137,6 +141,17 @@ resolve_source_directory() {
     return 0
   done
   fail "The native ReadyPackets source checkout is unavailable. Refusing to guess a source location."
+}
+
+prepare_validation_staging_root() {
+  # The validator receives one explicit staged-source path and needs execute-only
+  # traversal through this parent. Backups, snapshots, portal.env, uploaded data,
+  # and the root-owned lock stay outside this directory. Explicit chown/chmod are
+  # necessary because install -d -m deliberately does not repair an existing
+  # directory's mode, including the 0700 directory created by an earlier build.
+  install -d -m 0710 -o root -g "$APP_USER" "$WORK_ROOT"
+  chown root:"$APP_USER" "$WORK_ROOT"
+  chmod 0710 "$WORK_ROOT"
 }
 
 safe_copy_tree() {
@@ -310,13 +325,14 @@ parse_args() {
 }
 
 fetch_and_validate_release() {
-  install -d -m 0700 -o root -g root "$WORK_ROOT"
+  prepare_validation_staging_root
   WORK_DIR="$(mktemp -d "${WORK_ROOT}/stage.XXXXXXXX")"
   # The staged release contains source code only. Permit the service account to
-  # traverse this one isolated directory for unprivileged validation; snapshots,
-  # backups, and runtime secrets remain in separate root-only locations.
+  # traverse this one isolated directory for unprivileged validation; it cannot
+  # list its parent or write either path. Snapshots, backups, and runtime secrets
+  # remain in separate root-only locations.
   chown root:"$APP_USER" "$WORK_DIR"
-  chmod 0750 "$WORK_DIR"
+  chmod 0710 "$WORK_DIR"
 
   log "Checking anonymous source access and immutable branch approval."
   local remote_branch
@@ -338,14 +354,37 @@ fetch_and_validate_release() {
 
 validate_staged_release() {
   log "Validating the reviewed release as the unprivileged service account."
-  install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$WORK_DIR/home"
-  chown -R "$APP_USER:$APP_USER" "$WORK_DIR/source"
-  runuser -u "$APP_USER" -- env HOME="$WORK_DIR/home" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
-    bash -c 'set -Eeuo pipefail; cd "$1"; pnpm install --frozen-lockfile; pnpm run typecheck; pnpm test; pnpm run build' bash "$WORK_DIR/source"
+  local validation_dir="$WORK_DIR/validation"
+  # Keep the downloaded, SHA-verified source root-owned. The service account
+  # validates only this disposable copy, so it cannot modify material that root
+  # will later deploy even if the application account is compromised mid-run.
+  rm -rf -- "$validation_dir"
+  install -d -m 0710 -o root -g "$APP_USER" "$validation_dir"
+  cp -a -- "$WORK_DIR/source/." "$validation_dir/"
+  chown -R "$APP_USER:$APP_USER" "$validation_dir"
+  install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$validation_dir/home"
+  runuser -u "$APP_USER" -- test -x "$WORK_ROOT" \
+    || fail "The service account cannot traverse the protected source-validation parent. No production change was made."
+  runuser -u "$APP_USER" -- test -x "$WORK_DIR" \
+    || fail "The service account cannot traverse the staged source directory. No production change was made."
+  runuser -u "$APP_USER" -- test -x "$validation_dir" \
+    || fail "The service account cannot traverse the disposable validation copy. No production change was made."
+  runuser -u "$APP_USER" -- env HOME="$validation_dir/home" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    bash -c 'set -Eeuo pipefail
+      cd "$1"
+      pnpm install --frozen-lockfile
+      pnpm run typecheck
+      # Update validation must never point tests at the live production database.
+      # The only database-backed suite is verified in CI against disposable MySQL;
+      # all remaining source/security/installer tests run here before root copies.
+      mapfile -t tests < <(find tests -maxdepth 1 -type f -name "*.test.ts" ! -name "domain.test.ts" | sort)
+      pnpm exec vitest run "${tests[@]}"
+      pnpm run build
+    ' bash "$validation_dir"
   bash -n "$WORK_DIR/source/deploy/install.sh"
   bash -n "$WORK_DIR/source/deploy/temporary-public-existing-vps-upgrade.sh"
   node --check "$WORK_DIR/source/deploy/platform-update-control-daemon.mjs"
-  chown -R root:root "$WORK_DIR/source"
+  rm -rf -- "$validation_dir"
 }
 
 apply_release() {
@@ -383,7 +422,8 @@ apply_release() {
 main() {
   parse_args "$@"
   preflight_existing_host
-  install -d -m 0700 -o root -g root "$WORK_ROOT" "$BACKUP_ROOT"
+  prepare_validation_staging_root
+  install -d -m 0700 -o root -g root "$BACKUP_ROOT"
   exec 9>"$LOCK_FILE"
   flock -n 9 || fail "Another ReadyPackets existing-VPS upgrade or rollback is already running."
   source_environment

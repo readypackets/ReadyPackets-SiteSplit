@@ -80,6 +80,33 @@ describe("existing-VPS runtime configuration preservation", () => {
     expect(controlledSource).toContain("flock -n 9");
   });
 
+  it("makes only the explicit staged source path traversable for unprivileged validation", () => {
+    for (const source of [controlledSource, publicSource]) {
+      expect(source).toContain("prepare_validation_staging_root()");
+      expect(source).toContain('install -d -m 0710 -o root -g "$APP_USER" "$WORK_ROOT"');
+      expect(source).toContain('chown root:"$APP_USER" "$WORK_ROOT"');
+      expect(source).toContain('chmod 0710 "$WORK_ROOT"');
+      expect(source).toContain('runuser -u "$APP_USER" -- test -x "$WORK_ROOT"');
+      expect(source).toContain("The service account cannot traverse the protected source-validation parent");
+      expect(source).toContain('! -name "domain.test.ts"');
+      expect(source).toContain("Update validation must never point tests at the live production database.");
+      expect(source).toContain("disposable MySQL");
+    }
+    expect(controlledSource).toContain('readonly WORK_ROOT="/run/readypackets-platform-upgrades"');
+    expect(publicSource).toContain('readonly WORK_ROOT="/run/readypackets-manual-upgrades"');
+    expect(controlledSource).not.toContain('readonly WORK_ROOT="/var/lib/readypackets/platform-upgrades"');
+    expect(publicSource).not.toContain('readonly WORK_ROOT="/var/lib/readypackets/manual-upgrades"');
+    expect(publicSource).toContain('chmod 0710 "$WORK_DIR"');
+    expect(controlledSource).toContain('chmod 0710 "$work_parent"');
+    expect(controlledSource).not.toContain('"$WORK/home"');
+    expect(publicSource).toContain('cp -a -- "$WORK_DIR/source/." "$validation_dir/"');
+    expect(controlledSource).toContain('cp -a "$work/." "$validation_dir/"');
+    expect(publicSource).not.toContain('chown -R "$APP_USER:$APP_USER" "$WORK_DIR/source"');
+    expect(controlledSource).not.toContain('chown -R "$APP_USER:$APP_USER" "$work"');
+    expect(controlledServiceSource).toContain("RuntimeDirectory=readypackets-platform-upgrades");
+    expect(controlledServiceSource).toContain("RuntimeDirectoryMode=0710");
+  });
+
   it("snapshots and restores configured database, proxy/TLS, systemd, and root-controller artifacts", () => {
     expect(controlledSource).toContain('mysqldump --single-transaction --routines --events -u root "$RUNTIME_DB_NAME"');
     expect(controlledSource).toContain('mysql -u root "$RUNTIME_DB_NAME"');

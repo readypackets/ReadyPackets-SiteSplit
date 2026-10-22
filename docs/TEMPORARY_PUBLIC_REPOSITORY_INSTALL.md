@@ -66,6 +66,13 @@ backup and a root-only rollback snapshot, preserves the existing
 automatically restores the prior database/application/source/Nginx/TLS/systemd/
 controller state if the upgrade cannot reach local readiness.
 
+The immutable source checkout and lock use a root-owned ephemeral `/run` staging
+directory rather than the portal's persistent service-owned data root. The
+unprivileged account can traverse only a named disposable validation copy; it
+cannot alter the reviewed source that root deploys. On-host validation never runs
+database-backed tests against the live portal database; those tests are verified
+in disposable-MySQL CI.
+
 Record both immutable SHAs in the approved change record. The bootstrap SHA is
 the reviewed release that contains the updater itself; the target SHA is the
 reviewed release to deploy. Do not replace either with `main` or another moving

@@ -16,7 +16,10 @@ RUNTIME_PORTAL_ONLY="false"
 RUNTIME_DB_NAME=""
 RUNTIME_PORT="3000"
 readonly BACKUP_ROOT="/var/backups/readypackets/platform-upgrades"
-readonly WORK_ROOT="/var/lib/readypackets/platform-upgrades"
+# Never stage a reviewed release below the service-owned application data root.
+# Root owns this ephemeral runtime directory; persistent rollback material stays
+# under the separate protected backup directory.
+readonly WORK_ROOT="/run/readypackets-platform-upgrades"
 readonly SERVICE="readypackets"
 readonly REPO_RE='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 readonly BRANCH_RE='^[A-Za-z0-9._/-]{1,128}$'
@@ -98,6 +101,16 @@ safe_copy_tree() {
   rm -rf "$destination"
   mkdir -p "$destination"
   cp -a "$source/." "$destination/"
+}
+
+prepare_validation_staging_root() {
+  # The unprivileged validator receives one explicit staged-source path and
+  # needs execute-only traversal through this parent. Rollback snapshots and
+  # the lock remain root-only in their separate protected directories. Explicit
+  # mode repair handles older installations created before this validator.
+  install -d -m 0710 -o root -g "$APP_USER" "$WORK_ROOT"
+  chown root:"$APP_USER" "$WORK_ROOT"
+  chmod 0710 "$WORK_ROOT"
 }
 
 snapshot_host_path() {
@@ -193,9 +206,12 @@ queue_platform_update_controller_restart() {
 
 clone_release() {
   local run_id="$1" repository="$2" branch="$3" target="$4" token="$5"
-  local work="$WORK_ROOT/$run_id/source"
+  local work_parent="$WORK_ROOT/$run_id" work="$WORK_ROOT/$run_id/source"
+  prepare_validation_staging_root
   rm -rf "$work"
-  mkdir -p "$WORK_ROOT/$run_id"
+  install -d -m 0710 -o root -g "$APP_USER" "$work_parent"
+  chown root:"$APP_USER" "$work_parent"
+  chmod 0710 "$work_parent"
   local header
   header="Authorization: Basic $(printf 'x-access-token:%s' "$token" | base64 -w0)"
   GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="$header" \
@@ -208,19 +224,42 @@ clone_release() {
 
 apply_upgrade() {
   local run_id="$1" repository="$2" branch="$3" target="$4" token="$5"
-  local snapshot work
+  local snapshot work validation_dir
   snapshot="$(write_snapshot "$run_id")"
   work="$(clone_release "$run_id" "$repository" "$branch" "$target" "$token")"
   trap 'restore_snapshot "$snapshot" || true' ERR
   cd "$work"
   corepack enable >/dev/null 2>&1 || true
-  install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$WORK/home"
-  chown -R "$APP_USER:$APP_USER" "$work"
-  runuser -u "$APP_USER" -- env HOME="$WORK/home" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
-    bash -c 'set -Eeuo pipefail; cd "$1"; pnpm install --frozen-lockfile; pnpm run typecheck; pnpm test; pnpm run build' bash "$work"
+  validation_dir="$(dirname "$work")/validation"
+  # The SHA-verified source root remains root-owned. The service account builds
+  # and tests only an isolated throwaway copy, preventing it from modifying the
+  # reviewed material root will copy into the native source checkout.
+  rm -rf "$validation_dir"
+  install -d -m 0710 -o root -g "$APP_USER" "$validation_dir"
+  cp -a "$work/." "$validation_dir/"
+  chown -R "$APP_USER:$APP_USER" "$validation_dir"
+  install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$validation_dir/home"
+  runuser -u "$APP_USER" -- test -x "$WORK_ROOT" \
+    || fail "The service account cannot traverse the protected source-validation parent."
+  runuser -u "$APP_USER" -- test -x "$(dirname "$work")" \
+    || fail "The service account cannot traverse the staged source directory."
+  runuser -u "$APP_USER" -- test -x "$validation_dir" \
+    || fail "The service account cannot traverse the disposable validation copy."
+  runuser -u "$APP_USER" -- env HOME="$validation_dir/home" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    bash -c 'set -Eeuo pipefail
+      cd "$1"
+      pnpm install --frozen-lockfile
+      pnpm run typecheck
+      # Update validation must never point tests at the live production database. The
+      # database-backed catalogue suite runs in disposable MySQL CI; all other
+      # release tests run here before a root-owned deployment copy occurs.
+      mapfile -t tests < <(find tests -maxdepth 1 -type f -name "*.test.ts" ! -name "domain.test.ts" | sort)
+      pnpm exec vitest run "${tests[@]}"
+      pnpm run build
+    ' bash "$validation_dir"
   bash -n "$work/deploy/install.sh"
   node --check "$work/deploy/platform-update-control-daemon.mjs"
-  chown -R root:root "$work"
+  rm -rf "$validation_dir"
   safe_copy_tree "$work" "$SOURCE_DIR"
   cd "$SOURCE_DIR"
   local -a installer_args=(--domain "$RUNTIME_DOMAIN" --skip-packages --no-seed --preserve-runtime-config)
@@ -240,7 +279,7 @@ apply_upgrade() {
 require_root
 load_runtime_config
 install -d -m 0700 -o root -g root "$BACKUP_ROOT"
-install -d -m 0750 -o root -g "$APP_USER" "$WORK_ROOT"
+prepare_validation_staging_root
 exec 9>"${WORK_ROOT}/platform-update.lock"
 flock -n 9 || fail "Another ReadyPackets platform update or rollback is already running."
 [[ $# -ge 1 ]] || fail "Usage: status|apply|rollback"

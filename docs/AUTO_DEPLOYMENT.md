@@ -19,7 +19,7 @@ The helper performs the following gates in sequence before it leaves the previou
 
 1. It clones the selected private repository branch using a token supplied only through standard input.
 2. It verifies that the fetched revision is the approved immutable 40-character SHA.
-3. It runs `pnpm install --frozen-lockfile`, TypeScript validation, the automated test suite, and production client/server builds as the unprivileged service account.
+3. It runs `pnpm install --frozen-lockfile`, TypeScript validation, production client/server builds, and the complete non-database test suite as the unprivileged service account on a disposable validation copy. Database-backed tests run only in disposable-MySQL CI, never against the live portal database.
 4. It creates a rollback snapshot before copying source or applying migrations.
 5. It runs the native installer in explicit existing-host mode, which applies pending migrations idempotently without reseeding and preserves `/etc/readypackets/portal.env` byte-for-byte.
 6. It writes the deployed commit to `/opt/readypackets/RELEASE_COMMIT`, validates the ready endpoint on the configured loopback port, and queues a controller self-restart after the audited result returns.

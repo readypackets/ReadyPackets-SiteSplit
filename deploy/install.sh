@@ -1150,10 +1150,11 @@ rm -f /etc/sudoers.d/readypackets-backup-control
 # and removes the service account's sudo capability entirely.
 rm -f /etc/sudoers.d/readypackets-platform-update
 install -d -m 0700 -o root -g root /var/backups/readypackets/platform-upgrades
-# Staged reviewed source is read by the unprivileged service account for build
-# validation. It contains no runtime secret or backup material; snapshots remain
-# under the separate root-only backup directory above.
-install -d -m 0750 -o root -g "$APP_USER" /var/lib/readypackets/platform-upgrades
+# Reviewed source staging is created beneath a root-owned ephemeral /run
+# directory by the platform-update controller. It must not live below the
+# application-owned persistent data root, which could allow a service-account
+# compromise to race root's approved source copy. Rollback snapshots remain in
+# the separate root-only backup directory above.
 # Root-owned backup state must be established before the hardened socket daemon
 # starts. The daemon intentionally verifies these fixed paths rather than trying
 # to chmod them on each browser request under its capability-restricted sandbox.

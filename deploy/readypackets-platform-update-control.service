@@ -13,6 +13,12 @@ Group=readypackets
 ExecStart=/usr/bin/node /opt/readypackets/deploy/platform-update-control-daemon.mjs
 Restart=on-failure
 RestartSec=3
+# Source validation is staged beneath this root-owned ephemeral runtime
+# directory. The unprivileged service account receives only group execute
+# traversal to an explicit disposable validation copy, never write access to
+# the immutable reviewed source or any backup/configuration material.
+RuntimeDirectory=readypackets-platform-upgrades
+RuntimeDirectoryMode=0710
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
