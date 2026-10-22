@@ -34,6 +34,8 @@ readonly BACKUP_ROOT="/var/backups/readypackets/legacy-combined-migrations"
 readonly WORK_ROOT="/run/readypackets-legacy-migrations"
 readonly LOCK_FILE="${WORK_ROOT}/legacy-combined-migration.lock"
 readonly AUDIT_ROOT="/var/log/readypackets/legacy-migrations"
+readonly NGINX_DEFAULT_SITE="/etc/nginx/sites-enabled/default"
+readonly TLS_INCLUDE="/etc/readypackets/tls/nginx-tls.conf"
 readonly SHA_RE='^[a-f0-9]{40}$'
 readonly BRANCH_RE='^[A-Za-z0-9._/-]{1,128}$'
 readonly HOST_RE='^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$'
@@ -49,6 +51,7 @@ STORAGE_DRIVER="local"
 SNAPSHOT=""
 WORK_DIR=""
 AUDIT_FILE=""
+NGINX_DIAGNOSTIC_FILE=""
 RUN_ID="legacy-combined-$(date -u '+%Y%m%dT%H%M%SZ')-$$"
 MUTATION_STARTED="false"
 UPDATE_SUCCEEDED="false"
@@ -142,6 +145,7 @@ host_artifact_paths() {
   cat <<'PATHS'
 /etc/nginx/sites-available/readypackets
 /etc/nginx/sites-enabled/readypackets
+/etc/nginx/sites-enabled/default
 /etc/readypackets/maintenance-mode.conf
 /etc/readypackets/tls
 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
@@ -187,14 +191,50 @@ prepare_edge_maintenance_gate() {
   # the new Node service can start; otherwise a short source-install window
   # could expose an app that is still migrating. The domain is preflighted as a
   # hostname and this runner only permits its exact historic apex/www pair.
-  local alternate server_names app_regex temporary_site http_status
+  local alternate server_names app_regex temporary_site http_status default_target certificate hostname
   [[ -f "$WORK_DIR/source/deploy/nginx.conf" ]] || fail "The reviewed Nginx template is unavailable."
-  [[ -f /etc/readypackets/tls/nginx-tls.conf ]] \
-    || fail "The existing TLS include is missing; do not alter this restored host automatically."
+  audit "maintenance_gate.tls" "checking" "state=include"
+  if [[ ! -f "$TLS_INCLUDE" ]]; then
+    audit "maintenance_gate.tls" "failed" "state=include_missing"
+    fail "The existing TLS include is missing; do not alter this restored host automatically."
+  fi
+  certificate="$(awk '$1 == "ssl_certificate" { gsub(/;/, "", $2); print $2; exit }' "$TLS_INCLUDE")"
+  if [[ -z "$certificate" || ! -f "$certificate" ]]; then
+    audit "maintenance_gate.tls" "failed" "state=certificate_unavailable"
+    fail "The retained TLS include does not identify a readable certificate; do not alter this restored host automatically."
+  fi
   if [[ "$DOMAIN" == "readypackets.com" ]]; then
     alternate="www.readypackets.com"
   else
     alternate="readypackets.com"
+  fi
+  for hostname in "$DOMAIN" "$alternate"; do
+    if ! openssl x509 -in "$certificate" -noout -checkhost "$hostname" 2>/dev/null | grep -q 'does match certificate'; then
+      audit "maintenance_gate.tls" "failed" "state=coverage_missing"
+      fail "The retained certificate does not cover ${hostname}; do not alter this restored host automatically."
+    fi
+  done
+  audit "maintenance_gate.tls" "ok" "coverage=canonical_and_alias"
+
+  # The target template explicitly owns default HTTP/HTTPS servers. A stock
+  # Ubuntu default link would cause nginx -t to reject a duplicate default
+  # server. It is already included in the pre-mutation snapshot; remove only
+  # the known distro symlink, never an arbitrary extra vhost.
+  audit "maintenance_gate.default_site" "checking" "state=probe"
+  if [[ -e "$NGINX_DEFAULT_SITE" || -L "$NGINX_DEFAULT_SITE" ]]; then
+    if [[ ! -L "$NGINX_DEFAULT_SITE" ]]; then
+      audit "maintenance_gate.default_site" "failed" "state=not_symlink"
+      fail "The Nginx default-site path is not a symlink; do not alter this restored host automatically."
+    fi
+    default_target="$(readlink "$NGINX_DEFAULT_SITE")"
+    if [[ "$default_target" != "/etc/nginx/sites-available/default" && "$default_target" != "../sites-available/default" ]]; then
+      audit "maintenance_gate.default_site" "failed" "state=unexpected_target"
+      fail "The Nginx default-site symlink has an unexpected target; do not alter this restored host automatically."
+    fi
+    rm -f -- "$NGINX_DEFAULT_SITE"
+    audit "maintenance_gate.default_site" "ok" "state=removed_ubuntu_default"
+  else
+    audit "maintenance_gate.default_site" "ok" "state=absent"
   fi
   server_names="${DOMAIN} ${alternate}"
   app_regex="${DOMAIN//./\\\\.}"
@@ -207,6 +247,7 @@ if ($uri !~ ^/api/health(?:/ready)?$) {
 MAINTENANCE
   chown root:root /etc/readypackets/maintenance-mode.conf
   chmod 0640 /etc/readypackets/maintenance-mode.conf
+  audit "maintenance_gate.include" "ok" "state=written"
   sed \
     -e "s|__RP_HTTP_SERVER_NAMES__|${server_names}|g" \
     -e "s|__RP_CANONICAL_DOMAIN__|${DOMAIN}|g" \
@@ -215,16 +256,35 @@ MAINTENANCE
     -e "s|__RP_APP_HOST_REGEX__|${app_regex}|g" \
     -e 's|# __RP_MORE_CLEAR_HEADERS__|# headers-more module is intentionally not required for the temporary maintenance gate.|g' \
     "$WORK_DIR/source/deploy/nginx.conf" > "$temporary_site"
-  grep -q '__RP_' "$temporary_site" && fail "The temporary Nginx maintenance configuration contains an unresolved placeholder."
+  if grep -q '__RP_' "$temporary_site"; then
+    audit "maintenance_gate.render" "failed" "state=placeholder"
+    fail "The temporary Nginx maintenance configuration contains an unresolved placeholder."
+  fi
   chown root:root "$temporary_site"
   chmod 0644 "$temporary_site"
   mv -f -- "$temporary_site" /etc/nginx/sites-available/readypackets
   ln -sfn /etc/nginx/sites-available/readypackets /etc/nginx/sites-enabled/readypackets
-  nginx -t
-  systemctl reload nginx
+  audit "maintenance_gate.render" "ok" "state=complete"
+  NGINX_DIAGNOSTIC_FILE="${AUDIT_ROOT}/${RUN_ID}.nginx-gate.log"
+  install -m 0600 -o root -g root /dev/null "$NGINX_DIAGNOSTIC_FILE"
+  if ! nginx -t >"$NGINX_DIAGNOSTIC_FILE" 2>&1; then
+    audit "maintenance_gate.nginx_test" "failed" "diagnostic=retained"
+    fail "Nginx rejected the temporary maintenance configuration; protected migration diagnostics were retained."
+  fi
+  audit "maintenance_gate.nginx_test" "ok" "state=passed"
+  if ! systemctl reload nginx >>"$NGINX_DIAGNOSTIC_FILE" 2>&1; then
+    audit "maintenance_gate.nginx_reload" "failed" "diagnostic=retained"
+    fail "Nginx could not reload the validated temporary maintenance configuration; protected migration diagnostics were retained."
+  fi
+  audit "maintenance_gate.nginx_reload" "ok" "state=reloaded"
   http_status="$(curl --noproxy '*' --insecure --silent --output /dev/null --write-out '%{http_code}' \
     --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/" || true)"
-  [[ "$http_status" == "503" ]] || fail "The temporary edge maintenance gate did not return HTTP 503 for ordinary traffic."
+  [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status="000"
+  if [[ "$http_status" != "503" ]]; then
+    audit "maintenance_gate.edge_probe" "failed" "http=${http_status}"
+    fail "The temporary edge maintenance gate did not return HTTP 503 for ordinary traffic."
+  fi
+  audit "maintenance_gate.edge_probe" "ok" "http=503"
 }
 
 capture_preservation_counts() {

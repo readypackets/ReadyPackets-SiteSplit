@@ -169,7 +169,7 @@ The helper refuses every other source revision, a dirty checkout, a missing
 release marker, an unexpected schema count, object storage, an existing alias,
 a portal-only installation, a non-apex/www canonical host, a missing root-owned
 runtime environment, a changed branch tip, or a target that lacks the expected
-53-migration baseline. It does not change the hostname or request a certificate.
+54-migration baseline. It does not change the hostname or request a certificate.
 It is intentionally unsuitable for a normal Portal update or a production
 cutover.
 
@@ -187,7 +187,11 @@ cutover.
 4. Reserve a maintenance window. The runner stops the service, pauses the
    backup timer, creates a verified full legacy archive (with off-host sync
    deliberately suppressed during the window), captures a root-only rollback
-   snapshot, enables an edge 503 maintenance gate, and holds scheduler work.
+   snapshot, validates the retained certificate for both historical apex/www
+   names, removes only a snapshotted stock Ubuntu `sites-enabled/default`
+   symlink when present, enables an edge 503 maintenance gate, and holds
+   scheduler work. It refuses a custom or unexpected default-site path rather
+   than deleting another virtual host.
 
 ### Controlled procedure
 
@@ -221,7 +225,7 @@ gates in order:
 4. creates a verified legacy full backup plus a root-only app/source/data/env/
    database/Nginx/TLS/systemd/controller rollback snapshot;
 5. blocks normal HTTPS traffic with an Nginx 503 gate while allowing only health
-   probes, holds schedulers, applies the 48 → 53 forward-only migration set, and
+   probes, holds schedulers, applies the 48 → 54 forward-only migration set, and
    proves local readiness;
 6. compares the non-secret counters and schema ledger, then removes the edge
    gate and restores the previous backup-timer decision only after all gates
@@ -232,6 +236,14 @@ application, source, database, uploaded local storage, complete environment,
 Nginx/TLS, systemd controls, and previous timer state. The root-only snapshot,
 verified full archive, and redacted local audit record remain available for
 review. Do not delete them or use them as source-control artifacts.
+
+If the temporary Nginx gate fails, the runner records an allowlisted stage
+(`tls`, stock default-site handling, template rendering, Nginx validation,
+reload, or local edge probe) in its structured audit record. Nginx test/reload
+output is retained only in the corresponding root-only
+`/var/log/readypackets/legacy-migrations/*.nginx-gate.log` file. Review that
+file locally as root; do not paste TLS paths, certificate material, runtime
+configuration, or unrelated Nginx virtual-host content into tickets or chat.
 
 After this controlled legacy migration, validate on the old hostname: local and
 external readiness, administrator MFA, an existing customer sign-in, password
