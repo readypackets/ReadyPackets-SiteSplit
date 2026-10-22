@@ -39,6 +39,11 @@ describe("existing-VPS runtime configuration preservation", () => {
     expect(installerSource).toContain("--preserve-runtime-config requires an existing regular");
     expect(installerSource).toContain("Refusing to preserve a runtime environment not owned by root.");
     expect(installerSource).toContain("Refusing to preserve a group- or world-writable runtime environment.");
+    expect(installerSource).toContain('readonly REQUESTED_DOMAIN="$DOMAIN"');
+    expect(installerSource).toContain('DOMAIN="$REQUESTED_DOMAIN"');
+    expect(installerSource).toContain('APP_ALLOWED_ORIGINS="$REQUESTED_APP_ALLOWED_ORIGINS"');
+    expect(installerSource).toContain('PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
+    expect(installerSource).toContain("unset CDPATH BASH_ENV ENV");
 
     const branch = preservationBranch(installerSource);
     expect(branch).toContain("Preserving existing runtime configuration");
