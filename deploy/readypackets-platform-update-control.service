@@ -34,8 +34,11 @@ RemoveIPC=true
 PrivateUsers=false
 ProtectSystem=full
 # The fixed update helper snapshots and replaces only these controlled paths.
+# They include the exact native-installer artifacts it manages: application and
+# source state, protected snapshots/configuration, nginx/TLS, systemd units,
+# backup/certificate/update helpers, and their limited service hardening files.
 # A leading dash makes legacy optional source locations non-fatal when absent.
-ReadWritePaths=/run /opt/readypackets -/srv/readypackets -/home/ubuntu/src/readypackets /var/backups/readypackets /var/lib/readypackets /etc/readypackets /etc/systemd/system
+ReadWritePaths=/run /opt/readypackets -/srv/readypackets -/home/ubuntu/src/readypackets /var/backups/readypackets /var/lib/readypackets /etc/readypackets /etc/systemd/system /etc/nginx /etc/letsencrypt /etc/fail2ban /etc/logrotate.d /etc/mysql /usr/local
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallFilter=@system-service
 # The fixed root helper must preserve root:readypackets ownership in its protected

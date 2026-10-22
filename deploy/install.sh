@@ -23,6 +23,7 @@
 #   --cloudflare-origin-validity <days> Origin CA lifetime: 7,30,90,365,730,1095,5475 (default 5475)
 #   --no-seed           Skip catalogue seeding (use when restoring a backup)
 #   --skip-packages     Assume Node, MySQL and nginx are already installed
+#   --preserve-runtime-config  Existing-host upgrade only; retain portal.env byte-for-byte
 #   --site-name <name>  Website name used for public page metadata
 #   --github-config-repository owner/repository  Restore latest encrypted vault configuration
 #   --github-config-branch <branch> --github-config-folder <path>
@@ -62,6 +63,7 @@ CLOUDFLARE_API_TOKEN_FILE=""
 CLOUDFLARE_ORIGIN_VALIDITY="5475"
 WANT_SEED="true"
 SKIP_PACKAGES="false"
+PRESERVE_RUNTIME_CONFIG="false"
 SITE_NAME="ReadyPackets"
 GITHUB_CONFIG_REPOSITORY=""
 GITHUB_CONFIG_BRANCH="main"
@@ -115,6 +117,7 @@ while [[ $# -gt 0 ]]; do
     --cloudflare-origin-validity) CLOUDFLARE_ORIGIN_VALIDITY="${2:-}"; shift 2 ;;
     --no-seed)       WANT_SEED="false"; shift ;;
     --skip-packages) SKIP_PACKAGES="true"; shift ;;
+    --preserve-runtime-config) PRESERVE_RUNTIME_CONFIG="true"; shift ;;
     --site-name) SITE_NAME="${2:-}"; shift 2 ;;
     --github-config-repository) GITHUB_CONFIG_REPOSITORY="${2:-}"; shift 2 ;;
     --github-config-branch) GITHUB_CONFIG_BRANCH="${2:-}"; shift 2 ;;
@@ -130,6 +133,23 @@ done
 [[ -n "$DOMAIN" ]] || die "--domain is required."
 [[ "$SITE_NAME" != *$'\n'* && ${#SITE_NAME} -le 100 ]] || die "--site-name must be 1 to 100 characters and contain no line breaks."
 [[ -n "$SITE_NAME" ]] || die "--site-name must not be empty."
+if [[ "$PRESERVE_RUNTIME_CONFIG" == "true" ]]; then
+  [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] \
+    || die "--preserve-runtime-config requires an existing regular ${ENV_FILE}."
+  env_owner="$(stat -c '%U' "$ENV_FILE")"
+  env_mode="$(stat -c '%a' "$ENV_FILE")"
+  [[ "$env_owner" == "root" ]] || die "Refusing to preserve a runtime environment not owned by root."
+  (( (8#$env_mode & 0022) == 0 )) || die "Refusing to preserve a group- or world-writable runtime environment."
+fi
+
+# portal.env is intentionally shell-compatible for values such as SITE_NAME.
+# Preserve explicit installer choices across the controlled source operation so
+# an unknown runtime variable can never turn an existing-host update into a
+# config rewrite, dependency install, reseed, or certificate request.
+readonly REQUESTED_WANT_SEED="$WANT_SEED"
+readonly REQUESTED_SKIP_PACKAGES="$SKIP_PACKAGES"
+readonly REQUESTED_PRESERVE_RUNTIME_CONFIG="$PRESERVE_RUNTIME_CONFIG"
+readonly REQUESTED_TLS_PROVIDER="$TLS_PROVIDER"
 
 # A supported in-place update invokes this installer with the canonical domain.
 # Preserve aliases from the protected environment unless the operator explicitly
@@ -351,6 +371,10 @@ if [[ -f "$ENV_FILE" ]]; then
   log "Reusing existing secrets in ${ENV_FILE}"
   # shellcheck disable=SC1090
   set -a; source "$ENV_FILE"; set +a
+  WANT_SEED="$REQUESTED_WANT_SEED"
+  SKIP_PACKAGES="$REQUESTED_SKIP_PACKAGES"
+  PRESERVE_RUNTIME_CONFIG="$REQUESTED_PRESERVE_RUNTIME_CONFIG"
+  TLS_PROVIDER="$REQUESTED_TLS_PROVIDER"
 else
   log "Generating secrets"
   SESSION_SECRET="$(openssl rand -base64 48 | tr -d '\n=' )"
@@ -471,9 +495,20 @@ grant_runtime_read_access
 # ---------------------------------------------------------------------------
 # Environment file
 # ---------------------------------------------------------------------------
-log "Writing ${ENV_FILE}"
-umask 027
-cat > "$ENV_FILE" <<ENVFILE
+if [[ "$PRESERVE_RUNTIME_CONFIG" == "true" ]]; then
+  # A controlled existing-host upgrade must retain every current operational
+  # setting exactly as the operator supplied it: SMTP, Graph/SharePoint, Stripe,
+  # SAML, storage, SIEM, proxy controls, mobile settings, and future keys. The
+  # current canonical domain is passed only to regenerate nginx/certificate
+  # controls; it is not a reason to serialize a shorter default environment.
+  # Do not parse and re-emit this file: it may contain shell-quoted values and
+  # forward-compatible unknown keys. The preflight above establishes that the
+  # root-owned regular file is not writable by a less-privileged account.
+  log "Preserving existing runtime configuration in ${ENV_FILE} unchanged"
+else
+  log "Writing ${ENV_FILE}"
+  umask 027
+  cat > "$ENV_FILE" <<ENVFILE
 # ReadyPackets Portal environment. Generated $(date -u '+%Y-%m-%dT%H:%M:%SZ').
 # This file contains secrets. Keep mode 0640, owner root, group ${APP_USER}.
 
@@ -553,8 +588,9 @@ LOG_LEVEL=info
 SYSLOG_TARGET=
 ENVFILE
 
-chown root:"$APP_USER" "$ENV_FILE"
-chmod 0640 "$ENV_FILE"
+  chown root:"$APP_USER" "$ENV_FILE"
+  chmod 0640 "$ENV_FILE"
+fi
 
 # ---------------------------------------------------------------------------
 # Migrate and seed
@@ -1063,7 +1099,10 @@ rm -f /etc/sudoers.d/readypackets-backup-control
 # and removes the service account's sudo capability entirely.
 rm -f /etc/sudoers.d/readypackets-platform-update
 install -d -m 0700 -o root -g root /var/backups/readypackets/platform-upgrades
-install -d -m 0700 -o root -g root /var/lib/readypackets/platform-upgrades
+# Staged reviewed source is read by the unprivileged service account for build
+# validation. It contains no runtime secret or backup material; snapshots remain
+# under the separate root-only backup directory above.
+install -d -m 0750 -o root -g "$APP_USER" /var/lib/readypackets/platform-upgrades
 # Root-owned backup state must be established before the hardened socket daemon
 # starts. The daemon intentionally verifies these fixed paths rather than trying
 # to chmod them on each browser request under its capability-restricted sandbox.
@@ -1086,8 +1125,29 @@ systemctl enable readypackets-certificate-control.service
 systemctl enable readypackets-platform-update-control.service
 systemctl restart readypackets-backup-control.service
 systemctl restart readypackets-certificate-control.service
-systemctl restart readypackets-platform-update-control.service
-systemctl enable --now readypackets-backup.timer
+# An in-place platform update is itself a child of this controller. Restarting
+# its enclosing systemd cgroup synchronously would terminate the updater before
+# it can record the result. Queue a short, root-owned one-shot restart instead;
+# it runs only after the helper has returned through the existing socket. Fresh
+# installations retain the direct startup behavior.
+if [[ "$PRESERVE_RUNTIME_CONFIG" == "true" ]]; then
+  systemd-run --quiet --collect --unit="readypackets-platform-update-restart-$$" \
+    --on-active=3s /bin/systemctl restart readypackets-platform-update-control.service
+else
+  systemctl restart readypackets-platform-update-control.service
+fi
+if [[ "$PRESERVE_RUNTIME_CONFIG" == "true" ]]; then
+  # Preserve an administrator's backup-schedule enablement choice. The unit code
+  # is refreshed above, but a disabled timer must not become an unexpected
+  # scheduler simply because an application release was installed.
+  if systemctl is-enabled --quiet readypackets-backup.timer; then
+    systemctl restart readypackets-backup.timer
+  else
+    systemctl disable --now readypackets-backup.timer >/dev/null 2>&1 || true
+  fi
+else
+  systemctl enable --now readypackets-backup.timer
+fi
 
 # Run one backup now. An untested backup is not a backup, and discovering that
 # the timer never worked is something that should happen during installation

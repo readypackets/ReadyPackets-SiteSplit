@@ -50,6 +50,28 @@ For automatic Cloudflare Origin CA, create the portal record (and every selected
 
 After a successful source checkout, return the repository to private visibility. The running portal is not disrupted by that visibility change.
 
+## Existing native VPS upgrade during a temporary-public window
+
+This is **not** the fresh-server procedure above. Do not use a fresh installer,
+`git pull`, `deploy/upgrade.sh`, or a raw `deploy/install.sh` rerun on a server
+that already contains ReadyPackets data. Instead, retrieve the separately
+reviewed `deploy/temporary-public-existing-vps-upgrade.sh` from its immutable
+bootstrap commit and pass the separately reviewed 40-character target commit.
+
+The existing-VPS updater refuses a fresh/Docker host, requires an interactive
+typed confirmation, verifies that the configured branch still points at the
+reviewed target, validates the staged source unprivileged, creates a normal full
+backup and a root-only rollback snapshot, preserves the existing
+`/etc/readypackets/portal.env` byte-for-byte, does not reseed configuration, and
+automatically restores the prior database/application/source/Nginx/TLS/systemd/
+controller state if the upgrade cannot reach local readiness.
+
+Record both immutable SHAs in the approved change record. The bootstrap SHA is
+the reviewed release that contains the updater itself; the target SHA is the
+reviewed release to deploy. Do not replace either with `main` or another moving
+branch name. Keep the repository public only while the script retrieves the
+approved target, then return it to private visibility.
+
 ## If a temporary-public dual-host deployment is explicitly approved
 
 1. Record the exact reviewed 40-character commit SHA.

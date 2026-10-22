@@ -58,7 +58,10 @@ The installer also depends on `nginx-extras` for the headers-more module, which 
 
 ## Option A: VPS with systemd
 
-The installer is the supported path. It is idempotent, so it is safe to re-run after a configuration change or an upgrade.
+The installer is the supported **fresh-host** path. It is not the normal command
+for an existing production upgrade: use the controlled platform-update workflow
+described below so the complete protected runtime configuration and rollback
+state are retained.
 
 ```bash
 git clone <repository-url> readypackets
@@ -218,7 +221,7 @@ For a certificate from another authority, place the chain and key on the host, u
 
 The nightly timer runs at 02:30 local time with a randomised delay. Each run produces one archive containing the database dump, the uploaded files, a manifest, and checksums.
 
-The installer pre-provisions `/var/backups/readypackets`, protected browser-download staging, restore-upload staging, and `/var/lib/readypackets/backup-control` with fixed root-controlled ownership and modes before the capability-restricted socket controller starts. The controller verifies those fixed directories on requests; it does not attempt `chmod` or `chown` inside its systemd sandbox. If an existing host reports that backup control is unavailable because permission changes were denied, update through the approved platform-update path or re-run the reviewed native installer with its canonical `--domain` and `--skip-packages` parameters—do not relax the service sandbox.
+The installer pre-provisions `/var/backups/readypackets`, protected browser-download staging, restore-upload staging, and `/var/lib/readypackets/backup-control` with fixed root-controlled ownership and modes before the capability-restricted socket controller starts. The controller verifies those fixed directories on requests; it does not attempt `chmod` or `chown` inside its systemd sandbox. If an existing host reports that backup control is unavailable because permission changes were denied, update through the reviewed platform-update workflow—do not relax the service sandbox or re-run a raw installer command.
 
 ### Standard Platform Setup profile
 
@@ -253,16 +256,38 @@ This loads into a scratch database and leaves production untouched.
 
 ## Upgrades
 
-```bash
-cd /path/to/checkout
-git pull
-sudo ./deploy/install.sh --domain portal.readypackets.com --skip-packages
-```
+### Native VPS: controlled release only
 
-The installer rebuilds, reuses existing secrets, applies pending migrations, and restarts. Under Docker:
+Do **not** run `git pull`, a moving-branch checkout, `deploy/upgrade.sh`, or
+`deploy/install.sh --skip-packages` against a live portal. Those procedures do
+not provide the complete immutable-release, configuration-preservation, and
+rollback contract required for a production system.
+
+The normal path is **Admin → Platform updates**. Scan the configured repository,
+review the changed paths/risk indicators, approve the exact 40-character commit,
+then type the separate upgrade confirmation. The root-controlled helper validates
+the immutable SHA, validates staged code as the unprivileged service account,
+creates a root-only snapshot of the application, source, protected environment,
+configured database, nginx/TLS, systemd units, and root controllers, applies
+pending migrations without reseeding, preserves `/etc/readypackets/portal.env`
+byte-for-byte, validates readiness, and retains the snapshot for rollback.
+
+For a server that predates this controlled-upgrade repair and must retrieve a
+reviewed source release through a deliberately temporary public repository,
+use only `deploy/temporary-public-existing-vps-upgrade.sh` from a reviewed
+immutable bootstrap commit. It requires a separately reviewed exact target SHA,
+an interactive typed confirmation, a full backup, and automatic rollback on
+failure. It refuses fresh/Docker hosts and never accepts tokens or secrets.
+Return the repository to private visibility as soon as the update completes.
+
+### Docker
+
+Docker uses a separate operational procedure and must be upgraded from a tested,
+immutable image or source checkout with a database/storage snapshot under the
+container operator's control. Do not substitute the native VPS scripts for
+Docker. Under Docker, after the operator has pinned and reviewed a release:
 
 ```bash
-git pull
 docker compose build app
 docker compose up -d app
 docker compose exec app node dist/migrate.js
@@ -274,7 +299,7 @@ Take a backup before any upgrade, and run the verification suite afterwards agai
 pnpm exec tsx scripts/verify-security.ts https://portal.readypackets.com
 ```
 
-Migrations are additive and idempotent; the runner records what it has applied and skips it on re-run.
+Migrations are additive and idempotent; the runner records what it has applied and skips it on re-run. A rollback restores the recorded database snapshot, so data written after the snapshot can be lost; schedule upgrades during a declared maintenance window and do not start one while an active customer submission or backup is in progress.
 
 ## Monitoring
 

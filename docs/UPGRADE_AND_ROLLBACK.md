@@ -1,6 +1,6 @@
 # ReadyPackets Upgrade and Rollback Guide
 
-**Version:** 2026-08-25
+**Version:** 2026-10-22
 **Audience:** Platform administrators
 
 ## Purpose
@@ -11,7 +11,7 @@ The ReadyPackets **Platform updates** workspace provides a controlled native-VPS
 
 ## Configure the repository connection
 
-Open **Admin → Platform updates**. Before saving a connection, confirm that **Current deployed commit** is a commit SHA and **Service status** is active. If either value is unknown/inactive, update or repair the server using the normal self-hosted installer first; do not attempt a platform update.
+Open **Admin → Platform updates**. Before saving a connection, confirm that **Current deployed commit** is a commit SHA and **Service status** is active. If either value is unknown/inactive, do not run a raw installer or moving-branch update. Use the documented existing-VPS recovery/update procedure for the exact release that introduced the repaired controller, or investigate the host from an approved root console first.
 
 Enter the repository as `owner/repository`, select the source branch, and provide a GitHub fine-grained personal access token. Restrict the token to the single repository with **Repository contents: Read-only** only. GitHub metadata read access is implicit. Do not grant Administration, Actions, Commit statuses, Deployments, Environments, Issues, Pull requests, Secrets, Workflows, or write access. Set a short expiration and replace it before expiry.
 
@@ -32,13 +32,15 @@ The two-step approval process is deliberate.
 | **Approve** | Type `APPROVE <12-character target commit>` | Records a specific reviewed commit as approved. |
 | **Upgrade** | Type `UPGRADE <12-character target commit>` | Starts the root-owned update helper for that approved commit. |
 
-The helper turns on the existing maintenance gate, creates a root-owned application and database snapshot, checks out only the approved commit, performs dependency installation/build/migration/deployment steps, restarts the service, and runs a health check using the active hostname configured on that server. The system retains the run output and snapshot reference in the update history.
+The helper turns on the existing maintenance gate, creates a root-owned snapshot of the application tree, source checkout, complete protected runtime environment, configured database, Nginx/TLS controls, relevant systemd units, and root controller helpers. It checks out only the approved commit, validates the staged code as the unprivileged service account, performs dependency installation/build/migration/deployment steps without reseeding, preserves `/etc/readypackets/portal.env` byte-for-byte, restarts the service, and runs a health check using the active hostname and configured loopback port. It then queues a controller self-restart only after returning the audited result to the browser. The system retains the run output and snapshot reference in the update history.
+
+The update does not reinterpret or regenerate operational settings. SMTP, Graph/SharePoint, Stripe, SAML, S3-compatible storage, SIEM/syslog, proxy settings, mobile settings, administrator IP controls, `MARKETING_SITE_URL`, and forward-compatible unknown keys remain exactly as they were before the update. A portal-only deployment also keeps its separately hosted marketing URL outside the portal application-host allowlist.
 
 Do not update during an active customer submission, scheduled backup, or other maintenance window. Configure a maintenance message and login/registration policy in **Admin → System** before starting a major upgrade.
 
 ## Failed update handling
 
-A failed approved update leaves the current portal service running whenever the failure occurs before the application swap. The Platform Updates run is marked **Failed**, maintenance mode is cleared, and the root-owned pre-upgrade snapshot remains protected under `/var/backups/readypackets/platform-upgrades/`. The administrator should review the recorded run error and service logs before retrying; do not repeatedly submit the same approved run until its cause is fixed.
+A failed approved update automatically restores the recorded complete snapshot, validates/reloads Nginx, daemon-reloads systemd, restarts the fixed-action controllers, starts the prior portal service, and verifies local readiness. The Platform Updates run is marked **Failed**, maintenance mode is cleared, and the root-owned pre-upgrade snapshot remains protected under `/var/backups/readypackets/platform-upgrades/`. The administrator should review the recorded run error and service logs before retrying; do not repeatedly submit the same approved run until its cause is fixed.
 
 ## Rollback
 
@@ -52,10 +54,12 @@ Because database restoration is included, any customer data written after the up
 |---|---|
 | **Root-owned helper** | `/usr/local/sbin/readypackets-platform-update` performs only allowlisted status, apply, and rollback operations. |
 | **Root-owned socket daemon** | `readypackets-platform-update-control.service` owns a group-restricted local socket and validates only status, approved apply, and rollback request shapes before invoking the helper. |
-| **Snapshot ownership** | The daemon permits the fixed root helper to preserve `root:readypackets` ownership inside only its protected rollback paths, so a pre-upgrade snapshot is complete and restorable. |
+| **Snapshot ownership** | The daemon permits the fixed root helper to preserve `root:readypackets` ownership inside only its protected rollback paths. Snapshots cover application/source, the complete runtime environment, configured database, Nginx/TLS, systemd units, and root controllers. |
 | **No service sudo** | The customer-facing ReadyPackets service retains `NoNewPrivileges=true` and has no sudo rule or arbitrary command capability. |
 | **Run history** | Scans, approvals, executions, errors, and rollbacks are retained in the platform upgrade history and activity log. |
-| **Rollback material** | Snapshots are root-owned under protected backup storage and are not downloadable through the public site. |
+| **Rollback material** | Snapshots are root-owned under protected backup storage, are not downloadable through the public site, and are checked before database restoration. |
+| **Configuration preservation** | The installer’s existing-host mode requires a root-owned regular environment file that is not group/world writable, then retains its bytes without a lossy parse/rewrite. |
+| **Update serialization** | A root-owned `flock` rejects concurrent apply/rollback operations. |
 | **Credential handling** | The GitHub token is encrypted at rest and excluded from ordinary configuration exports. |
 | **Approved wrapper** | `/usr/local/sbin/readypackets-auto-deploy-approved` is root-only, requires a named reviewed run and immutable commit SHA, reads the PAT from standard input, and requires an explicit approval environment acknowledgement. |
 
