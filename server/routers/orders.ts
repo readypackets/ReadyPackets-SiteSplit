@@ -52,6 +52,25 @@ function toTrpcError(error: unknown): never {
   throw error;
 }
 
+const workflowParticipantRoles = new Set(["customer", "staff", "admin"]);
+
+/**
+ * A phase is an order-scoped action, not a customer-role-only action. Staff and
+ * administrators may complete an authorized order phase on behalf of a customer,
+ * but every actor must still pass writable-order and guided-stage checks below.
+ */
+function assertWorkflowParticipantRole(role: string): void {
+  if (!workflowParticipantRoles.has(role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only authenticated customer, staff, or administrator accounts can complete a workflow phase." });
+  }
+}
+
+function workflowActorLabel(role: string): string {
+  if (role === "admin") return "Administrator";
+  if (role === "staff") return "Staff member";
+  return "Customer";
+}
+
 /** Customer-facing labels intentionally avoid exposing staff-only audit summaries. */
 function customerOrderActivityLabel(action: string): string {
   const labels: Record<string, string> = {
@@ -64,6 +83,7 @@ function customerOrderActivityLabel(action: string): string {
     "order.cancellation_requested": "Cancellation requested",
     "order.create": "Order created",
     "order.message_sent": "Message sent",
+    "order.phase_advanced": "Workflow phase continued",
     "order.phase_kickoff_manual": "Order phase started",
     "order.phase_submitted": "Workflow phase submitted",
     "order.phase_unlocked": "Workflow phase reopened",
@@ -268,9 +288,7 @@ export const ordersRouter = router({
       acknowledged: z.boolean().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.session.user.role !== "customer") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only customers can submit a workflow phase." });
-      }
+      assertWorkflowParticipantRole(ctx.session.user.role);
       try {
         await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
       } catch (error) {
@@ -296,9 +314,10 @@ export const ordersRouter = router({
       const configuredPolicy = configuredStage?.customerAcknowledgement;
       const acknowledgementPolicy = configuredPolicy === "none" || configuredPolicy === "optional" || configuredPolicy === "required" ? configuredPolicy : "required";
       if (acknowledgementPolicy === "required" && (!input.acknowledged || !input.acknowledgementText)) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A customer acknowledgement is required before this phase can be submitted." });
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A phase acknowledgement is required before this phase can be submitted." });
       }
-      const acknowledgementText = acknowledgementPolicy === "none" ? "Customer acknowledgement was not required for this workflow phase." : input.acknowledgementText ?? "Customer submitted this workflow phase without an optional acknowledgement.";
+      const actorLabel = workflowActorLabel(ctx.session.user.role);
+      const acknowledgementText = acknowledgementPolicy === "none" ? "Workflow acknowledgement was not required for this phase." : input.acknowledgementText ?? `${actorLabel} submitted this workflow phase without an optional acknowledgement.`;
       const existing = await db.select({ id: orderPhaseLocks.id, unlockedAt: orderPhaseLocks.unlockedAt }).from(orderPhaseLocks).where(and(eq(orderPhaseLocks.orderId, input.orderId), eq(orderPhaseLocks.phaseKey, input.phaseKey))).limit(1);
       if (existing[0] && !existing[0].unlockedAt) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This workflow phase is already locked." });
@@ -310,16 +329,14 @@ export const ordersRouter = router({
         await db.insert(orderPhaseLocks).values({ orderId: input.orderId, phaseKey: input.phaseKey, acknowledgementText, lockedByUserId: ctx.session.user.id, lockedAt });
       }
       const workflowProgress = await syncOrderWorkflowProgress(input.orderId);
-      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: ctx.session.user.role, action: "order.phase_submitted", entityType: "order", entityId: input.orderId, summary: `Customer submitted and locked workflow phase ${input.phaseKey}`, changes: { phaseKey: input.phaseKey, acknowledgementPolicy, acknowledged: input.acknowledged, workflowProgress }, ipAddress: ctx.clientIp });
+      void recordActivity({ actorUserId: ctx.session.user.id, actorRole: ctx.session.user.role, action: "order.phase_submitted", entityType: "order", entityId: input.orderId, summary: `${actorLabel} submitted and locked workflow phase ${input.phaseKey}`, changes: { phaseKey: input.phaseKey, acknowledgementPolicy, acknowledged: input.acknowledged, workflowProgress }, ipAddress: ctx.clientIp });
       return { ok: true as const, lockedAt, workflowProgress };
     }),
 
   advanceWorkflowStage: protectedProcedure
     .input(z.object({ orderId: z.number().int().positive(), phaseKey: z.string().trim().regex(/^[a-z0-9_]+$/).max(64) }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.session.user.role !== "customer") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only customers can advance a workflow stage." });
-      }
+      assertWorkflowParticipantRole(ctx.session.user.role);
       try {
         await assertOrderWritableAccess(input.orderId, ctx.session.user.id, ctx.session.user.role);
         const access = await assertCustomerWorkflowStageAccess(input.orderId, input.phaseKey);
@@ -347,7 +364,7 @@ export const ordersRouter = router({
         action: "order.phase_advanced",
         entityType: "order",
         entityId: input.orderId,
-        summary: `Customer continued from workflow phase ${input.phaseKey} without locking it`,
+        summary: `${workflowActorLabel(ctx.session.user.role)} continued from workflow phase ${input.phaseKey} without locking it`,
         changes: { phaseKey: input.phaseKey, advanceMode: "next", workflowProgress },
         ipAddress: ctx.clientIp,
       });

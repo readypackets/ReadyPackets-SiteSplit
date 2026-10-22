@@ -52,7 +52,7 @@ export function Phase2ArtifactsPage() {
   const documentFiles = phaseFiles.filter((file) => !audioFiles.includes(file));
   const phaseLock = detail.data?.phaseLocks?.find((lock) => lock.phaseKey === "phase_2");
   const phaseLocked = Boolean(phaseLock);
-  const submissionNotice = "You are about to submit Phase 2. This locks your customer documents and recordings in this phase. Only an administrator can confirm an unlock.";
+  const submissionNotice = "You are about to submit Phase 2. This locks documents and recordings in this phase. Only an administrator can confirm an unlock.";
 
   async function upload(selected: FileList | File[] | null, recordedPitch = false) {
     if (!selected || selected.length === 0) return;
