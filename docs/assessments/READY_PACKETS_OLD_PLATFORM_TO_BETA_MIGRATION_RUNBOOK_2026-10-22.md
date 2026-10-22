@@ -51,7 +51,7 @@ If the old host uses Cloudflare Origin CA and must remain on Origin CA, has exis
 
 ## Read-only preflight for the old VPS
 
-The current release includes `deploy/inspect-existing-platform.sh`, the preferred reusable preflight helper. Obtain it only from the reviewed immutable release artifact or a trusted private source checkout; do not make the repository public or curl a moving branch just to run an inspection. It is mode `0750`, performs no lifecycle/database/network write operation, does not source `portal.env`, and prints only allowlisted non-secret topology/version values.
+The current release includes `deploy/inspect-existing-platform.sh`, the preferred reusable preflight helper. Obtain it only from the reviewed immutable release artifact or a trusted private source checkout; do not make the repository public or curl a moving branch just to run an inspection. Copy it to a root-controlled local path and set it to mode `0750`; it performs no lifecycle/database/network write operation, does not source `portal.env`, and prints only allowlisted non-secret topology/version values.
 
 Run this as root on the existing VPS. It prints only non-secret topology/status information. It does **not** modify the server or print the environment file, passwords, keys, tokens, certificates, user data, or backups.
 

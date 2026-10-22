@@ -159,13 +159,23 @@ main() {
   done
   print_value "package.json identity" "${pkg:-not available}"
   if [[ -n "$source_dir" ]]; then
-    local migration_dir=""
-    migration_dir="$(first_existing_directory "$source_dir/migrations" "$source_dir/deploy/migrations" "$source_dir/drizzle" || true)"
-    if [[ -n "$migration_dir" ]]; then
-      local migration_count
-      migration_count="$(find "$migration_dir" -maxdepth 1 -type f \( -name '*.sql' -o -name '*.ts' \) 2>/dev/null | wc -l | tr -d ' ')"
-      print_value "Migration source directory" "$migration_dir"
-      print_value "Migration source files" "$migration_count"
+    # The authoritative ReadyPackets migration ledger consumes Drizzle SQL files.
+    # Some legacy releases also contain a small top-level `migrations/` directory
+    # with compatibility artifacts; report it separately instead of mistakenly
+    # presenting it as the complete schema baseline.
+    local drizzle_migrations="${source_dir}/drizzle/migrations"
+    if [[ -d "$drizzle_migrations" ]]; then
+      local drizzle_count
+      drizzle_count="$(find "$drizzle_migrations" -maxdepth 1 -type f -name '*.sql' 2>/dev/null | wc -l | tr -d ' ')"
+      print_value "Drizzle schema migration directory" "$drizzle_migrations"
+      print_value "Drizzle schema migration files" "$drizzle_count"
+    fi
+    local compatibility_migrations="${source_dir}/migrations"
+    if [[ -d "$compatibility_migrations" ]]; then
+      local compatibility_count
+      compatibility_count="$(find "$compatibility_migrations" -maxdepth 1 -type f -name '*.sql' 2>/dev/null | wc -l | tr -d ' ')"
+      print_value "Compatibility migration directory" "$compatibility_migrations"
+      print_value "Compatibility migration files" "$compatibility_count"
     fi
   fi
 

@@ -40,6 +40,15 @@ describe("existing ReadyPackets platform inspector", () => {
     expect(source).not.toMatch(/(SESSION_SECRET|DATA_ENCRYPTION_KEY|EMAIL_INDEX_KEY|DATABASE_URL|DB_PASSWORD|STRIPE_SECRET_KEY|SMTP_PASS|S3_SECRET_ACCESS_KEY|GRAPH_CLIENT_SECRET)/);
   });
 
+  it("reports authoritative Drizzle migration evidence separately from legacy compatibility migration files", () => {
+    expect(source).toContain("The authoritative ReadyPackets migration ledger consumes Drizzle SQL files.");
+    expect(source).toContain('local drizzle_migrations="${source_dir}/drizzle/migrations"');
+    expect(source).toContain('print_value "Drizzle schema migration files" "$drizzle_count"');
+    expect(source).toContain('local compatibility_migrations="${source_dir}/migrations"');
+    expect(source).toContain('print_value "Compatibility migration files" "$compatibility_count"');
+    expect(source).not.toContain('print_value "Migration source files"');
+  });
+
   it("does not contain lifecycle, filesystem, database-write, or HTTP-write commands", () => {
     expect(source).not.toMatch(/systemctl\s+(?:restart|reload|start|stop|enable|disable)/);
     expect(source).not.toMatch(/(?:^|[;&|\s])(?:rm|mv|cp|install|mkdir|chmod|chown)(?:[;&|\s]|$)/m);
