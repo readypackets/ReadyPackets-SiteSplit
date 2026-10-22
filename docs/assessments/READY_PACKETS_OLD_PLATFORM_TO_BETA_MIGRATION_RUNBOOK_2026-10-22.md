@@ -224,9 +224,9 @@ gates in order:
    counters at a quiescent point;
 4. creates a verified legacy full backup plus a root-only app/source/data/env/
    database/Nginx/TLS/systemd/controller rollback snapshot;
-5. blocks normal HTTPS traffic with an Nginx 503 gate while allowing only health
-   probes, holds schedulers, applies the 48 → 54 forward-only migration set, and
-   proves local readiness;
+5. blocks every HTTPS edge request with an Nginx 503 gate, holds schedulers,
+   applies the 48 → 54 forward-only migration set, and proves application
+   readiness only through the private loopback Node listener;
 6. compares the non-secret counters and schema ledger, then removes the edge
    gate and restores the previous backup-timer decision only after all gates
    succeed.
@@ -244,6 +244,14 @@ output is retained only in the corresponding root-only
 `/var/log/readypackets/legacy-migrations/*.nginx-gate.log` file. Review that
 file locally as root; do not paste TLS paths, certificate material, runtime
 configuration, or unrelated Nginx virtual-host content into tickets or chat.
+
+The maintenance include is intentionally a static server-level `return 503`,
+not a conditional health-route exception. During the migration the old upstream
+is deliberately stopped, so a conditional edge rule can fall through and emit
+a misleading `502`; readiness is instead checked directly against the private
+loopback Node listener. The bounded audit metadata classifies any failed local
+edge probe without retaining response bodies, headers, environment values, or
+certificate material.
 
 After this controlled legacy migration, validate on the old hostname: local and
 external readiness, administrator MFA, an existing customer sign-in, password

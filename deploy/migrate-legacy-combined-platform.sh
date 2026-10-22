@@ -191,7 +191,8 @@ prepare_edge_maintenance_gate() {
   # the new Node service can start; otherwise a short source-install window
   # could expose an app that is still migrating. The domain is preflighted as a
   # hostname and this runner only permits its exact historic apex/www pair.
-  local alternate server_names app_regex temporary_site http_status default_target certificate hostname
+  local alternate server_names app_regex rendered_app_regex expected_host_guard temporary_site http_status default_target certificate hostname
+  local curl_status probe_classification probe_metadata
   [[ -f "$WORK_DIR/source/deploy/nginx.conf" ]] || fail "The reviewed Nginx template is unavailable."
   audit "maintenance_gate.tls" "checking" "state=include"
   if [[ ! -f "$TLS_INCLUDE" ]]; then
@@ -238,12 +239,17 @@ prepare_edge_maintenance_gate() {
   fi
   server_names="${DOMAIN} ${alternate}"
   app_regex="${DOMAIN//./\\\\.}"
+  # `app_regex` contains two backslashes for sed so the rendered Nginx file
+  # receives one literal backslash before each dot. Assert the final host guard
+  # before reload; do not weaken it to wildcard dots merely to make a probe pass.
+  rendered_app_regex="${DOMAIN//./\\.}"
+  expected_host_guard="    if (\$host !~* ^(${rendered_app_regex})\$) {"
   temporary_site="/etc/nginx/sites-available/readypackets.legacy-maintenance.$$"
   cat > /etc/readypackets/maintenance-mode.conf <<'MAINTENANCE'
-# Controlled ReadyPackets maintenance mode. Only health probes remain reachable.
-if ($uri !~ ^/api/health(?:/ready)?$) {
-    return 503;
-}
+# Controlled ReadyPackets maintenance mode. All edge requests return 503.
+# The migration runner verifies application readiness through the direct
+# loopback Node listener, never through public Nginx while this gate is set.
+return 503;
 MAINTENANCE
   chown root:root /etc/readypackets/maintenance-mode.conf
   chmod 0640 /etc/readypackets/maintenance-mode.conf
@@ -259,6 +265,10 @@ MAINTENANCE
   if grep -q '__RP_' "$temporary_site"; then
     audit "maintenance_gate.render" "failed" "state=placeholder"
     fail "The temporary Nginx maintenance configuration contains an unresolved placeholder."
+  fi
+  if ! grep -Fqx "$expected_host_guard" "$temporary_site"; then
+    audit "maintenance_gate.render" "failed" "state=host_guard"
+    fail "The temporary Nginx maintenance configuration does not contain the expected canonical host guard."
   fi
   chown root:root "$temporary_site"
   chmod 0644 "$temporary_site"
@@ -277,14 +287,30 @@ MAINTENANCE
     fail "Nginx could not reload the validated temporary maintenance configuration; protected migration diagnostics were retained."
   fi
   audit "maintenance_gate.nginx_reload" "ok" "state=reloaded"
-  http_status="$(curl --noproxy '*' --insecure --silent --output /dev/null --write-out '%{http_code}' \
-    --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/" || true)"
+  # `-q` is intentionally the first curl option, preventing a root/user curlrc
+  # from altering this local, pinned maintenance-gate proof. The explicit Host
+  # header makes the expected canonical vhost unambiguous alongside SNI from
+  # the URL/--resolve pair. Capture only bounded transport metadata; never
+  # retain request/response bodies, configuration, headers, or TLS material.
+  curl_status=0
+  probe_metadata="$(curl -q --noproxy '*' --insecure --silent --show-error \
+    --connect-timeout 2 --max-time 8 --output /dev/null --write-out '%{http_code}' \
+    --resolve "${DOMAIN}:443:127.0.0.1" -H "Host: ${DOMAIN}" \
+    "https://${DOMAIN}/" 2>>"$NGINX_DIAGNOSTIC_FILE")" || curl_status=$?
+  http_status="$probe_metadata"
   [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status="000"
   if [[ "$http_status" != "503" ]]; then
-    audit "maintenance_gate.edge_probe" "failed" "http=${http_status}"
+    case "${http_status}/${curl_status}" in
+      000/*) probe_classification="connect_or_tls" ;;
+      421/0) probe_classification="host_guard" ;;
+      308/0) probe_classification="redirect" ;;
+      502/0) probe_classification="upstream_fallthrough" ;;
+      *) probe_classification="unexpected_status" ;;
+    esac
+    audit "maintenance_gate.edge_probe" "failed" "class=${probe_classification}/http=${http_status}/curl=${curl_status}"
     fail "The temporary edge maintenance gate did not return HTTP 503 for ordinary traffic."
   fi
-  audit "maintenance_gate.edge_probe" "ok" "http=503"
+  audit "maintenance_gate.edge_probe" "ok" "class=maintenance/http=503/curl=${curl_status}"
 }
 
 capture_preservation_counts() {

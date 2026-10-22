@@ -25,7 +25,7 @@
 #   --skip-packages     Assume Node, MySQL and nginx are already installed
 #   --preserve-runtime-config  Existing-host upgrade only; retain portal.env byte-for-byte
 #   --allow-legacy-combined-host-transition  Restricted recovery transition for the known retired all-in-one host
-#   --maintenance-mode  Root-only controlled update mode: serve 503 except health probes until a later install removes it
+#   --maintenance-mode  Root-only controlled update mode: serve an edge 503 until a later controlled step removes it
 #   --site-name <name>  Website name used for public page metadata
 #   --github-config-repository owner/repository  Restore latest encrypted vault configuration
 #   --github-config-branch <branch> --github-config-folder <path>
@@ -175,6 +175,7 @@ fi
 readonly REQUESTED_WANT_SEED="$WANT_SEED"
 readonly REQUESTED_SKIP_PACKAGES="$SKIP_PACKAGES"
 readonly REQUESTED_PRESERVE_RUNTIME_CONFIG="$PRESERVE_RUNTIME_CONFIG"
+readonly REQUESTED_MAINTENANCE_MODE="$MAINTENANCE_MODE"
 readonly REQUESTED_TLS_PROVIDER="$TLS_PROVIDER"
 
 # A supported in-place update invokes this installer with the canonical domain.
@@ -460,6 +461,7 @@ if [[ -f "$ENV_FILE" ]]; then
   WANT_SEED="$REQUESTED_WANT_SEED"
   SKIP_PACKAGES="$REQUESTED_SKIP_PACKAGES"
   PRESERVE_RUNTIME_CONFIG="$REQUESTED_PRESERVE_RUNTIME_CONFIG"
+  MAINTENANCE_MODE="$REQUESTED_MAINTENANCE_MODE"
   TLS_PROVIDER="$REQUESTED_TLS_PROVIDER"
 else
   log "Generating secrets"
@@ -879,14 +881,15 @@ MAINTENANCE_INCLUDE="${ENV_DIR}/maintenance-mode.conf"
 write_maintenance_mode_include() {
   # Keep this root-owned include present in every native deployment so Nginx
   # configuration rendering never depends on an optional file. The controlled
-  # update path may enable it before changing source/schema; loopback and edge
-  # readiness remain available while every customer-facing route returns 503.
+  # update path may enable it before changing source/schema. It must be an
+  # unconditional server-level response: a conditional gate can fall through to
+  # a deliberately stopped upstream and emit a misleading 502. Readiness uses
+  # the direct loopback Node listener, not public Nginx, while this gate is set.
   if [[ "$MAINTENANCE_MODE" == "true" ]]; then
     cat > "$MAINTENANCE_INCLUDE" <<'MAINTENANCE'
-# Controlled ReadyPackets maintenance mode. Only health probes remain reachable.
-if ($uri !~ ^/api/health(?:/ready)?$) {
-    return 503;
-}
+# Controlled ReadyPackets maintenance mode. All edge requests return 503.
+# Controlled readiness checks use the direct loopback Node listener.
+return 503;
 MAINTENANCE
   else
     cat > "$MAINTENANCE_INCLUDE" <<'MAINTENANCE'

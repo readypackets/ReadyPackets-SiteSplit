@@ -100,9 +100,19 @@ describe("exact legacy combined-platform migration runner", () => {
     expect(runnerSource).toContain('maintenance_gate.default_site" "failed" "state=not_symlink');
     expect(runnerSource).toContain('maintenance_gate.default_site" "failed" "state=unexpected_target');
     expect(runnerSource).toContain('maintenance_gate.render" "failed" "state=placeholder');
+    expect(runnerSource).toContain('rendered_app_regex="${DOMAIN//./\\\\.}"');
+    expect(runnerSource).toContain('expected_host_guard="    if (\\$host !~* ^(${rendered_app_regex})\\$) {"');
+    expect(runnerSource).toContain('maintenance_gate.render" "failed" "state=host_guard');
     expect(runnerSource).toContain("maintenance_gate.nginx_test");
     expect(runnerSource).toContain("maintenance_gate.nginx_reload");
     expect(runnerSource).toContain("maintenance_gate.edge_probe");
+    expect(runnerSource).toContain("# Controlled ReadyPackets maintenance mode. All edge requests return 503.");
+    expect(runnerSource).toContain("# loopback Node listener, never through public Nginx while this gate is set.");
+    expect(runnerSource).toContain('curl -q --noproxy \'*\' --insecure --silent --show-error');
+    expect(runnerSource).toContain('--connect-timeout 2 --max-time 8');
+    expect(runnerSource).toContain('-H "Host: ${DOMAIN}"');
+    expect(runnerSource).toContain('class=${probe_classification}/http=${http_status}/curl=${curl_status}');
+    expect(runnerSource).toContain('502/0) probe_classification="upstream_fallthrough"');
     expect(runnerSource).toContain("The temporary edge maintenance gate did not return HTTP 503 for ordinary traffic.");
     expect(runnerSource).toContain("--resolve \"${DOMAIN}:443:127.0.0.1\"");
     expect(runnerSource).toContain("--maintenance-mode");
@@ -110,10 +120,14 @@ describe("exact legacy combined-platform migration runner", () => {
     expect(runnerSource).toContain("restore_timer_state");
     expect(installerSource).toContain('--maintenance-mode) MAINTENANCE_MODE="true"');
     expect(installerSource).toContain("--maintenance-mode requires --preserve-runtime-config.");
+    expect(installerSource).toContain('readonly REQUESTED_MAINTENANCE_MODE="$MAINTENANCE_MODE"');
+    expect(installerSource).toContain('MAINTENANCE_MODE="$REQUESTED_MAINTENANCE_MODE"');
     expect(installerSource).toContain("write_maintenance_mode_include");
-    expect(installerSource).toContain("Only health probes remain reachable.");
+    expect(installerSource).toContain("All edge requests return 503.");
+    expect(installerSource).toContain("the direct loopback Node listener, not public Nginx");
     expect(nginxSource).toContain("include /etc/readypackets/maintenance-mode.conf;");
-    expect(nginxSource).toContain("retaining the exact health endpoints for readiness checks");
+    expect(nginxSource).toContain("returns 503 for every edge");
+    expect(nginxSource).toContain("loopback Node");
   });
 
   it("limits the temporary combined-host exception and preserves normal fresh-install protections", () => {
