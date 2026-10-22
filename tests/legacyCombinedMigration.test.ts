@@ -90,6 +90,15 @@ describe("exact legacy combined-platform migration runner", () => {
     expect(runnerSource).toContain("prepare_edge_maintenance_gate");
     expect(runnerSource).toContain('readonly NGINX_DEFAULT_SITE="/etc/nginx/sites-enabled/default"');
     expect(runnerSource).toContain('readonly TLS_INCLUDE="/etc/readypackets/tls/nginx-tls.conf"');
+    expect(runnerSource).toContain('readonly NGINX_SITES_ENABLED="/etc/nginx/sites-enabled"');
+    expect(runnerSource).toContain('readonly NGINX_CONF_D="/etc/nginx/conf.d"');
+    expect(runnerSource).toContain("preflight_effective_nginx_topology");
+    expect(runnerSource).toContain("Additional enabled Nginx sites are present; do not alter this host automatically.");
+    expect(runnerSource).toContain("Additional Nginx conf.d snippets are present; do not alter this host automatically.");
+    expect(runnerSource).toContain("Nginx uses a nonstandard configuration path; do not alter this host automatically.");
+    expect(runnerSource).toContain("Nginx has a loopback-specific TLS listener; do not alter this host automatically.");
+    expect(runnerSource).toContain("Nginx has a 503 error-page handler; do not alter this host automatically.");
+    expect(runnerSource).toContain("The retained TLS include contains request-routing controls; do not alter this host automatically.");
     expect(runnerSource).toContain('state=removed_ubuntu_default');
     expect(runnerSource).toContain("Nginx default-site symlink has an unexpected target");
     expect(runnerSource).toContain('openssl x509 -in "$certificate" -noout -checkhost "$hostname"');
@@ -104,16 +113,17 @@ describe("exact legacy combined-platform migration runner", () => {
     expect(runnerSource).toContain('expected_host_guard="    if (\\$host !~* ^(${rendered_app_regex})\\$) {"');
     expect(runnerSource).toContain('maintenance_gate.render" "failed" "state=host_guard');
     expect(runnerSource).toContain("maintenance_gate.nginx_test");
-    expect(runnerSource).toContain("maintenance_gate.nginx_reload");
+    expect(runnerSource).toContain("maintenance_gate.nginx_restart");
     expect(runnerSource).toContain("maintenance_gate.edge_probe");
     expect(runnerSource).toContain("# Controlled ReadyPackets maintenance mode. All edge requests return 503.");
     expect(runnerSource).toContain("# loopback Node listener, never through public Nginx while this gate is set.");
     expect(runnerSource).toContain('curl -q --noproxy \'*\' --insecure --silent --show-error');
     expect(runnerSource).toContain('--connect-timeout 2 --max-time 8');
     expect(runnerSource).toContain('-H "Host: ${DOMAIN}"');
-    expect(runnerSource).toContain('class=${probe_classification}/http=${http_status}/curl=${curl_status}');
-    expect(runnerSource).toContain('502/0) probe_classification="upstream_fallthrough"');
-    expect(runnerSource).toContain("The temporary edge maintenance gate did not return HTTP 503 for ordinary traffic.");
+    expect(runnerSource).toContain("systemctl restart nginx");
+    expect(runnerSource).toContain("consecutive >= 2");
+    expect(runnerSource).toContain('502/0) probe_classification="wrong_vhost_or_error_handler"');
+    expect(runnerSource).toContain("The temporary edge maintenance gate did not return two consecutive HTTP 503 responses for ordinary traffic.");
     expect(runnerSource).toContain("--resolve \"${DOMAIN}:443:127.0.0.1\"");
     expect(runnerSource).toContain("--maintenance-mode");
     expect(runnerSource).toContain("remove_scheduler_hold");
@@ -147,6 +157,9 @@ describe("exact legacy combined-platform migration runner", () => {
     expect(runnerSource).not.toMatch(/cat\s+.*portal\.env|printenv|set\s+-x/);
     expect(runnerSource).not.toContain("GITHUB_PAT");
     expect(runnerSource).not.toContain("--token");
+    expect(runnerSource).toContain('AUDIT_MIRROR_FILE="${SNAPSHOT}/migration-audit.jsonl"');
+    expect(runnerSource).toContain('"${SNAPSHOT}/nginx-gate-diagnostic.log"');
+    expect(runnerSource).toContain("The live journal/log directory may be rotated or cleared after a host reboot;");
   });
 
   it("keeps the maintenance artifact in routine update rollback snapshots", () => {

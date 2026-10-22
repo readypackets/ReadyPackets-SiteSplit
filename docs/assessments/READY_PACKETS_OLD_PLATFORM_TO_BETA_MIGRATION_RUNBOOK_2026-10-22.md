@@ -220,14 +220,19 @@ gates in order:
 1. validates the exact 48-migration legacy release and its clean source marker;
 2. validates the exact target SHA, staged source, TypeScript, full non-database
    test suite, and production build without pointing tests at the live database;
-3. records non-secret user, administrator, password-hash, order, and file-record
+3. refuses an unexpected Nginx graph before mutation: another enabled site,
+   `conf.d` snippet, loopback-only TLS listener, 503 error-page handler,
+   nonstandard Nginx configuration path, or request-routing TLS include is a
+   fail-closed incompatibility rather than something this runner tries to edit;
+4. records non-secret user, administrator, password-hash, order, and file-record
    counters at a quiescent point;
-4. creates a verified legacy full backup plus a root-only app/source/data/env/
+5. creates a verified legacy full backup plus a root-only app/source/data/env/
    database/Nginx/TLS/systemd/controller rollback snapshot;
-5. blocks every HTTPS edge request with an Nginx 503 gate, holds schedulers,
+6. blocks every HTTPS edge request with an Nginx 503 gate, restarts the validated
+   Nginx generation, requires two consecutive pinned local 503 responses, holds schedulers,
    applies the 48 → 54 forward-only migration set, and proves application
    readiness only through the private loopback Node listener;
-6. compares the non-secret counters and schema ledger, then removes the edge
+7. compares the non-secret counters and schema ledger, then removes the edge
    gate and restores the previous backup-timer decision only after all gates
    succeed.
 
@@ -249,9 +254,19 @@ The maintenance include is intentionally a static server-level `return 503`,
 not a conditional health-route exception. During the migration the old upstream
 is deliberately stopped, so a conditional edge rule can fall through and emit
 a misleading `502`; readiness is instead checked directly against the private
-loopback Node listener. The bounded audit metadata classifies any failed local
-edge probe without retaining response bodies, headers, environment values, or
-certificate material.
+loopback Node listener. The runner performs a full Nginx restart—not merely a
+graceful reload—after the syntax check and requires two consecutive pinned local
+`503` responses before source/schema mutation. This prevents an old worker from
+serving a stale proxy configuration during the first post-reload request. The
+bounded audit metadata classifies a failure as `wrong_vhost_or_error_handler`
+when it observes `502`; it never retains response bodies, headers, environment
+values, or certificate material.
+
+The snapshot preserves the allowlisted migration audit. If a gate fails after
+the snapshot exists, it also retains the bounded Nginx gate diagnostic inside
+that root-only snapshot before rollback restores the live host artifacts. This
+allows review after a reboot or log rotation without copying protected runtime
+configuration, customer data, or certificate material off the VPS.
 
 After this controlled legacy migration, validate on the old hostname: local and
 external readiness, administrator MFA, an existing customer sign-in, password

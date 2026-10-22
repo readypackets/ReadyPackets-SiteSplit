@@ -36,6 +36,8 @@ readonly LOCK_FILE="${WORK_ROOT}/legacy-combined-migration.lock"
 readonly AUDIT_ROOT="/var/log/readypackets/legacy-migrations"
 readonly NGINX_DEFAULT_SITE="/etc/nginx/sites-enabled/default"
 readonly TLS_INCLUDE="/etc/readypackets/tls/nginx-tls.conf"
+readonly NGINX_SITES_ENABLED="/etc/nginx/sites-enabled"
+readonly NGINX_CONF_D="/etc/nginx/conf.d"
 readonly SHA_RE='^[a-f0-9]{40}$'
 readonly BRANCH_RE='^[A-Za-z0-9._/-]{1,128}$'
 readonly HOST_RE='^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$'
@@ -51,6 +53,7 @@ STORAGE_DRIVER="local"
 SNAPSHOT=""
 WORK_DIR=""
 AUDIT_FILE=""
+AUDIT_MIRROR_FILE=""
 NGINX_DIAGNOSTIC_FILE=""
 RUN_ID="legacy-combined-$(date -u '+%Y%m%dT%H%M%SZ')-$$"
 MUTATION_STARTED="false"
@@ -73,6 +76,10 @@ audit() {
   if [[ -n "$AUDIT_FILE" ]]; then
     printf '{"timestamp":"%s","run":"%s","event":"%s","result":"%s","detail":"%s"}\n' \
       "$now" "$RUN_ID" "$event" "$result" "$detail" >> "$AUDIT_FILE"
+  fi
+  if [[ -n "$AUDIT_MIRROR_FILE" ]]; then
+    printf '{"timestamp":"%s","run":"%s","event":"%s","result":"%s","detail":"%s"}\n' \
+      "$now" "$RUN_ID" "$event" "$result" "$detail" >> "$AUDIT_MIRROR_FILE"
   fi
   logger -p authpriv.notice -t readypackets-legacy-migration -- \
     "run=${RUN_ID} event=${event} result=${result} detail=${detail}" 2>/dev/null || true
@@ -185,14 +192,102 @@ readiness_check() {
   return 1
 }
 
+preflight_effective_nginx_topology() {
+  # This narrow legacy transition replaces the only enabled ReadyPackets site.
+  # Do not guess how a custom Nginx graph will select a TLS vhost: fail before
+  # backup/mutation if another enabled site, conf.d snippet, loopback-specific
+  # listener, error_page 503 handler, or nonstandard systemd configuration can
+  # make the local proof reach a different response path.
+  local effective_config extra_sites extra_conf tls_control_directives nginx_exec_start
+  [[ -d "$NGINX_SITES_ENABLED" && -d "$NGINX_CONF_D" ]] \
+    || fail "The expected Nginx site directories are unavailable; do not alter this host automatically."
+  [[ -L "${NGINX_SITES_ENABLED}/readypackets" ]] \
+    || fail "The active ReadyPackets Nginx site link is unavailable; do not alter this host automatically."
+  extra_sites="$(find "$NGINX_SITES_ENABLED" -mindepth 1 -maxdepth 1 ! -name readypackets -printf '%f\n' 2>/dev/null)"
+  [[ -z "$extra_sites" ]] \
+    || fail "Additional enabled Nginx sites are present; do not alter this host automatically."
+  extra_conf="$(find "$NGINX_CONF_D" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' 2>/dev/null)"
+  [[ -z "$extra_conf" ]] \
+    || fail "Additional Nginx conf.d snippets are present; do not alter this host automatically."
+  nginx_exec_start="$(systemctl show nginx --property=ExecStart --value 2>/dev/null || true)"
+  [[ "$nginx_exec_start" != *" -c "* ]] \
+    || fail "Nginx uses a nonstandard configuration path; do not alter this host automatically."
+  effective_config="$(nginx -T 2>&1)" \
+    || fail "The active Nginx configuration is invalid; do not alter this host automatically."
+  grep -Fq "# configuration file ${NGINX_SITES_ENABLED}/readypackets:" <<<"$effective_config" \
+    || fail "The active Nginx graph does not load the ReadyPackets site link; do not alter this host automatically."
+  if awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*listen[[:space:]]+(127\.0\.0\.1|\[::1\]):443([[:space:];]|$)/ { found=1 }
+    END { exit(found ? 0 : 1) }
+  ' <<<"$effective_config"; then
+    fail "Nginx has a loopback-specific TLS listener; do not alter this host automatically."
+  fi
+  if awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*error_page[[:space:]].*(^|[[:space:]])503([[:space:];]|$)/ { found=1 }
+    END { exit(found ? 0 : 1) }
+  ' <<<"$effective_config"; then
+    fail "Nginx has a 503 error-page handler; do not alter this host automatically."
+  fi
+  tls_control_directives="$(awk '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    /^[[:space:]]*(return|rewrite|error_page|proxy_pass|location|server|listen|if|include)([[:space:];]|$)/ { print $1 }
+  ' "$TLS_INCLUDE")"
+  [[ -z "$tls_control_directives" ]] \
+    || fail "The retained TLS include contains request-routing controls; do not alter this host automatically."
+}
+
+verify_edge_maintenance_gate() {
+  # A graceful reload can briefly leave an old worker serving the old proxy
+  # generation. Restarting Nginx after a successful syntax check retires that
+  # generation; require two consecutive fresh loopback TLS requests to return
+  # the static gate before source/schema mutation begins.
+  local attempt http_status="000" curl_status=0 probe_metadata="" consecutive=0 probe_classification="unexpected_status"
+  if ! systemctl restart nginx >>"$NGINX_DIAGNOSTIC_FILE" 2>&1; then
+    audit "maintenance_gate.nginx_restart" "failed" "diagnostic=retained"
+    fail "Nginx could not restart the validated temporary maintenance configuration; protected migration diagnostics were retained."
+  fi
+  systemctl is-active --quiet nginx \
+    || { audit "maintenance_gate.nginx_restart" "failed" "state=inactive"; fail "Nginx is not active after the temporary maintenance restart."; }
+  audit "maintenance_gate.nginx_restart" "ok" "state=active"
+  for ((attempt = 1; attempt <= 12; attempt++)); do
+    curl_status=0
+    probe_metadata="$(curl -q --noproxy '*' --insecure --silent --show-error \
+      --connect-timeout 2 --max-time 8 --output /dev/null --write-out '%{http_code}' \
+      --resolve "${DOMAIN}:443:127.0.0.1" -H "Host: ${DOMAIN}" \
+      "https://${DOMAIN}/" 2>>"$NGINX_DIAGNOSTIC_FILE")" || curl_status=$?
+    http_status="$probe_metadata"
+    [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status="000"
+    if [[ "$http_status" == "503" && "$curl_status" == "0" ]]; then
+      consecutive=$((consecutive + 1))
+      if (( consecutive >= 2 )); then
+        audit "maintenance_gate.edge_probe" "ok" "class=maintenance/http=503/attempt=${attempt}"
+        return 0
+      fi
+    else
+      consecutive=0
+      case "${http_status}/${curl_status}" in
+        000/*) probe_classification="connect_or_tls" ;;
+        421/0) probe_classification="host_guard" ;;
+        308/0) probe_classification="redirect" ;;
+        502/0) probe_classification="wrong_vhost_or_error_handler" ;;
+        *) probe_classification="unexpected_status" ;;
+      esac
+    fi
+    sleep 1
+  done
+  audit "maintenance_gate.edge_probe" "failed" "class=${probe_classification}/http=${http_status}/curl=${curl_status}"
+  fail "The temporary edge maintenance gate did not return two consecutive HTTP 503 responses for ordinary traffic."
+}
+
 prepare_edge_maintenance_gate() {
   # The old proxy configuration does not know about the current maintenance
   # include. Install a minimal, validated target-derived configuration before
   # the new Node service can start; otherwise a short source-install window
   # could expose an app that is still migrating. The domain is preflighted as a
   # hostname and this runner only permits its exact historic apex/www pair.
-  local alternate server_names app_regex rendered_app_regex expected_host_guard temporary_site http_status default_target certificate hostname
-  local curl_status probe_classification probe_metadata
+  local alternate server_names app_regex rendered_app_regex expected_host_guard temporary_site default_target certificate hostname
   [[ -f "$WORK_DIR/source/deploy/nginx.conf" ]] || fail "The reviewed Nginx template is unavailable."
   audit "maintenance_gate.tls" "checking" "state=include"
   if [[ ! -f "$TLS_INCLUDE" ]]; then
@@ -282,35 +377,7 @@ MAINTENANCE
     fail "Nginx rejected the temporary maintenance configuration; protected migration diagnostics were retained."
   fi
   audit "maintenance_gate.nginx_test" "ok" "state=passed"
-  if ! systemctl reload nginx >>"$NGINX_DIAGNOSTIC_FILE" 2>&1; then
-    audit "maintenance_gate.nginx_reload" "failed" "diagnostic=retained"
-    fail "Nginx could not reload the validated temporary maintenance configuration; protected migration diagnostics were retained."
-  fi
-  audit "maintenance_gate.nginx_reload" "ok" "state=reloaded"
-  # `-q` is intentionally the first curl option, preventing a root/user curlrc
-  # from altering this local, pinned maintenance-gate proof. The explicit Host
-  # header makes the expected canonical vhost unambiguous alongside SNI from
-  # the URL/--resolve pair. Capture only bounded transport metadata; never
-  # retain request/response bodies, configuration, headers, or TLS material.
-  curl_status=0
-  probe_metadata="$(curl -q --noproxy '*' --insecure --silent --show-error \
-    --connect-timeout 2 --max-time 8 --output /dev/null --write-out '%{http_code}' \
-    --resolve "${DOMAIN}:443:127.0.0.1" -H "Host: ${DOMAIN}" \
-    "https://${DOMAIN}/" 2>>"$NGINX_DIAGNOSTIC_FILE")" || curl_status=$?
-  http_status="$probe_metadata"
-  [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status="000"
-  if [[ "$http_status" != "503" ]]; then
-    case "${http_status}/${curl_status}" in
-      000/*) probe_classification="connect_or_tls" ;;
-      421/0) probe_classification="host_guard" ;;
-      308/0) probe_classification="redirect" ;;
-      502/0) probe_classification="upstream_fallthrough" ;;
-      *) probe_classification="unexpected_status" ;;
-    esac
-    audit "maintenance_gate.edge_probe" "failed" "class=${probe_classification}/http=${http_status}/curl=${curl_status}"
-    fail "The temporary edge maintenance gate did not return HTTP 503 for ordinary traffic."
-  fi
-  audit "maintenance_gate.edge_probe" "ok" "class=maintenance/http=503/curl=${curl_status}"
+  verify_edge_maintenance_gate
 }
 
 capture_preservation_counts() {
@@ -367,6 +434,13 @@ MANIFEST
   chmod 0600 "${SNAPSHOT}/database.sql.gz" "${SNAPSHOT}/host-paths.txt" \
     "${SNAPSHOT}/backup-timer-was-enabled" "${SNAPSHOT}/SHA256SUMS" \
     "${SNAPSHOT}/MANIFEST.txt"
+  # Keep the allowlisted migration audit with the retained recovery snapshot.
+  # The live journal/log directory may be rotated or cleared after a host reboot;
+  # the snapshot is the durable recovery evidence for a failed mutation.
+  AUDIT_MIRROR_FILE="${SNAPSHOT}/migration-audit.jsonl"
+  cp -- "$AUDIT_FILE" "$AUDIT_MIRROR_FILE"
+  chown root:root "$AUDIT_MIRROR_FILE"
+  chmod 0600 "$AUDIT_MIRROR_FILE"
 }
 
 create_verified_full_backup() {
@@ -461,6 +535,11 @@ on_exit() {
   local status=$?
   trap - EXIT
   if [[ "$status" -ne 0 && "$MUTATION_STARTED" == "true" && "$UPDATE_SUCCEEDED" != "true" ]]; then
+    if [[ -n "$SNAPSHOT" && -n "$NGINX_DIAGNOSTIC_FILE" && -f "$NGINX_DIAGNOSTIC_FILE" ]]; then
+      cp -a -- "$NGINX_DIAGNOSTIC_FILE" "${SNAPSHOT}/nginx-gate-diagnostic.log"
+      chown root:root "${SNAPSHOT}/nginx-gate-diagnostic.log"
+      chmod 0600 "${SNAPSHOT}/nginx-gate-diagnostic.log"
+    fi
     restore_snapshot || true
   fi
   [[ -n "$WORK_DIR" ]] && rm -rf -- "$WORK_DIR"
@@ -549,6 +628,7 @@ preflight_existing_host() {
     || fail "This runner requires the exact ${LEGACY_MIGRATION_COUNT}-migration legacy ledger; found ${migration_count:-unavailable}."
   mysql --protocol=socket -u root "$DB_NAME" -NBe "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('users','orders','files')" \
     | grep -qx '3' || fail "The legacy user/order/file schema evidence is incomplete."
+  preflight_effective_nginx_topology
 }
 
 ensure_snapshot_capacity() {

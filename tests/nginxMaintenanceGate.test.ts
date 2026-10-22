@@ -24,7 +24,10 @@ describe("Nginx controlled maintenance gate", () => {
     expect(installerSource).not.toContain("Only health probes remain reachable.");
     expect(runnerSource).toContain("# Controlled ReadyPackets maintenance mode. All edge requests return 503.");
     expect(runnerSource).toContain("curl -q --noproxy '*' --insecure --silent --show-error");
-    expect(runnerSource).toContain('502/0) probe_classification="upstream_fallthrough"');
+    expect(runnerSource).toContain('502/0) probe_classification="wrong_vhost_or_error_handler"');
+    expect(runnerSource).toContain("systemctl restart nginx");
+    expect(runnerSource).toContain("consecutive >= 2");
+    expect(runnerSource).toContain("preflight_effective_nginx_topology");
   });
 
   it.skipIf(!canRunNginxIntegration)("returns 503 from an isolated TLS edge even when the configured upstream is unavailable", () => {
