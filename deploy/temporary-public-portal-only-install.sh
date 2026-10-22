@@ -15,7 +15,7 @@ umask 077
 readonly REPOSITORY="readypackets/ReadyPackets-SiteSplit"
 # The portal source installed by this reviewed bootstrap. Do not replace with a
 # branch name or abbreviated SHA: production deployment must remain immutable.
-readonly RELEASE_COMMIT="0451317028f3647abab2f35d8fda472937b79912"
+readonly RELEASE_COMMIT="ae5bb1ef039cdb0826ed4721ee9b252ca06f9d72"
 readonly SOURCE_DIR="/srv/readypackets"
 readonly TOKEN_DIR="/root/readypackets-secrets"
 
