@@ -4611,3 +4611,9 @@ Final session-log publication follows; the temporary-public bootstrap download i
 **Publication state:** Pending reviewed source commit, immutable temporary-public bootstrap pin update, final session-log publication record, private GitHub `main` push, and workflow confirmation.
 
 **Immutable source commits:** The reviewed application release was committed as `368b5fc8d62dd5124c2878ab661312a64d65dc88` (`feat: improve named order workspaces`). The temporary-public portal-only bootstrap was then committed as `55d1ddb79b0ce336a26463b21d59113552f0d5f3` (`chore: advance public portal installer release`) and pins its internally verified application checkout to `368b5fc8d62dd5124c2878ab661312a64d65dc88`. Final temporary-public documentation, session-log publication, private GitHub `main` synchronization, and GitHub Actions confirmation follow.
+
+**Final GitHub validation:** Both authoritative workflows passed for the published release head `07e7b06b29874c175a89f3be3ec58c12d3fe8894`:
+- **ReadyPackets Portal CI** — run `39708668358`: the complete portal CI pipeline succeeded.
+- **Native mobile validation** — run `39708668152`: mobile API/source safeguards, unsigned iOS simulator build, and Android API 36 compile/tests all succeeded.
+
+GitHub emitted non-blocking runner-action deprecation annotations (the actions' internal Node 20 runtime is being forced to Node 24, `setup-java@v4` deprecation, and the scheduled `ubuntu-latest` label change). They did not affect this build; they remain routine CI-maintenance follow-up rather than a portal runtime, deployment, data, or security failure. The final validation-record publication commit follows.
