@@ -8,6 +8,7 @@ import {
   LoginSlideshow,
   nextLoginSlideIndex,
   previousLoginSlideIndex,
+  renderLoginSlides,
   shouldRotateLoginSlides,
 } from "../client/src/components/auth/LoginSlideshow.js";
 
@@ -22,7 +23,9 @@ describe("login slideshow", () => {
     expect(loginSource).toContain('lg:grid-cols-[minmax(0,1.1fr)_minmax(32rem,0.9fr)]');
     expect(loginSource).toContain('main id="auth-main" className="order-1');
     expect(loginSource).toContain("lg:order-2");
-    expect(loginSource).toContain("<LoginSlideshow />");
+    expect(loginSource).toContain("<LoginSlideshow slides={loginConfig.data?.slideshowSlides} />");
+    expect(loginSource).toContain("Create your account");
+    expect(loginSource).toContain("variant=\"primary\"");
     expect(slideshowSource).toContain('className="relative order-1 hidden');
     expect(slideshowSource).toContain("if (!isDesktop) return null;");
   });
@@ -72,6 +75,19 @@ describe("login slideshow", () => {
       expect(slide.title).not.toHaveLength(0);
       expect(slide.description).not.toHaveLength(0);
     }
+  });
+
+  it("allows administrator copy while restricting the visual to a local ReadyPackets asset", () => {
+    const slides = renderLoginSlides([{
+      eyebrow: "Customer workspace",
+      title: "Track your engagement securely.",
+      description: "Review protected files and next steps in one place.",
+      imageKey: "mark",
+    }]);
+    expect(slides).toHaveLength(1);
+    expect(slides[0]?.image).toBe("/brand/readypackets-mark-dark.svg");
+    expect(slides[0]?.title).toBe("Track your engagement securely.");
+    expect(renderLoginSlides([{ title: "Missing required fields" }])).toEqual(LOGIN_SLIDES);
   });
 
   it("renders labelled, keyboard-operable carousel controls without live updates", () => {

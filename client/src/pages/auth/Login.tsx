@@ -11,7 +11,7 @@ import { KeyRound, LogIn, Mail, ShieldCheck } from "lucide-react";
 import { BRAND, BRAND_ASSETS } from "@shared/brand";
 import { trpc, errorMessage, refreshCsrfToken } from "@/lib/trpc";
 import { useSession } from "@/lib/session";
-import { Button } from "@/components/ui/Button";
+import { Button, LinkButton } from "@/components/ui/Button";
 import { Input, PasswordInput } from "@/components/ui/Field";
 import { Alert, Card } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
@@ -69,6 +69,7 @@ export function LoginPage() {
   const [, navigate] = useLocation();
   const toast = useToast();
   const session = useSession();
+  const loginConfig = trpc.tier4.loginConfig.get.useQuery(undefined, { staleTime: 60_000, retry: 1 });
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -374,10 +375,14 @@ export function LoginPage() {
               </div>
             </Card>
 
-            <div className="mt-5 text-center text-sm text-body">
+            <div className="mt-5 rounded-xl border border-teal/30 bg-teal/5 p-4 text-center">
               {session.registrationEnabled ? (
                 <>
-                  New to {BRAND.companyShortName}? <Link href="/register">Create an account</Link>
+                  <p className="text-sm font-medium text-ink">New to {BRAND.companyShortName}?</p>
+                  <LinkButton href="/register" variant="primary" size="lg" fullWidth className="mt-3">
+                    Create your account
+                  </LinkButton>
+                  <p className="mt-2 text-xs text-muted">Create your protected customer portal account to start an order.</p>
                 </>
               ) : (
                 <>
@@ -389,7 +394,7 @@ export function LoginPage() {
             <p className="mt-8 text-center text-xs text-muted">{BRAND.copyright()}</p>
           </div>
         </main>
-        <LoginSlideshow />
+        <LoginSlideshow slides={loginConfig.data?.slideshowSlides} />
       </div>
     </div>
   );

@@ -41,6 +41,9 @@ import { getObjectBuffer } from "./storage.js";
 import { transcodeWebmToMp3ForSharePoint } from "./audioTranscode.js";
 import { getDelegatedSharePointStatus, getDelegatedSharePointRestToken, recordDelegatedSharePointError } from "./sharepointDelegatedAuth.js";
 import { backfillCanonicalP101Scope, buildCanonicalP101Payload } from "./orderScope.js";
+import {
+  buildSharepointCustomerFolderName,
+} from "./sharepointFolderNaming.js";
 import type { OrderStatus } from "../../shared/domain.js";
 
 // ---------------------------------------------------------------------------
@@ -88,8 +91,8 @@ export function normalizeSharePointRootFolderPath(value: string): string {
   return baseSegments.join("/");
 }
 
-function buildOrderRootFolderPath(rootFolderPath: string, customerFolder: string, orderNumber: string): string {
-  return `${rootFolderPath}/customers/${customerFolder}/orders/${orderNumber}`;
+function buildOrderRootFolderPath(rootFolderPath: string, customerFolder: string, orderFolder: string): string {
+  return `${rootFolderPath}/customers/${customerFolder}/orders/${orderFolder}`;
 }
 
 async function getGraphRuntimeConfig(): Promise<GraphRuntimeConfig> {
@@ -690,12 +693,27 @@ function resolveSharePointFileKind(file: { detectedMime?: string | null; extensi
   return mime.startsWith("audio/") || mime === "video/webm" || mime === "video/ogg" || ["webm", "wav", "mp3", "m4a", "ogg", "aac", "flac"].includes(extension) ? "audio" : "document";
 }
 
-async function resolveOrderStageFolder(orderId: number, phase: string, graphConfig: GraphRuntimeConfig, fileKind: SharePointFileKind = "document"): Promise<{ folderPath: string; orderNumber: string }> {
-  const rows = await db.select({ orderNumber: orders.orderNumber, userId: orders.userId, workflowId: orders.workflowId }).from(orders).where(eq(orders.id, orderId)).limit(1);
+async function resolveOrderStageFolder(orderId: number, phase: string, graphConfig: GraphRuntimeConfig, fileKind: SharePointFileKind = "document"): Promise<{ folderPath: string; orderRoot: string; orderNumber: string }> {
+  const rows = await db.select({
+    orderNumber: orders.orderNumber,
+    userId: orders.userId,
+    workflowId: orders.workflowId,
+    projectNameEnc: orders.projectNameEnc,
+    sharepointCustomerFolderEnc: orders.sharepointCustomerFolderEnc,
+    sharepointOrderFolderEnc: orders.sharepointOrderFolderEnc,
+  }).from(orders).where(eq(orders.id, orderId)).limit(1);
   const order = rows[0];
   if (!order) throw new Error("Order not found for SharePoint synchronization.");
   const customer = await getUserById(order.userId);
-  const customerFolder = customer?.customerNumber ?? "RP-CUS-UNKNOWN0";
+  const customerId = customer?.customerNumber ?? customer?.publicId ?? "RP-CUS-UNKNOWN";
+  // Legacy orders deliberately retain their original opaque path. Orders created
+  // after the folder-snapshot migration use immutable friendly labels instead.
+  const customerFolder = decryptField(order.sharepointCustomerFolderEnc, `order:${orderId}:sharepoint-customer-folder`)
+    ?? customer?.customerNumber
+    ?? buildSharepointCustomerFolderName({ email: customer?.email ?? "customer", customerId });
+  const projectName = decryptField(order.projectNameEnc, `order:${orderId}`) ?? "Order";
+  const orderFolder = decryptField(order.sharepointOrderFolderEnc, `order:${orderId}:sharepoint-order-folder`)
+    ?? order.orderNumber;
   const stageRows = order.workflowId ? await db.select({ stages: orderWorkflows.stages }).from(orderWorkflows).where(eq(orderWorkflows.id, order.workflowId)).limit(1) : [];
   const stages = Array.isArray(stageRows[0]?.stages) ? stageRows[0]!.stages as WorkflowSharePointStage[] : [];
   const stageKey = workflowStageKeyForPhase(phase);
@@ -706,7 +724,8 @@ async function resolveOrderStageFolder(orderId: number, phase: string, graphConf
     ? templates.find((path) => /\/audio$/i.test(path)) ?? `Workflow/${stageKey}/Audio`
     : templates.find((path) => /\/(Docs|Client_Facing|Context)$/i.test(path)) ?? `Workflow/${stageKey}/Docs`;
   const destination = normalizeSharePointRelativePath(typeof configuredDestination === "string" && configuredDestination.trim() ? configuredDestination : fallback);
-  return { folderPath: `${buildOrderRootFolderPath(graphConfig.rootFolderPath, customerFolder, order.orderNumber)}/${destination}`, orderNumber: order.orderNumber };
+  const orderRoot = buildOrderRootFolderPath(graphConfig.rootFolderPath, customerFolder, orderFolder);
+  return { folderPath: `${orderRoot}/${destination}`, orderRoot, orderNumber: order.orderNumber };
 }
 
 /** Queue an accepted local order file for asynchronous Graph synchronization when SharePoint is configured. */
@@ -1007,23 +1026,9 @@ async function jobCreateFolders(orderId: number, phase: string): Promise<void> {
     return;
   }
 
-  const orderRows = await db
-    .select({ orderNumber: orders.orderNumber, userId: orders.userId })
-    .from(orders)
-    .where(eq(orders.id, orderId))
-    .limit(1);
-
+  const orderRows = await db.select({ orderNumber: orders.orderNumber }).from(orders).where(eq(orders.id, orderId)).limit(1);
   if (orderRows.length === 0) return;
   const orderNumber = orderRows[0]!.orderNumber;
-  const userId = orderRows[0]!.userId;
-  
-  const customer = await getUserById(userId);
-  
-  let customerFolder = customer?.customerNumber;
-  if (!customerFolder) {
-    const rawName = customer ? displayNameOf(customer) : `user_${userId}`;
-    customerFolder = rawName.replace(/["*:<>?/\\|#]/g, "_").substring(0, 128);
-  }
 
   // Load the folder template from the config or fall back to defaults.
   const configRows = await db
@@ -1037,8 +1042,7 @@ async function jobCreateFolders(orderId: number, phase: string): Promise<void> {
     DEFAULT_FOLDER_TEMPLATES[phase] ??
     [];
 
-  const orderRoot = buildOrderRootFolderPath(graphConfig.rootFolderPath, customerFolder, orderNumber);
-  const { folderPath: configuredStageFolder } = await resolveOrderStageFolder(orderId, phase, graphConfig);
+  const { folderPath: configuredStageFolder, orderRoot } = await resolveOrderStageFolder(orderId, phase, graphConfig);
   const folderPaths = new Set([...folderTemplate.map((subFolder) => `${orderRoot}/${subFolder}`), configuredStageFolder]);
 
   for (const folderPath of folderPaths) {
@@ -1079,18 +1083,17 @@ async function jobAttachPlaceholders(orderId: number, phase: string): Promise<vo
   if (orderRows.length === 0) return;
   const orderNumber = orderRows[0]!.orderNumber;
   const customer = await getUserById(orderRows[0]!.userId);
-  const customerFolder = customer?.customerNumber ?? "RP-CUS-UNKNOWN0";
-  const customerPublicId = customer?.publicId ?? customerFolder;
+  const customerPublicId = customer?.publicId ?? customer?.customerNumber ?? "RP-CUS-UNKNOWN";
 
   const placeholders = DEFAULT_PLACEHOLDERS[phase] ?? [];
-  const { folderPath } = await resolveOrderStageFolder(orderId, phase, graphConfig);
+  const { folderPath, orderRoot } = await resolveOrderStageFolder(orderId, phase, graphConfig);
 
   let folderId: string;
   try {
     folderId = await ensureFolder(folderPath);
   } catch {
     // Folder may not exist yet if create_folders job hasn't run.
-    folderId = await ensureFolder(buildOrderRootFolderPath(graphConfig.rootFolderPath, customerFolder, orderNumber));
+    folderId = await ensureFolder(orderRoot);
   }
 
   for (const sourceFileName of placeholders) {

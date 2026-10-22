@@ -470,7 +470,7 @@ export const ordersRouter = router({
     .input(
       z.object({
         selections: selectionSchema,
-        projectName: z.string().trim().max(190).optional(),
+        projectName: z.string().trim().min(1, "Enter an order or project name.").max(190),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -478,7 +478,7 @@ export const ordersRouter = router({
         const result = await createOrder({
           userId: ctx.session.user.id,
           selections: input.selections,
-          projectName: input.projectName ?? null,
+          projectName: input.projectName,
           actorUserId: ctx.session.user.id,
           actorRole: ctx.session.user.role,
           ipAddress: ctx.clientIp,

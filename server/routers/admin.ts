@@ -599,7 +599,7 @@ export const adminRouter = router({
         selections: z
           .array(z.object({ productId: z.number().int().positive(), quantity: z.number().int().min(1).default(1) }))
           .min(1),
-        projectName: z.string().trim().max(200).optional(),
+        projectName: z.string().trim().min(1, "Enter an order or project name.").max(200),
         integrityChoice: z.string().trim().max(60).optional(),
         canonVersion: z.string().trim().max(128).optional(),
         runMode: z.string().trim().max(32).optional(),
@@ -615,7 +615,7 @@ export const adminRouter = router({
         const result = await createOrder({
           userId: input.userId,
           selections: input.selections,
-          projectName: input.projectName ?? null,
+          projectName: input.projectName,
           integrityChoice: input.integrityChoice ?? null,
           canonVersion: input.canonVersion ?? null,
           runMode: input.runMode ?? null,

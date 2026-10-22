@@ -1,6 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Pause, Play } from "lucide-react";
 import { BRAND_ASSETS } from "@shared/brand";
+import {
+  DEFAULT_LOGIN_SLIDES,
+  loginSlideshowSlidesOrDefault,
+  type LoginSlideshowSlide,
+} from "@shared/loginSlideshow";
 import { Button } from "@/components/ui/Button";
 
 const AUTO_ADVANCE_MS = 8_000;
@@ -14,33 +19,24 @@ export interface LoginSlide {
   image: string;
 }
 
-/**
- * These highlights are intentionally source-controlled rather than administrator
- * supplied. The sign-in page must not accept arbitrary remote image URLs.
- */
-export const LOGIN_SLIDES: readonly LoginSlide[] = [
-  {
-    id: "workspace",
-    eyebrow: "ReadyPackets portal",
-    title: "One place for the work that matters.",
-    description: "Access your orders, deliverables, messages, and support history from one protected workspace.",
-    image: BRAND_ASSETS.dark.full,
-  },
-  {
-    id: "momentum",
-    eyebrow: "Clear next steps",
-    title: "Keep every packet moving forward.",
-    description: "Review what is needed, share information securely, and stay connected to the next milestone.",
-    image: BRAND_ASSETS.mark.dark.svg,
-  },
-  {
-    id: "handoff",
-    eyebrow: "Professional handoff",
-    title: "Prepared for the conversations ahead.",
-    description: "Find the documents and deliverables you need when it is time to move with confidence.",
-    image: BRAND_ASSETS.dark.squareLockup,
-  },
-] as const;
+const LOCAL_LOGIN_SLIDESHOW_ASSETS = {
+  full: BRAND_ASSETS.dark.full,
+  mark: BRAND_ASSETS.mark.dark.svg,
+  square: BRAND_ASSETS.dark.squareLockup,
+} as const;
+
+export function renderLoginSlides(value: unknown): LoginSlide[] {
+  return loginSlideshowSlidesOrDefault(value).map((slide, index) => ({
+    id: `${slide.imageKey}-${index + 1}`,
+    eyebrow: slide.eyebrow,
+    title: slide.title,
+    description: slide.description,
+    image: LOCAL_LOGIN_SLIDESHOW_ASSETS[slide.imageKey],
+  }));
+}
+
+/** Default safe local slides, retained for standalone rendering and regression tests. */
+export const LOGIN_SLIDES: readonly LoginSlide[] = renderLoginSlides(DEFAULT_LOGIN_SLIDES);
 
 export function nextLoginSlideIndex(index: number, count = LOGIN_SLIDES.length): number {
   if (count <= 0) return 0;
@@ -91,7 +87,7 @@ function useMediaQuery(query: string, fallback: boolean): boolean {
  * order and this component is omitted below the desktop breakpoint, so signing
  * in remains the primary task for assistive technology and mobile users.
  */
-export function LoginSlideshow() {
+export function LoginSlideshow({ slides }: { slides?: readonly LoginSlideshowSlide[] | null }) {
   const isDesktop = useMediaQuery("(min-width: 1024px)", true);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -99,6 +95,7 @@ export function LoginSlideshow() {
   const [documentVisible, setDocumentVisible] = useState(
     () => typeof document === "undefined" || document.visibilityState !== "hidden",
   );
+  const renderedSlides = useMemo(() => renderLoginSlides(slides), [slides]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -116,6 +113,10 @@ export function LoginSlideshow() {
     if (prefersReducedMotion) setIsPlaying(false);
   }, [prefersReducedMotion]);
 
+  useEffect(() => {
+    setActiveIndex((current) => Math.min(current, renderedSlides.length - 1));
+  }, [renderedSlides.length]);
+
   const canRotate = shouldRotateLoginSlides({
     isDesktop,
     isPlaying,
@@ -126,22 +127,22 @@ export function LoginSlideshow() {
   useEffect(() => {
     if (!canRotate) return;
     const interval = window.setInterval(() => {
-      setActiveIndex((current) => nextLoginSlideIndex(current));
+      setActiveIndex((current) => nextLoginSlideIndex(current, renderedSlides.length));
     }, AUTO_ADVANCE_MS);
     return () => window.clearInterval(interval);
-  }, [canRotate]);
+  }, [canRotate, renderedSlides.length]);
 
   if (!isDesktop) return null;
 
-  const activeSlide = LOGIN_SLIDES[activeIndex] ?? LOGIN_SLIDES[0]!;
+  const activeSlide = renderedSlides[activeIndex] ?? renderedSlides[0]!;
   const pauseForInteraction = () => setIsPlaying(false);
   const showPrevious = () => {
     pauseForInteraction();
-    setActiveIndex((current) => previousLoginSlideIndex(current));
+    setActiveIndex((current) => previousLoginSlideIndex(current, renderedSlides.length));
   };
   const showNext = () => {
     pauseForInteraction();
-    setActiveIndex((current) => nextLoginSlideIndex(current));
+    setActiveIndex((current) => nextLoginSlideIndex(current, renderedSlides.length));
   };
 
   return (
@@ -186,14 +187,14 @@ export function LoginSlideshow() {
 
         <div className="mt-12 flex items-center justify-between gap-4">
           <div className="flex items-center gap-1" aria-label="Choose a ReadyPackets highlight">
-            {LOGIN_SLIDES.map((slide, index) => {
+            {renderedSlides.map((slide, index) => {
               const isActive = index === activeIndex;
               return (
                 <button
                   key={slide.id}
                   type="button"
                   className="inline-flex size-11 items-center justify-center rounded-full text-white hover:bg-white/10"
-                  aria-label={`Show slide ${index + 1} of ${LOGIN_SLIDES.length}: ${slide.title}`}
+                  aria-label={`Show slide ${index + 1} of ${renderedSlides.length}: ${slide.title}`}
                   aria-current={isActive ? "true" : undefined}
                   onClick={() => {
                     pauseForInteraction();
@@ -240,7 +241,7 @@ export function LoginSlideshow() {
             />
           </div>
         </div>
-        <p className="sr-only">Slide {activeIndex + 1} of {LOGIN_SLIDES.length}.</p>
+        <p className="sr-only">Slide {activeIndex + 1} of {renderedSlides.length}.</p>
       </div>
     </aside>
   );

@@ -448,6 +448,9 @@ export const orders = mysqlTable(
     /** Immutable evidence of whether the customer initiated the order or an administrator created it on their behalf. */
     createdByOrigin: varchar("created_by_origin", { length: 20 }).notNull().default("customer"),
     projectNameEnc: text("project_name_enc"),
+    /** Immutable local snapshots used only for ReadyPackets-managed SharePoint paths. */
+    sharepointCustomerFolderEnc: text("sharepoint_customer_folder_enc"),
+    sharepointOrderFolderEnc: text("sharepoint_order_folder_enc"),
     status: varchar("status", { length: 32 }).notNull().default("new"),
     paymentStatus: varchar("payment_status", { length: 32 }).notNull().default("unpaid"),
     paymentRequirement: varchar("payment_requirement", { length: 20 }).notNull().default("required"),
@@ -2586,6 +2589,8 @@ export const loginPageConfig = mysqlTable("login_page_config", {
   featureList: json("feature_list"),
   backgroundStyle: varchar("background_style", { length: 32 }).notNull().default("default"),
   accentColor: varchar("accent_color", { length: 32 }),
+  /** Bounded copy and local-brand image keys; never arbitrary remote image URLs. */
+  slideshowSlides: json("slideshow_slides"),
   updatedByUserId: int("updated_by_user_id"),
   updatedAt: updatedAt(),
 });

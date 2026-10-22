@@ -52,6 +52,8 @@ Security is the organising principle of the build rather than a later hardening 
 - **Multi-factor authentication** mandatory for administrative accounts, with optional IP allow-listing for the administrative surface.
 - **Audit logging** of every security-relevant event and every administrative mutation, with sensitive values redacted from logs.
 - **Protected identifier corrections** for administrators: retired customer and pre-evidence order references are permanently reserved, changes require a reason and exact confirmation, and financial/customer/external evidence blocks order-reference rewrites.
+- **Named order workspaces** for every customer, staff, and administrator order: a required order/project name is preserved with the order and becomes part of a safe immutable SharePoint folder label for new integrations.
+- **Administrator-managed login carousel** with one to five bounded copy-only slides and approved self-hosted ReadyPackets visuals; remote image URLs, HTML, scripts, and custom CSS are never accepted on the login surface.
 
 ## Quick start
 

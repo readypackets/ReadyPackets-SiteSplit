@@ -51,6 +51,11 @@ describe("login page config", () => {
     ],
     backgroundStyle: "default",
     accentColor: null,
+    slideshowSlides: [
+      { eyebrow: "ReadyPackets portal", title: "One place for the work that matters.", description: "Access your orders, deliverables, messages, and support history from one protected workspace.", imageKey: "full" },
+      { eyebrow: "Clear next steps", title: "Keep every packet moving forward.", description: "Review what is needed, share information securely, and stay connected to the next milestone.", imageKey: "mark" },
+      { eyebrow: "Professional handoff", title: "Prepared for the conversations ahead.", description: "Find the documents and deliverables you need when it is time to move with confidence.", imageKey: "square" },
+    ],
   };
 
   it("has the correct default background style", () => {
@@ -64,6 +69,10 @@ describe("login page config", () => {
 
   it("does not show testimonial by default", () => {
     expect(DEFAULT_CONFIG.showTestimonial).toBe(false);
+  });
+
+  it("starts with only local ReadyPackets slideshow visual choices", () => {
+    expect(DEFAULT_CONFIG.slideshowSlides.map((slide) => slide.imageKey)).toEqual(["full", "mark", "square"]);
   });
 
   it("validates background style values", () => {

@@ -46,6 +46,12 @@ Where a response is ambiguous or missing, raise a **clarification question** rat
 
 Archiving an order requires a typed confirmation and a reason. It is a soft delete: the record is retained and recoverable, and the action is logged with the actor.
 
+### Creating a named order
+
+Customers, staff, and administrators may use **Create an order** from the portal. Staff and administrators also have **Create my order** in the Administration navigation, which opens the same self-service order flow rather than a customer-impersonation or elevated-order shortcut. Every new order requires an **Order or project name** before it can be created. The title is the customer-facing label and is snapshotted into the secure SharePoint folder name; choose a clear operational name rather than leaving it generic.
+
+For newly created orders, ReadyPackets creates an immutable friendly folder identity in the form `customer-email-RP-CUS-…/orders/project-name-RP-ORD-…`. Existing orders retain their existing folders and identifiers. Later customer-ID, user-profile, or display-title changes never move or rename external SharePoint data, preserving the audit trail and avoiding broken links.
+
 ### Correcting an order reference
 
 An administrator can select **Change order reference** from an order’s header for a narrowly controlled correction. Enter a current opaque `RP-ORD-…` reference, a meaningful business reason, and the exact phrase `CHANGE ORDER ID`. Retired references are permanently reserved and cannot be reassigned to another order.
@@ -85,6 +91,10 @@ The content section manages the public surface without a deployment: home page b
 Policies are **versioned**. Publishing a new version records its effective date and retains the previous text, so you can demonstrate what a customer agreed to on a given date. This matters for the mutual NDA and the liability disclaimer in particular.
 
 Email templates support variable interpolation, and all interpolated values are escaped. Send a test to yourself after editing: a template that renders correctly in the editor can still fail in a mail client.
+
+## Login page
+
+Open **Administration → Login page** to configure the desktop login slideshow. Administrators can edit the copy, add or remove slides (one to five), and select an approved ReadyPackets visual for each slide. The configuration intentionally does not accept remote image URLs, uploaded code, HTML, script, or custom styles. This preserves a secure, self-hosted login surface and prevents a login-page content edit from becoming a third-party tracking or script-injection channel. The sign-in form remains the accessible mobile-first view, and the slideshow appears only beside it on larger screens.
 
 ## Support and moderation
 

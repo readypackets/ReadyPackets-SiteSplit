@@ -43,13 +43,17 @@ import { assertActiveOrderStatus, isSystemOrderStatus, isTerminalOrderStatus } f
 import { insertedId } from "../db/result.js";
 import { deriveCanonicalP101Scope, getPacketGroupNumbers } from "./orderScope.js";
 import { getOrCreatePaidOrderInvoice, queueAutomaticCustomerInvoiceEmail } from "./invoices.js";
+import {
+  buildSharepointCustomerFolderName,
+  buildSharepointOrderFolderName,
+} from "./sharepointFolderNaming.js";
 
 export class OrderStateError extends Error {}
 
 export interface CreateOrderInput {
   userId: number;
   selections: { productId: number; quantity?: number }[];
-  projectName?: string | null;
+  projectName: string;
   integrityChoice?: string | null;
   canonVersion?: string | null;
   runMode?: string | null;
@@ -109,6 +113,10 @@ export async function createOrder(input: CreateOrderInput) {
   if (input.selections.length === 0) {
     throw new OrderStateError("Select at least one packet before placing an order.");
   }
+  const projectName = input.projectName.trim();
+  if (!projectName) {
+    throw new OrderStateError("Enter an order or project name before placing an order.");
+  }
 
   const quote = await priceSelection(input.selections);
   const paymentRequirement = input.paymentRequirement ?? "required";
@@ -131,7 +139,14 @@ export async function createOrder(input: CreateOrderInput) {
     .where(eq(users.id, input.userId))
     .limit(1);
   const customerNumber = customerRow[0]?.customerNumber ?? null;
+  const customer = await getUserById(input.userId);
+  const customerId = customerNumber ?? customer?.publicId ?? "RP-CUS-UNKNOWN";
   const orderNumber = generateOrderNumber(new Date(), customerNumber);
+  const sharepointCustomerFolderName = buildSharepointCustomerFolderName({
+    email: customer?.email ?? "customer",
+    customerId,
+  });
+  const sharepointOrderFolderName = buildSharepointOrderFolderName({ projectName, orderNumber });
   const defaultWorkflow = await db.select({ id: orderWorkflows.id }).from(orderWorkflows).where(and(eq(orderWorkflows.isDefault, true), eq(orderWorkflows.active, true))).limit(1);
   const packetGroupNumbers = await getPacketGroupNumbers(quote.lines.map((line) => line.packetGroupId));
   const canonicalP101Scope = deriveCanonicalP101Scope(quote.lines, packetGroupNumbers);
@@ -139,7 +154,7 @@ export async function createOrder(input: CreateOrderInput) {
     orderNumber,
     userId: input.userId,
     createdByOrigin: input.actorRole === "admin" || input.actorRole === "staff" ? "admin" : "customer",
-    projectNameEnc: encryptField(input.projectName ?? null, "order:pending"),
+    projectNameEnc: encryptField(projectName, "order:pending"),
     status: "new",
     paymentStatus: paymentRequirement === "required" ? (quote.requiresCustomQuote ? "awaiting_invoice" : "unpaid") : "paid",
     paymentRequirement,
@@ -163,13 +178,16 @@ export async function createOrder(input: CreateOrderInput) {
 
   const orderId = insertedId(inserted);
 
-  // Re-encrypt the project name with the order id bound as AAD.
-  if (input.projectName) {
-    await db
-      .update(orders)
-      .set({ projectNameEnc: encryptField(input.projectName, `order:${orderId}`) })
-      .where(eq(orders.id, orderId));
-  }
+  // Bind the required commercial title and external folder labels to this exact
+  // order. Later display-name or identifier changes never move external files.
+  await db
+    .update(orders)
+    .set({
+      projectNameEnc: encryptField(projectName, `order:${orderId}`),
+      sharepointCustomerFolderEnc: encryptField(sharepointCustomerFolderName, `order:${orderId}:sharepoint-customer-folder`),
+      sharepointOrderFolderEnc: encryptField(sharepointOrderFolderName, `order:${orderId}:sharepoint-order-folder`),
+    })
+    .where(eq(orders.id, orderId));
 
   await db.insert(orderItems).values(
     quote.lines.map((line) => ({

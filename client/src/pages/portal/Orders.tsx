@@ -403,11 +403,12 @@ export function NewOrderPage() {
         <div className="space-y-5">
           <Card>
             <Input
-              label="Project name"
-              help="Optional. Helps you identify this engagement later."
+              label="Order or project name"
+              help="Required. This becomes the friendly name for your order and its secure document folder."
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
               maxLength={190}
+              required
               placeholder="e.g. Series A data room, or Widget patent filing"
             />
           </Card>
@@ -598,10 +599,11 @@ export function NewOrderPage() {
                 fullWidth
                 className="mt-5"
                 busy={create.isPending}
+                disabled={selectionList.length === 0 || !projectName.trim()}
                 onClick={() =>
                   create.mutate({
                     selections: selectionList,
-                    projectName: projectName.trim() || undefined,
+                    projectName: projectName.trim(),
                   })
                 }
               >

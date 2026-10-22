@@ -54,7 +54,7 @@ For a direct-DNS Let’s Encrypt installation, replace the TLS options with:
 
 `--portal-alias` is optional, repeatable up to five times, and currently supported only by the native installer. Create DNS for every listed name before deployment. The certificate must cover every name, and Nginx permanently redirects each alias to the canonical `--domain` before it can reach the application. This preserves one `APP_URL`, SAML/native callback origin, and host-only session/CSRF cookie origin. It does not authorize wildcard or arbitrary Host headers, and `readypackets.com` plus `www.readypackets.com` remain reserved for the separately hosted website.
 
-The current installer applies **52 forward-only migrations** and fails closed unless **46 critical tables** verify successfully. It provisions the portal service as the unprivileged `readypackets` user; secrets remain in root-owned `/etc/readypackets/portal.env`, and neither Node.js port `3000` nor MySQL port `3306` is made public.
+The current installer applies **53 forward-only migrations** and fails closed unless **48 critical tables** verify successfully. It provisions the portal service as the unprivileged `readypackets` user; secrets remain in root-owned `/etc/readypackets/portal.env`, and neither Node.js port `3000` nor MySQL port `3306` is made public.
 
 ## After a successful installation
 

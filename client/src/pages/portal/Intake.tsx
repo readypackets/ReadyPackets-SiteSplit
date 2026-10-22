@@ -399,7 +399,7 @@ export function IntakePage() {
 
   const draftPayload = () => ({
     orderId,
-    projectName: projectName.trim() || undefined,
+    projectName: projectName.trim(),
     desiredOutcomes: desiredOutcomes as (typeof INTAKE_OUTCOMES)[number][],
     integrityChoice: (integrityChoice || undefined) as (typeof INTEGRITY_CHOICES)[number] | undefined,
     answers,
@@ -433,7 +433,7 @@ export function IntakePage() {
   // Autosave saves all typed draft fields. A locally held recording remains private
   // until the customer explicitly chooses a save option that includes it.
   useEffect(() => {
-    if (readOnly || !dirty) return;
+    if (readOnly || !dirty || !projectName.trim()) return;
     const timer = setTimeout(() => { void persistDraft(false, false); }, 45_000);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -441,6 +441,11 @@ export function IntakePage() {
 
   const validateAndSubmit = () => {
     const next: Record<string, string> = {};
+    if (!projectName.trim()) {
+      toast.error("Order or project name required", "Enter a name for this order before saving or submitting the intake.");
+      document.getElementById("intake-project-name")?.focus();
+      return;
+    }
     if (!confirmAccurate) {
       next.confirmAccurate = "Please confirm your answers are accurate.";
     }
@@ -511,6 +516,7 @@ export function IntakePage() {
               <Button
                 variant="outline"
                 busy={save.isPending}
+                disabled={!projectName.trim()}
                 onClick={openSaveChoices}
                 leadingIcon={<Save className="size-4" aria-hidden="true" />}
               >
@@ -518,6 +524,7 @@ export function IntakePage() {
               </Button>
               <Button
                 busy={submit.isPending}
+                disabled={!projectName.trim()}
                 onClick={validateAndSubmit}
                 leadingIcon={<Send className="size-4" aria-hidden="true" />}
               >
@@ -554,7 +561,8 @@ export function IntakePage() {
         <Card>
           <CardHeader title="Project" />
           <Input
-            label="Project name"
+            label="Order or project name"
+            id="intake-project-name"
             className="mt-4"
             value={projectName}
             onChange={(event) => {
@@ -563,7 +571,8 @@ export function IntakePage() {
             }}
             disabled={readOnly}
             maxLength={190}
-            help="Optional. A short internal label for this engagement."
+            help="Required. This identifies your order and secure document folder."
+            required
           />
         </Card>
 
@@ -652,7 +661,7 @@ export function IntakePage() {
         </Modal>
         <Modal open={microphonePromptOpen} onClose={() => setMicrophonePromptOpen(false)} title="Allow microphone access" description="ReadyPackets needs microphone access only while you record this Business Pitch Idea. Your browser will show its own permission prompt next. This step is skipped automatically once access is already granted."><div className="space-y-4"><Alert tone="info">Select <strong>Allow microphone</strong> in the browser prompt. The recording stays in your browser until you stop it, then it is uploaded in the format supported by your browser for this order.</Alert><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setMicrophonePromptOpen(false)}>Cancel</Button><Button onClick={requestMicrophone}>Allow microphone and record</Button></div></div></Modal>
 
-        <Modal open={saveChoiceOpen} onClose={() => setSaveChoiceOpen(false)} title="Save your order workspace" description="Your typed intake information is saved as a draft. Files and recordings already uploaded are already attached to this order."><div className="space-y-4"><Alert tone="info">{pendingPitch ? "Your reviewed browser recording will be uploaded with this save, then attached to this order." : "All current answers, project details, uploaded documents, and uploaded recordings will remain available when you return."}</Alert><div className="rounded-lg border border-line bg-surface-soft p-3 text-sm text-body"><p className="font-medium text-ink">Choose what happens after saving</p><p className="mt-1">You can continue working now, or save and return to your order dashboard. Nothing is submitted or locked by either choice.</p></div><div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setSaveChoiceOpen(false)}>Cancel</Button><Button variant="outline" busy={save.isPending || uploading} onClick={() => { setSaveReturningLater(false); void persistDraft(false, true).then(() => setSaveChoiceOpen(false)); }}>Save and continue working</Button><Button busy={save.isPending || uploading || saveReturningLater} onClick={() => { setSaveReturningLater(true); void persistDraft(true, true); }}>Save and return later</Button></div></div></Modal>
+        <Modal open={saveChoiceOpen} onClose={() => setSaveChoiceOpen(false)} title="Save your order workspace" description="Your typed intake information is saved as a draft. Files and recordings already uploaded are already attached to this order."><div className="space-y-4"><Alert tone="info">{pendingPitch ? "Your reviewed browser recording will be uploaded with this save, then attached to this order." : "All current answers, project details, uploaded documents, and uploaded recordings will remain available when you return."}</Alert><div className="rounded-lg border border-line bg-surface-soft p-3 text-sm text-body"><p className="font-medium text-ink">Choose what happens after saving</p><p className="mt-1">You can continue working now, or save and return to your order dashboard. Nothing is submitted or locked by either choice.</p></div><div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setSaveChoiceOpen(false)}>Cancel</Button><Button variant="outline" busy={save.isPending || uploading} disabled={!projectName.trim()} onClick={() => { setSaveReturningLater(false); void persistDraft(false, true).then(() => setSaveChoiceOpen(false)); }}>Save and continue working</Button><Button busy={save.isPending || uploading || saveReturningLater} disabled={!projectName.trim()} onClick={() => { setSaveReturningLater(true); void persistDraft(true, true); }}>Save and return later</Button></div></div></Modal>
 
         <Card id="intake-desiredOutcomes" className="hidden">
           <CardHeader
@@ -738,12 +747,13 @@ export function IntakePage() {
             <div className="mt-5 flex flex-wrap gap-2">
               <Button
                 busy={submit.isPending || save.isPending}
+                disabled={!projectName.trim()}
                 onClick={validateAndSubmit}
                 leadingIcon={<Send className="size-4" aria-hidden="true" />}
               >
                 Submit and lock Phase 1
               </Button>
-              <Button variant="outline" busy={save.isPending || uploading} onClick={openSaveChoices}>
+              <Button variant="outline" busy={save.isPending || uploading} disabled={!projectName.trim()} onClick={openSaveChoices}>
                 Save workspace
               </Button>
             </div>

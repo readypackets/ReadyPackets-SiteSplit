@@ -26,6 +26,12 @@ import { putObject, getObjectStream, objectExists, deleteObject, validateUpload 
 import { recordActivity } from "../observability/audit.js";
 import { adminProcedure, protectedProcedure, publicProcedure, staffProcedure, router } from "../trpc/trpc.js";
 import { getUserById, displayNameOf } from "../db/users.js";
+import {
+  DEFAULT_LOGIN_SLIDES,
+  LOGIN_SLIDESHOW_IMAGE_KEYS,
+  MAX_LOGIN_SLIDESHOW_SLIDES,
+  loginSlideshowSlidesOrDefault,
+} from "../../shared/loginSlideshow.js";
 
 
 async function resolveActivityUserReference(reference: string): Promise<number> {
@@ -367,6 +373,7 @@ const loginConfigRouter = router({
         featureList: ["Structured intake and synthesis", "Versioned deliverables in your portal", "Confidential by default — NDA first"] as string[],
         backgroundStyle: "default",
         accentColor: null,
+        slideshowSlides: DEFAULT_LOGIN_SLIDES,
       };
     }
     return {
@@ -379,6 +386,7 @@ const loginConfigRouter = router({
       featureList: (config.featureList as string[] | null) ?? [],
       backgroundStyle: config.backgroundStyle,
       accentColor: config.accentColor,
+      slideshowSlides: loginSlideshowSlidesOrDefault(config.slideshowSlides),
     };
   }),
 
@@ -395,6 +403,12 @@ const loginConfigRouter = router({
         featureList: z.array(z.string().trim().max(200)).max(10).optional(),
         backgroundStyle: z.enum(["default", "gradient", "dark", "brand"]).optional(),
         accentColor: z.string().trim().max(32).nullable().optional(),
+        slideshowSlides: z.array(z.object({
+          eyebrow: z.string().trim().min(1).max(80),
+          title: z.string().trim().min(1).max(120),
+          description: z.string().trim().min(1).max(360),
+          imageKey: z.enum(LOGIN_SLIDESHOW_IMAGE_KEYS),
+        })).min(1).max(MAX_LOGIN_SLIDESHOW_SLIDES).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -410,10 +424,16 @@ const loginConfigRouter = router({
       if (input.featureList !== undefined) patch.featureList = input.featureList;
       if (input.backgroundStyle !== undefined) patch.backgroundStyle = input.backgroundStyle;
       if (input.accentColor !== undefined) patch.accentColor = input.accentColor;
-      await db
-        .update(loginPageConfig)
-        .set(patch)
-        .where(eq(loginPageConfig.id, 1));
+      if (input.slideshowSlides !== undefined) patch.slideshowSlides = input.slideshowSlides;
+      const existing = await db.select({ id: loginPageConfig.id }).from(loginPageConfig).where(eq(loginPageConfig.id, 1)).limit(1);
+      if (existing[0]) {
+        await db
+          .update(loginPageConfig)
+          .set(patch)
+          .where(eq(loginPageConfig.id, 1));
+      } else {
+        await db.insert(loginPageConfig).values({ id: 1, ...patch });
+      }
       void recordActivity({
         actorUserId: ctx.session.user.id,
         actorRole: "admin",

@@ -5,6 +5,7 @@ import {
   normalizeSharepointIdentitySegment,
 } from "../server/services/conversionPipeline.js";
 import { allowedExtensions } from "../server/services/storage.js";
+import { buildSharepointCustomerFolderName, buildSharepointOrderFolderName } from "../server/services/sharepointFolderNaming.js";
 
 describe("append-only conversion routing", () => {
   it("normalizes external folder identity segments without traversal or controls", () => {
@@ -21,6 +22,14 @@ describe("append-only conversion routing", () => {
       customerId: "RP-CUS-4K2D8P",
       orderNumber: "RP-C000008-2608-6D823B",
     })).toBe("ReadyPackets/Orders/Phase I/Originals/Alex Example-RP-CUS-4K2D8P/RP-C000008-2608-6D823B");
+  });
+
+  it("uses snapshot-friendly email and project labels for new SharePoint order folders", () => {
+    const customerFolderName = buildSharepointCustomerFolderName({ email: "Alex.Example@ready.test", customerId: "RP-CUS-4K2D8P" });
+    const orderFolderName = buildSharepointOrderFolderName({ projectName: "Series A / data room", orderNumber: "RP-ORD-4K2D8P-2610-2W2YGW" });
+    expect(customerFolderName).toBe("alex.example@ready.test-RP-CUS-4K2D8P");
+    expect(orderFolderName).toBe("Series A _ data room-RP-ORD-4K2D8P-2610-2W2YGW");
+    expect(buildSharepointOrderPath({ rootFolderPath: "ReadyPackets/Orders", relativeRootPath: "Originals", customerName: "Alex Example", customerId: "RP-CUS-4K2D8P", orderNumber: "RP-ORD-4K2D8P-2610-2W2YGW", customerFolderName, orderFolderName })).toBe("ReadyPackets/Orders/Originals/alex.example@ready.test-RP-CUS-4K2D8P/Series A _ data room-RP-ORD-4K2D8P-2610-2W2YGW");
   });
 
   it("exposes only named fixed conversion operations", () => {

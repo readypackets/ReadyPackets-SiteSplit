@@ -311,7 +311,7 @@ export const intakeRouter = router({
     .input(
       z.object({
         orderId: z.number().int().positive(),
-        projectName: z.string().trim().max(190).optional(),
+        projectName: z.string().trim().min(1, "Enter an order or project name.").max(190),
         desiredOutcomes: z.array(z.enum(INTAKE_OUTCOMES)).max(4).optional(),
         integrityChoice: z.enum(INTEGRITY_CHOICES).optional(),
         answers: z.record(z.string().max(8000)).optional(),

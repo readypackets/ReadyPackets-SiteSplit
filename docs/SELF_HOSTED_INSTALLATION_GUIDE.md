@@ -13,7 +13,7 @@ The recommended one-script procedure is [Guided Master Installer](MASTER_PORTAL_
 - Use the private repository `readypackets/ReadyPackets-SiteSplit` and a repository-scoped, read-only GitHub deploy key.
 - Install a reviewed, complete 40-character Git SHA. Never deploy a moving branch tip, an abbreviated SHA, a personal access token embedded in a clone URL, or an unreviewed source archive.
 - The fresh-server bootstrap refuses an existing source directory or live portal service. Existing environments must use the approved update or recovery procedure instead.
-- The installation applies **52 forward-only migrations** and fails closed unless it verifies **46 critical schema-contract tables**.
+- The installation applies **53 forward-only migrations** and fails closed unless it verifies **48 critical schema-contract tables**.
 - Secrets are generated locally and stored at `/etc/readypackets/portal.env`, readable only by root and the service account group. Do not commit, transmit, or rotate the encryption keys after protected data exists.
 - The default dedicated-host installation is portal-only: the portal hostname serves authentication and authenticated workspaces, while marketing links use the separately hosted `MARKETING_SITE_URL` without trusting it as a portal host or API origin.
 

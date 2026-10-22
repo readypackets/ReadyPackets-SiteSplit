@@ -276,6 +276,7 @@ function PortalRoutes() {
       items: [
         { href: "/portal", label: "Dashboard", icon: LayoutDashboard, exact: true },
         { href: "/portal/orders", label: "My orders", icon: ClipboardList },
+        { href: "/portal/orders/new", label: "Create an order", icon: ClipboardList },
         { href: "/portal/files", label: "My Business Packets", icon: FileText },
         { href: "/portal/messages", label: "Message center", icon: MessagesSquare, badgeCount: unreadOrderMessages.data?.count ?? 0 },
         { href: "/portal/workspaces", label: "Packet Collective", icon: UsersRound },

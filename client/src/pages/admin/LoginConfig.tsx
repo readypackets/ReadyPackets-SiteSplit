@@ -10,12 +10,19 @@ import { FieldShell, Input, Select, Textarea } from "@/components/ui/Field";
 import { Card, CardHeader, Alert, Skeleton } from "@/components/ui/Surface";
 import { PageHeader } from "@/components/layout/PortalLayout";
 import { useToast } from "@/components/ui/Toast";
+import { DEFAULT_LOGIN_SLIDES, type LoginSlideshowImageKey, type LoginSlideshowSlide } from "@shared/loginSlideshow";
 
 const BACKGROUND_STYLES = [
   { value: "default", label: "Default (white)" },
   { value: "gradient", label: "Gradient (teal to navy)" },
   { value: "dark", label: "Dark" },
   { value: "brand", label: "Brand (navy)" },
+];
+
+const SLIDE_IMAGE_OPTIONS = [
+  { value: "full", label: "ReadyPackets wordmark" },
+  { value: "mark", label: "ReadyPackets mark" },
+  { value: "square", label: "ReadyPackets square lockup" },
 ];
 
 export function AdminLoginConfig() {
@@ -40,6 +47,7 @@ export function AdminLoginConfig() {
   const [featureList, setFeatureList] = useState<string[]>([]);
   const [backgroundStyle, setBackgroundStyle] = useState("default");
   const [accentColor, setAccentColor] = useState("");
+  const [slideshowSlides, setSlideshowSlides] = useState<LoginSlideshowSlide[]>([...DEFAULT_LOGIN_SLIDES]);
 
   useEffect(() => {
     if (!config.data) return;
@@ -52,6 +60,7 @@ export function AdminLoginConfig() {
     setFeatureList(config.data.featureList ?? []);
     setBackgroundStyle(config.data.backgroundStyle);
     setAccentColor(config.data.accentColor ?? "");
+    setSlideshowSlides(config.data.slideshowSlides ?? [...DEFAULT_LOGIN_SLIDES]);
   }, [config.data]);
 
   const handleSave = () => {
@@ -65,6 +74,7 @@ export function AdminLoginConfig() {
       featureList: featureList.filter(Boolean),
       backgroundStyle: backgroundStyle as "default" | "gradient" | "dark" | "brand",
       accentColor: accentColor || null,
+      slideshowSlides,
     });
   };
 
@@ -73,6 +83,10 @@ export function AdminLoginConfig() {
     setFeatureList((prev) => prev.filter((_, i) => i !== index));
   const updateFeature = (index: number, value: string) =>
     setFeatureList((prev) => prev.map((item, i) => (i === index ? value : item)));
+  const updateSlide = (index: number, patch: Partial<LoginSlideshowSlide>) =>
+    setSlideshowSlides((current) => current.map((slide, currentIndex) => currentIndex === index ? { ...slide, ...patch } : slide));
+  const addSlide = () => setSlideshowSlides((current) => [...current, { eyebrow: "ReadyPackets portal", title: "Your next step, in one place.", description: "Use your protected workspace to continue with confidence.", imageKey: "mark" }]);
+  const removeSlide = (index: number) => setSlideshowSlides((current) => current.filter((_, currentIndex) => currentIndex !== index));
 
   if (config.isLoading) return <Skeleton className="h-96 w-full" />;
 
@@ -141,6 +155,28 @@ export function AdminLoginConfig() {
         </Card>
 
         <div className="space-y-6">
+          <Card>
+            <CardHeader title="Desktop login slideshow" />
+            <div className="mt-2 space-y-4">
+              <p className="text-sm text-body">Configure up to five short highlights. Images are limited to approved ReadyPackets brand assets; remote images, HTML, scripts, and custom styles are not accepted.</p>
+              {slideshowSlides.map((slide, index) => (
+                <div key={`${slide.imageKey}-${index}`} className="rounded-lg border border-line p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-medium text-ink">Slide {index + 1}</p>
+                    <Button variant="danger" size="sm" disabled={slideshowSlides.length <= 1} onClick={() => removeSlide(index)} leadingIcon={<Trash2 className="size-3.5" aria-hidden="true" />}>Remove</Button>
+                  </div>
+                  <div className="mt-3 space-y-3">
+                    <FieldShell label="Eyebrow"><Input value={slide.eyebrow} maxLength={80} onChange={(event) => updateSlide(index, { eyebrow: event.target.value })} /></FieldShell>
+                    <FieldShell label="Headline"><Input value={slide.title} maxLength={120} onChange={(event) => updateSlide(index, { title: event.target.value })} /></FieldShell>
+                    <FieldShell label="Description"><Textarea value={slide.description} rows={3} maxLength={360} onChange={(event) => updateSlide(index, { description: event.target.value })} /></FieldShell>
+                    <FieldShell label="ReadyPackets visual"><Select value={slide.imageKey} options={SLIDE_IMAGE_OPTIONS} onChange={(event) => updateSlide(index, { imageKey: event.target.value as LoginSlideshowImageKey })} /></FieldShell>
+                  </div>
+                </div>
+              ))}
+              {slideshowSlides.length < 5 ? <Button variant="outline" size="sm" onClick={addSlide} leadingIcon={<Plus className="size-4" aria-hidden="true" />}>Add slide</Button> : null}
+            </div>
+          </Card>
+
           <Card>
             <CardHeader title="Feature list" />
             <div className="mt-4 space-y-3">

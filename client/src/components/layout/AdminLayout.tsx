@@ -67,6 +67,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
   { section: "Order operations", items: [
     { href: "/admin", label: "Operations dashboard", icon: LayoutDashboard },
     { href: "/admin/orders", label: "Orders", icon: ClipboardList },
+    { href: "/portal/orders/new", label: "Create my order", icon: ClipboardList },
     { href: "/admin/order-workflows", label: "Order workflows", icon: ClipboardList, adminOnly: true },
     { href: "/admin/order-statuses", label: "Order status options", icon: ClipboardList, adminOnly: true },
     { href: "/admin/order-automations", label: "Order automations", icon: Zap, adminOnly: true },

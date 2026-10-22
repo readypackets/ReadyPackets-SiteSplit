@@ -94,6 +94,17 @@ describe("critical database schema contract", () => {
     );
   });
 
+  it("blocks startup when current login slideshow or SharePoint folder snapshot columns are absent", async () => {
+    const incompleteRows = contractRows().filter(
+      (row) => !(row.tableName === "orders" && row.columnName === "sharepoint_order_folder_enc"),
+    );
+
+    await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
+      "orders.sharepoint_order_folder_enc",
+    );
+    expect(criticalSchemaContract.login_page_config).toContain("slideshow_slides");
+  });
+
   it("uses explicit metadata aliases so MySQL column-name casing cannot hide existing tables", async () => {
     let statement = "";
     const connection = {

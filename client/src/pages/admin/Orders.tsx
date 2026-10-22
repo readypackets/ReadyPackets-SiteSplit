@@ -104,6 +104,10 @@ function CreateOrderModal({ open, onClose }: { open: boolean; onClose: () => voi
 
   function handleSubmit() {
     if (!userId || selectedProducts.length === 0) return;
+    if (!projectName.trim()) {
+      toast.error("Order or project name required", "Enter the customer-facing project name before creating the order.");
+      return;
+    }
     const normalizedPrice = manualPrice.trim();
     const manualPriceCents: number | undefined = normalizedPrice ? Math.round(Number(normalizedPrice) * 100) : undefined;
     if (manualPriceCents !== undefined && (!Number.isFinite(manualPriceCents) || manualPriceCents < 0 || manualPriceCents > 100_000_000)) {
@@ -113,7 +117,7 @@ function CreateOrderModal({ open, onClose }: { open: boolean; onClose: () => voi
     createMut.mutate({
       userId: Number(userId),
       selections: selectedProducts.map((productId) => ({ productId, quantity: 1 })),
-      projectName: projectName.trim() || undefined,
+      projectName: projectName.trim(),
       canonVersion: canonVersion.trim() || undefined,
       runMode: runMode.trim() || undefined,
       releaseStatus: releaseStatus.trim() || undefined,
@@ -152,10 +156,13 @@ function CreateOrderModal({ open, onClose }: { open: boolean; onClose: () => voi
           </select>
         </FieldShell>
         <Input
-          label="Project name"
-          placeholder="Optional"
+          label="Order or project name"
+          help="Required. This becomes the friendly name for the secure order folder."
+          placeholder="e.g. Project Mercury"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
+          required
+          maxLength={200}
         />
         <div className="grid gap-4 rounded-xl border border-line bg-surface-soft p-4 md:grid-cols-2">
           <Select

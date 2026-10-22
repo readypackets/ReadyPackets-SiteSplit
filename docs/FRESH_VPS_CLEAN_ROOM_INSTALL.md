@@ -1,6 +1,6 @@
 # Clean-Room Fresh VPS Installation
 
-**Purpose:** Install ReadyPackets from a blank Ubuntu 22.04 or 24.04 LTS VPS using a reviewed public-source release and verify that the portal never starts against a partial database schema.
+**Purpose:** Install the ReadyPackets Portal from a blank Ubuntu 24.04 or 26.04 LTS VPS using the reviewed portal-only public-source bootstrap and verify that the portal never starts against a partial database schema.
 
 > Use this procedure on a genuinely new or provider-reimaged VPS. Do not attempt to turn a failed, partially configured host into a "fresh" host by deleting a few directories. A reimage provides the cleanest and most repeatable baseline.
 
@@ -23,17 +23,13 @@ sudo apt-get update
 sudo apt-get install -y curl ca-certificates git
 
 curl -fsSLO \
-  https://raw.githubusercontent.com/readypackets/ReadyPackets/REVIEWED_40_CHARACTER_COMMIT_SHA/deploy/one-click-install.sh
+  https://raw.githubusercontent.com/readypackets/ReadyPackets-SiteSplit/REVIEWED_40_CHARACTER_COMMIT_SHA/deploy/temporary-public-portal-only-install.sh
 
-chmod 0700 one-click-install.sh
-sudo env \
-  RP_REPOSITORY=readypackets/ReadyPackets \
-  RP_REF=main \
-  RP_COMMIT=REVIEWED_40_CHARACTER_COMMIT_SHA \
-  ./one-click-install.sh
+chmod 0700 temporary-public-portal-only-install.sh
+sudo ./temporary-public-portal-only-install.sh
 ```
 
-The bootstrap performs an anonymous Git reachability check before it makes platform changes. It then clones only the selected commit, builds the application, applies forward-only migrations, and verifies the critical schema contract before ReadyPackets is permitted to start.
+The bootstrap performs an anonymous Git reachability check before it makes platform changes. It then collects the portal hostname, optional aliases, and TLS method interactively; clones only its pinned application commit; builds the portal; applies forward-only migrations; and verifies the critical schema contract before ReadyPackets is permitted to start.
 
 ## 3. Guided installer choices
 
@@ -52,10 +48,10 @@ The installer shows a final review. Confirm the domain, source repository, pinne
 A correct fresh installation prints a migration completion line in this form before it installs/starts ReadyPackets:
 
 ```text
-Applied 52 migration(s); 46 critical tables verified.
+Applied 53 migration(s); 48 critical tables verified.
 ```
 
-The exact number of migrations and verified tables may increase in a later reviewed release. For this release, the expected completion line is **`Applied 52 migration(s); 46 critical tables verified.`** The required invariant is that the installer completes without a schema-contract error. If it prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
+The exact number of migrations and verified tables may increase in a later reviewed release. For this release, the expected completion line is **`Applied 53 migration(s); 48 critical tables verified.`** The required invariant is that the installer completes without a schema-contract error. If it prints a missing table or column, stop; do not create the administrator account and do not expose the portal. Send the complete migration output and source commit for diagnosis.
 
 ## 5. Post-install verification
 
@@ -69,60 +65,15 @@ sudo nginx -t
 curl -fsS https://portal.example.com/api/health
 curl -fsS https://portal.example.com/api/health/ready
 
-sudo mysql -t -e "
-SELECT COUNT(*) AS critical_tables
-FROM information_schema.tables
-WHERE table_schema = 'readypackets'
-  AND table_name IN (
-    'site_settings',
-    'inbound_webhook_listeners',
-    'inbound_webhook_events',
-    'portal_wizard_slides',
-    'phase_kickoff_configs',
-    'phase_jobs',
-    'webhook_deliveries',
-    'email_automations',
-    'system_backups',
-    'outbound_connections',
-    'outbound_call_logs',
-    'mobile_devices',
-    'mobile_device_sessions',
-    'mobile_authorization_codes',
-    'mobile_refresh_tokens',
-    'mobile_idempotency_keys',
-    'subscription_plans',
-    'subscription_items',
-    'billing_events',
-    'crm_contacts',
-    'crm_notes',
-    'crm_tags',
-    'ai_sessions',
-    'ai_messages',
-    'ai_response_logs',
-    'api_key_rate_limits',
-    'api_request_logs',
-    'api_action_logs',
-    'availability_slots',
-    'meeting_bookings',
-    'pwa_ab_variants',
-    'pwa_ab_events',
-    'admin_nav_preferences',
-    'pinned_quick_add',
-    'support_permissions',
-    'feature_toggle_schedules',
-    'email_automation_rate_limits',
-    'sharepoint_connections',
-    'sharepoint_target_bindings',
-    'order_sharepoint_locations',
-    'conversion_profiles',
-    'conversion_jobs',
-    'file_derivatives',
-    'sharepoint_transfer_jobs'
-  );
-"
+sudo runuser -u readypackets -- sh -c '
+  set -a
+  . /etc/readypackets/portal.env
+  set +a
+  exec node /opt/readypackets/dist/migrate.js
+'
 ```
 
-Expected results are two JSON health responses, `{"status":"ok"}` and `{"status":"ready"}`, plus `critical_tables = 44`. For a Cloudflare Origin CA deployment, also verify:
+Expected results are two JSON health responses, `{"status":"ok"}` and `{"status":"ready"}`, followed by the authoritative `Applied 53 migration(s); 48 critical tables verified.` schema-contract result. For a Cloudflare Origin CA deployment, also verify:
 
 ```bash
 sudo openssl x509 \

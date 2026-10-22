@@ -30,16 +30,21 @@ describe("native mobile contract safeguards", () => {
   });
 
   it("creates mobile orders from listed SKUs with Portal-authoritative pricing and idempotency", async () => {
-    const router = await text("server/http/mobile/index.ts");
+    const [contract, router] = await Promise.all([
+      text("server/http/mobile/openapi.yaml"),
+      text("server/http/mobile/index.ts"),
+    ]);
     expect(router).toContain('router.get("/catalog"');
     expect(router).toContain('router.post("/orders"');
     expect(router).toContain('runIdempotent(req, "POST /orders"');
     expect(router).toContain("requireScope(req, \"mobile:write\")");
     expect(router).toContain("resolveListedProducts(selections)");
     expect(router).toContain("createOrder({");
+    expect(router).toContain("Enter an order or project name before placing an order.");
     expect(router).toContain("productBySku.get(selection.sku)!.id");
     expect(router).not.toContain("req.body?.priceCents");
     expect(router).not.toContain("req.body?.paymentStatus");
+    expect(contract).toContain("required: [projectName, selections]");
   });
 
   it("keeps browser CSRF protection and exempts only the bearer/code mobile prefix", async () => {

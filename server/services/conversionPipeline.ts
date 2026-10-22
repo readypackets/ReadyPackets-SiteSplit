@@ -32,6 +32,11 @@ import { probeAudioDurationSeconds } from "./audioDuration.js";
 import { displayNameOf, getUserById } from "../db/users.js";
 import { logger } from "../observability/logger.js";
 import { recordActivity } from "../observability/audit.js";
+import {
+  buildSharepointCustomerFolderName,
+  buildSharepointOrderFolderName,
+  normalizeSharepointIdentitySegment,
+} from "./sharepointFolderNaming.js";
 
 const execFile = promisify(execFileCallback);
 const WORK_ROOT = path.join(tmpdir(), "readypackets-conversion");
@@ -111,18 +116,7 @@ function safeError(error: unknown): string {
  * One common segment policy for all external locations. It is deliberately
  * conservative: no nested client input, traversal, controls, or device names.
  */
-export function normalizeSharepointIdentitySegment(value: string, fallback: string): string {
-  const normalized = value.normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[\u0000-\u001F\u007F]/g, "")
-    .replace(/[^A-Za-z0-9 _().-]+/g, "_")
-    .replace(/\s+/g, " ")
-    .replace(/[. ]+$/g, "")
-    .trim();
-  const safe = normalized && normalized !== "." && normalized !== ".." ? normalized : fallback;
-  const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(safe);
-  return `${reserved ? "rp_" : ""}${safe}`.slice(0, 96);
-}
+export { normalizeSharepointIdentitySegment } from "./sharepointFolderNaming.js";
 
 export function buildSharepointOrderPath(input: {
   rootFolderPath: string;
@@ -130,13 +124,20 @@ export function buildSharepointOrderPath(input: {
   customerName: string;
   customerId: string;
   orderNumber: string;
+  /** Immutable values taken from the order record when it was created. */
+  customerFolderName?: string | null;
+  orderFolderName?: string | null;
 }): string {
   const base = [input.rootFolderPath, input.relativeRootPath ?? ""]
     .flatMap((part) => part.split("/"))
     .filter(Boolean)
     .map((part) => normalizeSharepointIdentitySegment(part, "ReadyPackets"));
-  const customer = `${normalizeSharepointIdentitySegment(input.customerName, "Customer")}-${normalizeSharepointIdentitySegment(input.customerId, "RP-CUS-UNKNOWN")}`;
-  const order = normalizeSharepointIdentitySegment(input.orderNumber, "Order");
+  const customer = input.customerFolderName
+    ? normalizeSharepointIdentitySegment(input.customerFolderName, "Customer")
+    : `${normalizeSharepointIdentitySegment(input.customerName, "Customer")}-${normalizeSharepointIdentitySegment(input.customerId, "RP-CUS-UNKNOWN")}`;
+  const order = input.orderFolderName
+    ? normalizeSharepointIdentitySegment(input.orderFolderName, "Order")
+    : normalizeSharepointIdentitySegment(input.orderNumber, "Order");
   return [...base, customer.slice(0, 180), order].join("/");
 }
 
@@ -600,14 +601,23 @@ async function resolveTargetLocation(orderId: number, targetBindingId: number): 
   if (!clientSecret) throw new Error("The configured SharePoint target credential cannot be decrypted on this host.");
   const connection: ConnectionConfig = { id: binding.connectionId, tenantId: binding.tenantId, clientId: binding.clientId, clientSecret, siteId: binding.siteId, driveId: binding.driveId, rootFolderPath: binding.rootFolderPath };
   if (existing[0]) return { connection, location: existing[0] };
-  const orderRows = await db.select({ orderNumber: orders.orderNumber, userId: orders.userId }).from(orders).where(eq(orders.id, orderId)).limit(1);
+  const orderRows = await db.select({
+    orderNumber: orders.orderNumber,
+    userId: orders.userId,
+    sharepointCustomerFolderEnc: orders.sharepointCustomerFolderEnc,
+    sharepointOrderFolderEnc: orders.sharepointOrderFolderEnc,
+  }).from(orders).where(eq(orders.id, orderId)).limit(1);
   const order = orderRows[0];
   if (!order) throw new Error("The order is no longer available for SharePoint location creation.");
   const customer = await getUserById(order.userId);
   const customerId = customer?.customerNumber ?? customer?.publicId ?? "RP-CUS-UNKNOWN";
   const customerName = customer ? displayNameOf(customer) : "Customer";
-  const resolvedPath = buildSharepointOrderPath({ rootFolderPath: binding.rootFolderPath, relativeRootPath: binding.relativeRootPath, customerName, customerId, orderNumber: order.orderNumber });
-  const inserted = await db.insert(orderSharepointLocations).values({ orderId, targetBindingId, customerNameSnapshot: normalizeSharepointIdentitySegment(customerName, "Customer"), customerIdSnapshot: customerId, orderNumberSnapshot: order.orderNumber, resolvedPath });
+  const customerFolderName = decryptField(order.sharepointCustomerFolderEnc, `order:${orderId}:sharepoint-customer-folder`)
+    ?? buildSharepointCustomerFolderName({ email: customer?.email ?? "customer", customerId });
+  const orderFolderName = decryptField(order.sharepointOrderFolderEnc, `order:${orderId}:sharepoint-order-folder`)
+    ?? buildSharepointOrderFolderName({ projectName: "Order", orderNumber: order.orderNumber });
+  const resolvedPath = buildSharepointOrderPath({ rootFolderPath: binding.rootFolderPath, relativeRootPath: binding.relativeRootPath, customerName, customerId, orderNumber: order.orderNumber, customerFolderName, orderFolderName });
+  const inserted = await db.insert(orderSharepointLocations).values({ orderId, targetBindingId, customerNameSnapshot: customerName, customerIdSnapshot: customerId, orderNumberSnapshot: order.orderNumber, resolvedPath });
   const locationId = Number((inserted as unknown as { insertId?: number }).insertId ?? 0);
   const location = (await db.select().from(orderSharepointLocations).where(eq(orderSharepointLocations.id, locationId)).limit(1))[0];
   if (!location) throw new Error("The immutable SharePoint location could not be persisted.");
