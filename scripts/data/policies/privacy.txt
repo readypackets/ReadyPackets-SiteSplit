@@ -84,7 +84,7 @@ We use strictly necessary cookies and related browser storage to operate and sec
 7.2 Preference Technologies
 With your permission, we may store optional preferences such as visual theme or other convenience settings. You may allow or withdraw preference storage at any time through Manage cookie preferences in the website footer or platform preference center.
 7.3 Analytics Technologies
-ReadyPackets does not activate analytics cookies or analytics tags unless the applicable analytics category is enabled by the Company and you provide consent through the preference center. You may decline or withdraw analytics consent at any time without affecting essential portal services.
+ReadyPackets does not activate analytics cookies or analytics tags unless the applicable analytics category is enabled by the Company and you provide consent through the preference center. If the Company activates Microsoft Clarity for the Portal, it is limited to anonymous sign-in, registration, verification, and password-recovery screens; customer and administrator workspaces are excluded and the Portal DOM is masked. It is used only to understand aggregate entry-screen usage, improve performance, and diagnose usability issues. You may decline or withdraw analytics consent at any time without affecting essential portal services.
 7.4 Marketing Technologies
 ReadyPackets does not activate marketing or advertising cookies, pixels, or similar tracking technologies unless the applicable marketing category is enabled by the Company and you provide consent through the preference center. You may decline or withdraw marketing consent at any time without affecting essential portal services.
 7.5 Your Choices and Consent Records

@@ -32,6 +32,17 @@ let posthogLoad: Promise<PostHogClient> | null = null;
 let posthogConfigured = false;
 const CROSS_SITE_ID_KEY = "rp_analytics_navigation_id";
 const CROSS_SITE_PARAM = "rp_ac";
+// Clarity is a session-replay product. On the Portal host it is deliberately
+// limited to unauthenticated entry routes, never customer, workflow, checkout,
+// staff, or administrator routes. portal.html also masks its entire DOM before
+// the provider can observe it; do not add data-clarity-unmask to Portal UI.
+const PORTAL_ANALYTICS_ENTRY_PATHS = new Set([
+  "/login",
+  "/register",
+  "/verify-email",
+  "/forgot-password",
+  "/reset-password",
+]);
 
 function surface(): "public" | "portal" {
   return document.documentElement.dataset.rpSurface === "portal" ? "portal" : "public";
@@ -41,6 +52,10 @@ function cleanPath(location: string): string {
   // Do not let query values or fragments enter analytics: these often carry
   // invitation, password-reset, search, campaign, or order information.
   return location.split(/[?#]/, 1)[0] || "/";
+}
+
+function isPortalAnalyticsEntryRoute(location: string): boolean {
+  return PORTAL_ANALYTICS_ENTRY_PATHS.has(cleanPath(location));
 }
 
 function isValidAnonymousHandoff(value: string | null): value is string {
@@ -68,7 +83,6 @@ function anonymousCrossSiteId(enabled: boolean): string | null {
 }
 
 function loadClarity(projectId: string): void {
-  if (document.getElementById("rp-clarity")) return;
   const clarity = window.clarity ?? ((command: string, ...args: unknown[]) => {
     const queued = window.clarity ?? (Object.assign(() => undefined, { q: [] }) as ClarityFn);
     queued.q ??= [];
@@ -77,6 +91,10 @@ function loadClarity(projectId: string): void {
   }) as ClarityFn;
   window.clarity = clarity;
   clarity("consentv2", { ad_Storage: "denied", analytics_Storage: "granted" });
+  // A visitor may withdraw and later re-grant consent without a full page
+  // reload. Re-send the affirmative state even when the trusted script tag
+  // already exists; never append a duplicate provider script.
+  if (document.getElementById("rp-clarity")) return;
   const script = document.createElement("script");
   script.id = "rp-clarity";
   script.async = true;
@@ -107,29 +125,37 @@ async function loadPostHog(host: string): Promise<PostHogClient> {
 export function AnalyticsProvider() {
   const { preferences } = useCookieConsent();
   const [location] = useLocation();
+  const portalSurface = surface() === "portal";
+  const portalAnalyticsEntryRoute = portalSurface && isPortalAnalyticsEntryRoute(location);
+  // Portal-stored providers are eligible only for the narrow anonymous Portal
+  // route allowlist above, even after an administrator has enabled them. The
+  // independent static website owns its separate analytics configuration.
+  const providerRouteAllowed = portalSurface && portalAnalyticsEntryRoute;
   const config = trpc.public.analyticsConfig.useQuery(undefined, {
-    enabled: preferences?.analytics === true,
+    enabled: preferences?.analytics === true && providerRouteAllowed,
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
   const lastPathRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (preferences?.analytics) return;
+    if (preferences?.analytics && providerRouteAllowed) return;
     // If a visitor withdraws consent in the same page session, disable any
-    // provider that may already have been initialized. Clarity clears its
-    // cookies on a false consent command; PostHog blocks all further capture.
+    // provider that may already have been initialized. The explicit denied
+    // ConsentV2 state is followed by Clarity's cookie-erasure command so a
+    // protected Portal route cannot continue a prior replay session.
+    window.clarity?.("consentv2", { ad_Storage: "denied", analytics_Storage: "denied" });
     window.clarity?.("consent", false);
     window.posthog?.opt_out_capturing();
     window.localStorage.removeItem(CROSS_SITE_ID_KEY);
     lastPathRef.current = null;
-  }, [preferences?.analytics]);
+  }, [preferences?.analytics, providerRouteAllowed]);
 
   useEffect(() => {
     const value = config.data;
-    if (!preferences?.analytics || !value?.active) return;
+    if (!preferences?.analytics || !providerRouteAllowed || !value?.active) return;
 
-    if (value.clarity.enabled && value.clarity.projectId) loadClarity(value.clarity.projectId);
+    if (portalAnalyticsEntryRoute && value.clarity.enabled && value.clarity.projectId) loadClarity(value.clarity.projectId);
 
     if (value.posthog.enabled && value.posthog.projectKey && value.posthog.host) {
       void loadPostHog(value.posthog.host).then((posthog) => {
@@ -148,12 +174,12 @@ export function AnalyticsProvider() {
         posthog.opt_in_capturing();
       }).catch(() => undefined);
     }
-  }, [config.data, preferences?.analytics]);
+  }, [config.data, portalAnalyticsEntryRoute, preferences?.analytics, providerRouteAllowed]);
 
   useEffect(() => {
     const value = config.data;
     const path = cleanPath(location);
-    if (!preferences?.analytics || !value?.active || lastPathRef.current === path) return;
+    if (!preferences?.analytics || !providerRouteAllowed || !value?.active || lastPathRef.current === path) return;
     lastPathRef.current = path;
     const anonymousId = anonymousCrossSiteId(value.crossSiteEnabled);
     const properties = {
@@ -165,11 +191,11 @@ export function AnalyticsProvider() {
     // Clarity receives its page information after consent through its own SDK.
     // PostHog receives only this narrow, explicit page-view event.
     window.posthog?.capture("readypackets_page_viewed", properties);
-  }, [config.data, location, preferences?.analytics]);
+  }, [config.data, location, preferences?.analytics, providerRouteAllowed]);
 
   useEffect(() => {
     const value = config.data;
-    if (!preferences?.analytics || !value?.active || !value.crossSiteEnabled) return;
+    if (!preferences?.analytics || !providerRouteAllowed || !value?.active || !value.crossSiteEnabled) return;
     const onClick = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]");
@@ -187,7 +213,7 @@ export function AnalyticsProvider() {
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
-  }, [config.data, preferences?.analytics]);
+  }, [config.data, preferences?.analytics, providerRouteAllowed]);
 
   return null;
 }
@@ -201,5 +227,9 @@ export function trackAnalyticsEvent(
   event: "public_packet_viewed" | "portal_workspace_opened" | "portal_checkout_started",
   properties: Record<string, string | number | boolean> = {},
 ): void {
+  // Do not let a future component emit a curated event after in-app navigation
+  // to a protected Portal route, even during the short interval before React's
+  // consent effect applies the provider opt-out controls.
+  if (surface() !== "portal" || !isPortalAnalyticsEntryRoute(window.location.pathname)) return;
   window.posthog?.capture(event, { surface: surface(), ...properties });
 }

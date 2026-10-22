@@ -2,7 +2,7 @@
 
 **Release repository:** <https://github.com/readypackets/ReadyPackets-SiteSplit> (private)
 **Recommended runtime:** Native Ubuntu 24.04 or 26.04 LTS VPS with systemd, Nginx, MySQL, root-protected backups, and the ReadyPackets restricted update/recovery controllers.
-**Current fresh-install checkpoint:** The installer must report **53 forward-only migrations** and **48 critical tables verified**.
+**Current fresh-install checkpoint:** The installer must report **54 forward-only migrations** and **48 critical tables verified**.
 
 > This runbook deploys only the authenticated ReadyPackets Portal at `my.readypackets.com` or `portal.readypackets.com`. The ReadyPackets website stays independently hosted at `www.readypackets.com` (and any staging hostname such as `go.readypackets.com`). Do not add an externally hosted website hostname to the portal installer.
 
@@ -228,7 +228,7 @@ For a replacement server, install the new host first, validate it, then use the 
 The installer must include this successful schema line:
 
 ```text
-Applied 53 migration(s); 48 critical tables verified.
+Applied 54 migration(s); 48 critical tables verified.
 ```
 
 Run these checks on the VPS before inviting users:

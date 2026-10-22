@@ -40,7 +40,10 @@ const disabled: ConsentGatedAnalyticsConfig = {
 
 export async function getConsentGatedAnalyticsConfig(req: Request): Promise<ConsentGatedAnalyticsConfig> {
   const consent = await getCurrentCookieConsent(req);
-  if (!consent.preferences?.analytics) return disabled;
+  // Do not rely only on a historic affirmative consent row. An administrator
+  // can globally turn off the consent center or Analytics category at any time;
+  // both switches must immediately withhold every provider instruction.
+  if (!consent.config.enabled || !consent.config.analyticsAvailable || !consent.preferences?.analytics) return disabled;
 
   const [clarityEnabled, clarityProjectId, posthogEnabled, posthogProjectKey, requestedPosthogHost, crossSiteEnabled] = await Promise.all([
     getSettingBool("privacy.analytics_clarity_enabled", false),

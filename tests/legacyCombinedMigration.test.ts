@@ -32,7 +32,7 @@ describe("exact legacy combined-platform migration runner", () => {
   it("is restricted to the exact restored legacy release and expected schema transition", () => {
     expect(runnerSource).toContain('readonly LEGACY_RELEASE_COMMIT="9f608821df78b3d003a349606390fa2b8340ac99"');
     expect(runnerSource).toContain('readonly LEGACY_MIGRATION_COUNT="48"');
-    expect(runnerSource).toContain('readonly TARGET_MIGRATION_COUNT="53"');
+    expect(runnerSource).toContain('readonly TARGET_MIGRATION_COUNT="54"');
     expect(runnerSource).toContain('"$current_source_commit" == "$LEGACY_RELEASE_COMMIT"');
     expect(runnerSource).toContain('"$release_marker" == "$LEGACY_RELEASE_COMMIT"');
     expect(runnerSource).toContain('"$migration_count" == "$LEGACY_MIGRATION_COUNT"');

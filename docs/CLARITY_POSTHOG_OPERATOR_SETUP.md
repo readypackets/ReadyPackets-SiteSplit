@@ -5,17 +5,18 @@
 - **Marketing site:** `https://www.readypackets.com` (independent static repository: `readypackets/ReadyPackets-Marketing-Site`)
 - **Portal:** use exactly one canonical hostname: `https://my.readypackets.com` **or** `https://portal.readypackets.com` (portal repository: `readypackets/ReadyPackets-SiteSplit`)
 
-ReadyPackets supplies **consent-gated integration capability** for Microsoft Clarity and PostHog. Neither provider is active by default. Do not activate either service until the privacy notice, cookie notice, internal access roles, retention settings, and data-processing review are complete.
+ReadyPackets supplies **consent-gated integration capability** for Microsoft Clarity and PostHog. Neither provider is active by default. The Portal repository contains the supplied Portal Clarity project identifier as an inert, write-only setting so an operator does not need to paste a raw provider snippet into the HTML. It remains disabled until the administrator completes the explicit steps below and a visitor makes a new affirmative Analytics choice. Do not activate either service until the privacy notice, cookie notice, internal access roles, retention settings, and data-processing review are complete.
 
 > **Do not use the same provider project for the marketing site and portal.** Create one Clarity project and one PostHog project for each site. This keeps public-site measurement separate from authenticated workspace activity and permits different masking and retention controls.
 
 ## What the code already enforces
 
-Both sites load a provider only after a visitor has affirmatively selected **Analytics**. Before consent, no provider script, provider request, provider key, or provider configuration is delivered by the portal. The marketing site ships blank project identifiers, so it cannot activate a provider until those identifiers are intentionally entered and a new static build is deployed.
+Both sites load a provider only after a visitor has affirmatively selected **Analytics**. Before consent, no provider script, provider request, provider key, or provider configuration is delivered by the Portal. The independent marketing website has its own separately configured, consent-gated Clarity project; it does not share configuration, identities, or consent state with the Portal.
 
 The portal and marketing integration use a narrow data-minimization profile:
 
 - Clarity is loaded only after analytics consent and receives `ConsentV2` with `analytics_Storage: "granted"` and `ad_Storage: "denied"`.
+- The Portal loader is limited to anonymous entry routes (`/login`, `/register`, `/verify-email`, `/forgot-password`, and `/reset-password`). It never loads on customer workspaces, orders, intake/workflow phases, files, messages, tickets, checkout, invoices, profile/security, staff, or administrator routes. `portal.html` applies `data-clarity-mask="true"` to the entire Portal DOM; ReadyPackets must never add `data-clarity-unmask` to Portal UI.
 - PostHog starts opt-out-by-default. Autocapture, automatic page views, session recording, and person profiles are disabled.
 - ReadyPackets emits only reviewed page/path/surface events. It does not send account IDs, e-mail addresses, order IDs, customer IDs, document names, message content, upload metadata, form values, query parameters, or fragments.
 - Consent withdrawal calls the provider opt-out controls. The portal records consent evidence and provider-configuration changes in its audit trail.
@@ -51,7 +52,7 @@ PostHog documents `opt_out_capturing_by_default`, `opt_in_capturing()`, and `opt
 
 ## 2. Configure the portal
 
-Use a local-MFA-protected administrator account on the portal. Do not paste provider values into chat, tickets, public issue trackers, or Git commits.
+Use a local-MFA-protected administrator account on the Portal. Never paste provider management credentials, API secrets, or tokens into chat, tickets, public issue trackers, or Git commits. Clarity project identifiers are browser-visible, but must still be scoped to the correct site and changed only through the approved configuration path.
 
 1. Open **Admin → System**.
 2. In **Cookie consent and privacy preferences**:
@@ -60,20 +61,20 @@ Use a local-MFA-protected administrator account on the portal. Do not paste prov
    - Leave marketing consent off unless a separate marketing/advertising technology needs it.
    - Type `UPDATE COOKIE CONSENT SETTINGS`, then save.
 3. In **Consent-gated analytics providers**:
-   - Enable **Microsoft Clarity after analytics opt-in** and enter the portal Clarity Project ID.
+   - Enable **Microsoft Clarity after analytics opt-in**. The approved Portal project is already stored as a write-only configuration value after this release; leave the ID blank to retain it. Do not paste a provider snippet into Portal HTML or replace the stored value with a marketing-site project.
    - Enable **PostHog after analytics opt-in**, enter the portal PostHog Project API key, and select the approved US or EU ingestion region.
    - **Leave “Allow consented analytics continuity between the public site and portal” off.** The independent static marketing site deliberately does not create or consume the portal’s anonymous navigation handoff. Enabling this portal-only option would not create compliant end-to-end tracking.
    - Type `SAVE ANALYTICS CONFIGURATION`, then save.
 4. Confirm the status display shows both providers as configured. The values are write-only after storage; this is expected.
 
-The portal validates project identifiers, encrypts stored provider values, restricts PostHog hosts to the approved US/EU endpoints, and allows the necessary provider domains in its nonce-based CSP. Saving analytics settings creates an audit record without recording the provider values themselves.
+The Portal validates project identifiers, treats the stored Portal Clarity identifier as write-only in its administration UI, restricts PostHog hosts to the approved US/EU endpoints, and allows the necessary provider domains in its nonce-based CSP. The Clarity project identifier is browser-visible and is not a management secret; it is not described as encrypted at rest. Saving analytics settings creates an audit record without recording provider values themselves.
 
 ## 3. Configure the marketing site
 
 The marketing site uses browser-visible provider project identifiers in its version-controlled static configuration. It never needs a provider management token.
 
 1. Clone or open the `readypackets/ReadyPackets-Marketing-Site` repository.
-2. In `src/assets/js/site-config.js`, replace only the blank values below with the **marketing** provider project identifiers:
+2. Its reviewed static configuration already contains the approved **marketing** Microsoft Clarity project identifier and keeps PostHog disabled. If a future reviewed change is required, edit only the **marketing** provider project identifiers in `src/assets/js/site-config.js`:
 
 ```js
 analytics: Object.freeze({
@@ -83,7 +84,7 @@ analytics: Object.freeze({
 }),
 ```
 
-3. Use an empty string to keep either provider disabled. Do not add an API secret, management token, portal environment value, database credential, session key, or Cloudflare credential to this file.
+3. Use an empty string to keep either provider disabled. Do not add an API secret, management token, portal environment value, database credential, session key, or Cloudflare credential to this file. Never place the Portal Clarity project identifier in this marketing repository.
 4. Build and validate locally:
 
 ```bash
@@ -103,12 +104,12 @@ Perform this check separately on the marketing host and portal host, using a pri
 2. Before choosing a preference, confirm Network contains **no** request to `clarity.ms` or `*.posthog.com`.
 3. Choose **Essential only**. Reload and confirm the same result.
 4. Open **Manage cookie preferences**, select **Analytics**, save, and reload.
-5. Confirm only then that provider requests appear:
+5. Confirm only then that provider requests appear **on an anonymous Portal entry route only**:
    - Clarity: `https://www.clarity.ms/tag/<project-id>`
    - PostHog: the approved `us.i.posthog.com` or `eu.i.posthog.com` host
 6. Confirm the PostHog event payload is limited to the reviewed page/path/surface schema and does not include query strings, fragments, names, e-mail addresses, customer/order references, files, or free text.
 7. Withdraw Analytics consent. Reload, verify future provider requests stop, and confirm the site remains fully functional.
-8. In the provider dashboards, verify the first production data belongs to the correct project and hostname. Inspect portal recordings carefully to confirm masking before allowing broad team access.
+8. Navigate from the consented anonymous entry route to a protected Portal, checkout, staff, or administrator route and confirm no new provider configuration is requested, the previously loaded provider receives denied consent/cookie erasure, and no portal UI content is available in the provider. In the provider dashboard, verify the first production data belongs to the correct project and hostname, then confirm the root mask is effective before allowing broad team access.
 
 ## Cross-site tracking decision
 

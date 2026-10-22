@@ -166,7 +166,7 @@ With your permission, we may store optional preferences such as visual theme or 
 
 ### 7.3 Analytics Technologies
 
-ReadyPackets does not activate analytics cookies or analytics tags unless the applicable analytics category is enabled by the Company and you provide consent through the preference center. If enabled in the future, analytics technologies will be used only to understand aggregate website and portal usage, improve performance, and diagnose usability issues. You may decline or withdraw analytics consent at any time without affecting essential portal services.
+ReadyPackets does not activate analytics cookies or analytics tags unless the applicable analytics category is enabled by the Company and you provide consent through the preference center. If the Company activates Microsoft Clarity for the Portal, it is limited to anonymous sign-in, registration, verification, and password-recovery screens; customer and administrator workspaces are excluded and the Portal DOM is masked. It is used only to understand aggregate entry-screen usage, improve performance, and diagnose usability issues. You may decline or withdraw analytics consent at any time without affecting essential portal services.
 
 ### 7.4 Marketing Technologies
 

@@ -340,7 +340,7 @@ ReadyPackets fresh portal installation completed.
 
 Next required steps:
   1. Store the generated one-time password, sign in over HTTPS, enroll MFA, and save recovery codes.
-  2. Confirm the installer reported: Applied 53 migration(s); 48 critical tables verified.
+  2. Confirm the installer reported: Applied 54 migration(s); 48 critical tables verified.
   3. Configure email, payments, Microsoft Graph/SharePoint, SAML, SIEM/syslog, and consented analytics from the administrator portal.
   4. Configure encrypted off-host backups and complete an isolated restore drill before handling customer data.
   5. Return the source repository to private visibility immediately after installation and revoke the short-lived Cloudflare token if it is no longer needed.

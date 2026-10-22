@@ -81,7 +81,7 @@ sudo bash deploy/unified-install.sh \
 The installer requests one certificate covering every configured hostname, writes both `APP_URL` and `PUBLIC_SITE_URL`, compiles `client/dist-public` and `client/dist-portal`, applies every forward-only migration, and fails closed if the schema contract is incomplete. The current expected checkpoint is:
 
 ```text
-Applied 53 migration(s); 48 critical tables verified.
+Applied 54 migration(s); 48 critical tables verified.
 ```
 
 > **Certificate caution.** For Cloudflare Origin CA, use a scoped token or a manually supplied certificate that covers both the portal and public hostnames. Do not store a private key, Cloudflare token, PostHog key, or any other secret in GitHub.
@@ -101,13 +101,13 @@ The original ReadyPackets repository and deployment are intentionally untouched.
 
 ## Consent-gated Microsoft Clarity and PostHog
 
-ReadyPackets ships provider **capability**, not provider activation. Microsoft Clarity and PostHog are disabled by default. A provider is not loaded, configured, or contacted until all of the following are true:
+ReadyPackets ships provider **capability**, not provider activation. Microsoft Clarity and PostHog are disabled by default. The Portal’s Clarity project identifier may be preconfigured as a write-only browser identifier, but that stored value remains inert. A provider is not loaded or contacted until all of the following are true:
 
 1. An administrator enables the Analytics category in **Admin → System → Privacy & cookies**.
-2. An administrator enters the relevant provider configuration in the consent-gated analytics section and explicitly saves it.
+2. An administrator explicitly enables the relevant provider in the consent-gated analytics section and saves it. The supplied Portal Clarity identifier may already be present as a write-only inert value; leaving that field blank retains it.
 3. The visitor uses the preference center to affirmatively select **Analytics** on that hostname.
 
-The browser receives no provider project configuration while its analytics preference is absent or false. The application disables PostHog autocapture and session replay, sends only a reviewed path/surface event vocabulary, and excludes account IDs, e-mail addresses, order IDs, document names, messages, file metadata, form values, and free-text data. The default configuration also uses PostHog’s opt-out-by-default control.
+The browser receives no provider project configuration while its analytics preference is absent or false. On the Portal host, provider activity is restricted to the anonymous sign-in, registration, verification, and password-recovery entry routes. It is excluded from customer workspaces, orders, workflow/intake, files, messages, tickets, checkout, invoices, profile/security, staff, and administrator routes. The Portal HTML root is explicitly `data-clarity-mask="true"`, so Portal DOM content and descendants are not uploaded to Clarity; no Portal UI may add an unmask attribute. The application disables PostHog autocapture and session replay, sends only a reviewed path/surface event vocabulary, and excludes account IDs, e-mail addresses, order IDs, document names, messages, file metadata, form values, and free-text data. The default configuration also uses PostHog’s opt-out-by-default control.
 
 Administrators may separately enable consented cross-site analytics continuity for the dual-bundle deployment served by this repository. On a deliberate public-to-portal navigation, the browser carries only a cryptographically random, per-browser navigation handoff identifier (`rp_ac`) to the configured portal origin; the portal removes it from the visible URL once consented analytics starts. It is never derived from, linked in code to, or replaced with a ReadyPackets account, e-mail, order, document, message, authentication, session, CSRF, MFA, access-control, or file identifier.
 
@@ -121,7 +121,7 @@ Microsoft Clarity ConsentV2 requires explicit analytics storage signaling for fu
 | --- | --- | --- |
 | Lawful basis and notice | Consent banner exposes Essential, Preferences, Analytics, and Marketing categories; Analytics remains off by default. | Publish an accurate privacy notice and identify each activated provider, purpose, retention, and regional transfer basis. |
 | Withdrawal | Preference center remains available after choice; provider capture is stopped when consent is withdrawn. | Test accept and withdraw flows on both hostnames. |
-| Data minimization | Curated event allowlist; no portal/business payloads; PostHog autocapture/replay disabled in the application; optional cross-site continuity uses only a random navigation handoff. | Keep provider-side masking on; do not add PII to custom event properties. |
+| Data minimization | Portal provider loading is limited to masked anonymous entry routes; the root Portal DOM is explicitly masked; curated events contain no portal/business payloads; PostHog autocapture/replay is disabled; optional cross-site continuity uses only a random navigation handoff. | Keep Clarity Strict masking on; never add a Portal `data-clarity-unmask` attribute or PII to custom event properties. |
 | Data residency | Administrator chooses the US or EU PostHog ingestion host. | Select the approved region and configure retention/IP capture in the provider account. |
 | Auditability | Administrative changes to analytics provider settings are recorded in the ReadyPackets activity log. Consent decisions have hashed evidence records. | Review the audit center and retain appropriate records under the organization’s policy. |
 | Security boundary | Hostname validation, CSP nonce, strict Origin/CSRF validation, host-only cookies, and server-side authorization remain in force. | Maintain TLS, Cloudflare/origin policy, system updates, backups, and least-privilege admin access. |

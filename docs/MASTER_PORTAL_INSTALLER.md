@@ -34,7 +34,7 @@ The default dedicated-host installation is **portal-only**: the canonical portal
 The fresh installation must report:
 
 ```text
-Applied 53 migration(s); 48 critical tables verified.
+Applied 54 migration(s); 48 critical tables verified.
 ```
 
 ## Before you start
