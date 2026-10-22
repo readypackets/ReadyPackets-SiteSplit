@@ -15,7 +15,7 @@ umask 077
 readonly REPOSITORY="readypackets/ReadyPackets-SiteSplit"
 # The portal source installed by this reviewed bootstrap. Do not replace with a
 # branch name or abbreviated SHA: production deployment must remain immutable.
-readonly RELEASE_COMMIT="45d84b020bc5b7824309cc8af8ced22ae4380bc1"
+readonly RELEASE_COMMIT="368b5fc8d62dd5124c2878ab661312a64d65dc88"
 readonly SOURCE_DIR="/srv/readypackets"
 readonly TOKEN_DIR="/root/readypackets-secrets"
 
@@ -340,7 +340,7 @@ ReadyPackets fresh portal installation completed.
 
 Next required steps:
   1. Store the generated one-time password, sign in over HTTPS, enroll MFA, and save recovery codes.
-  2. Confirm the installer reported: Applied 52 migration(s); 46 critical tables verified.
+  2. Confirm the installer reported: Applied 53 migration(s); 48 critical tables verified.
   3. Configure email, payments, Microsoft Graph/SharePoint, SAML, SIEM/syslog, and consented analytics from the administrator portal.
   4. Configure encrypted off-host backups and complete an isolated restore drill before handling customer data.
   5. Return the source repository to private visibility immediately after installation and revoke the short-lived Cloudflare token if it is no longer needed.

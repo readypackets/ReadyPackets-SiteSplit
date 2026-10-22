@@ -31,7 +31,7 @@ describe("public-source fresh installer defaults", () => {
   it("keeps the normal temporary-public installer portal-only, immutable, and secret-safe", () => {
     const result = spawnSync("bash", ["-n", portalOnlyInstallerPath], { encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
-    expect(portalOnlySource).toContain('readonly RELEASE_COMMIT="45d84b020bc5b7824309cc8af8ced22ae4380bc1"');
+    expect(portalOnlySource).toContain('readonly RELEASE_COMMIT="368b5fc8d62dd5124c2878ab661312a64d65dc88"');
     expect(portalOnlySource).toContain('git -C "$SOURCE_DIR" fetch --depth=1 origin "$RELEASE_COMMIT"');
     expect(portalOnlySource).toContain('[[ "${resolved,,}" == "$RELEASE_COMMIT" ]]');
     expect(portalOnlySource).toContain('read -r -s -p "Cloudflare Origin CA token: " token');
@@ -41,6 +41,7 @@ describe("public-source fresh installer defaults", () => {
     expect(portalOnlySource).toContain('is_reserved_marketing_host "$alias"');
     expect(portalOnlySource).toContain('node /opt/readypackets/dist/create-admin.js');
     expect(portalOnlySource).toContain('verify-public-connectivity.sh');
+    expect(portalOnlySource).toContain('Applied 53 migration(s); 48 critical tables verified.');
     expect(portalOnlySource).toContain('case "${VERSION_ID:-}" in');
     expect(portalOnlySource).toContain('24.04|26.04) ;;');
     expect(portalOnlySource).toContain("supports a new Ubuntu 24.04 or 26.04 LTS VPS only");
