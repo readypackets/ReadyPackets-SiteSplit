@@ -248,7 +248,7 @@ paths:
         - $ref: '#/components/parameters/IdempotencyKey'
   /customer/orders/{publicOrderId}/workflow/{phaseKey}/advance:
     post:
-      summary: Continue a configured workflow phase that permits non-locking advancement
+      summary: Continue a configured customer workflow phase that permits non-locking advancement
       parameters:
         - $ref: '#/components/parameters/PublicOrderId'
         - name: phaseKey
