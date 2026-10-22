@@ -31,7 +31,7 @@ describe("public-source fresh installer defaults", () => {
   it("keeps the normal temporary-public installer portal-only, immutable, and secret-safe", () => {
     const result = spawnSync("bash", ["-n", portalOnlyInstallerPath], { encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
-    expect(portalOnlySource).toContain('readonly RELEASE_COMMIT="368b5fc8d62dd5124c2878ab661312a64d65dc88"');
+    expect(portalOnlySource).toContain('readonly RELEASE_COMMIT="0451317028f3647abab2f35d8fda472937b79912"');
     expect(portalOnlySource).toContain('git -C "$SOURCE_DIR" fetch --depth=1 origin "$RELEASE_COMMIT"');
     expect(portalOnlySource).toContain('[[ "${resolved,,}" == "$RELEASE_COMMIT" ]]');
     expect(portalOnlySource).toContain('read -r -s -p "Cloudflare Origin CA token: " token');
