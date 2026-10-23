@@ -1,12 +1,12 @@
 /**
- * Native OAuth 2.1 / OIDC primitives.
+ * Native OAuth 2.1 primitives.
  *
  * The browser session remains the login/MFA authority. Native clients receive
  * only a short-lived authorization code after PKCE validation and persist an
  * opaque rotating refresh token in platform secure storage.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { jwtVerify, SignJWT } from "jose";
 import { env } from "../config/env.js";
 import { db } from "../db/client.js";
@@ -22,7 +22,8 @@ import { recordSecurityEvent } from "../observability/audit.js";
 
 export const MOBILE_CLIENT_ID = "readypackets-native";
 const ACCESS_AUDIENCE = "readypackets-mobile-v1";
-const key = new TextEncoder().encode(env.sessionSecret);
+const key = new TextEncoder().encode(env.mobile.accessTokenSecret);
+const MOBILE_SCOPES = new Set(["mobile:read", "mobile:write"]);
 
 export class MobileOAuthError extends Error {
   constructor(public readonly code: string, message: string, public readonly status = 400) {
@@ -55,6 +56,14 @@ function opaque(bytes = 32): string {
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function approvedScopes(requested: string[]): string[] {
+  const scopes = requested.length ? requested : ["mobile:read", "mobile:write"];
+  if (scopes.some((scope) => !MOBILE_SCOPES.has(scope)) || new Set(scopes).size !== scopes.length) {
+    throw new MobileOAuthError("invalid_scope", "The requested mobile permission is not available.");
+  }
+  return scopes;
 }
 
 export function allowedRedirectUri(value: string): string {
@@ -91,7 +100,7 @@ export function validateAuthorizeInput(input: Partial<AuthorizeInput> & { client
     platform: input.platform,
     appVersion: input.appVersion,
     deviceName: input.deviceName?.slice(0, 128),
-    scopes: input.scopes?.length ? input.scopes : ["mobile:read", "mobile:write"],
+    scopes: approvedScopes(input.scopes ?? []),
   };
 }
 
@@ -123,14 +132,21 @@ export async function createAuthorizationCode(userId: number, input: AuthorizeIn
     scopes: input.scopes,
     expiresAt: new Date(Date.now() + 5 * 60_000),
   });
-  void recordSecurityEvent({ eventType: "login.success", message: "Native authorization code issued after browser session validation", userId, ipAddress: audit.ip ?? null, userAgent: audit.userAgent ?? null, metadata: { channel: "mobile", deviceId: input.deviceId, platform: input.platform } });
+  void recordSecurityEvent({
+    eventType: "mobile.authorization_granted",
+    message: "Native authorization code issued after browser MFA validation",
+    userId,
+    ipAddress: audit.ip ?? null,
+    userAgent: audit.userAgent ?? null,
+    metadata: { channel: "mobile", platform: input.platform, scope: input.scopes },
+  });
   return code;
 }
 
 async function signAccessToken(sessionId: string, userId: number, deviceId: string, scopes: string[]): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({ sid: sessionId, uid: userId, did: deviceId, scope: scopes.join(" ") })
-    .setProtectedHeader({ alg: "HS256", typ: "at+jwt" })
+    .setProtectedHeader({ alg: "HS256", typ: "at+jwt", kid: env.mobile.accessTokenKeyId })
     .setIssuer(env.mobile.issuer)
     .setAudience(ACCESS_AUDIENCE)
     .setIssuedAt(now)
@@ -138,7 +154,7 @@ async function signAccessToken(sessionId: string, userId: number, deviceId: stri
     .sign(key);
 }
 
-async function issueTokenSet(input: { userId: number; deviceId: string; sessionId: string; familyId: string; scopes: string[]; rotate?: boolean }): Promise<{ access_token: string; token_type: "Bearer"; expires_in: number; refresh_token: string; scope: string }> {
+async function issueTokenSet(input: { userId: number; deviceId: string; sessionId: string; familyId: string; scopes: string[] }): Promise<{ access_token: string; token_type: "Bearer"; expires_in: number; refresh_token: string; scope: string }> {
   const refreshToken = opaque(48);
   const refreshExpiry = new Date(Date.now() + env.mobile.refreshTokenTtlDays * 24 * 60 * 60_000);
   await db.insert(mobileRefreshTokens).values({
@@ -150,6 +166,10 @@ async function issueTokenSet(input: { userId: number; deviceId: string; sessionI
   });
   const accessToken = await signAccessToken(input.sessionId, input.userId, input.deviceId, input.scopes);
   return { access_token: accessToken, token_type: "Bearer", expires_in: env.mobile.accessTokenTtlSeconds, refresh_token: refreshToken, scope: input.scopes.join(" ") };
+}
+
+function accountEligible(user: { status: string; emailVerified: boolean; mfaEnabled: boolean; mustChangePassword: boolean } | undefined): boolean {
+  return Boolean(user && user.status === "active" && user.emailVerified && user.mfaEnabled && !user.mustChangePassword);
 }
 
 export async function exchangeAuthorizationCode(input: { code: string; codeVerifier: string; redirectUri: string; clientId: string; ip?: string | null; userAgent?: string | null }) {
@@ -167,15 +187,15 @@ export async function exchangeAuthorizationCode(input: { code: string; codeVerif
   if (affectedRows(consumeResult) !== 1) {
     throw new MobileOAuthError("invalid_grant", "The authorization code was already used.", 401);
   }
-  const user = (await db.select({ id: users.id, status: users.status }).from(users).where(eq(users.id, row.userId)).limit(1))[0];
-  if (!user || user.status !== "active") throw new MobileOAuthError("invalid_grant", "The account is not active.", 401);
+  const user = (await db.select({ id: users.id, status: users.status, emailVerified: users.emailVerified, mfaEnabled: users.mfaEnabled, mustChangePassword: users.mustChangePassword }).from(users).where(eq(users.id, row.userId)).limit(1))[0];
+  if (!accountEligible(user)) throw new MobileOAuthError("invalid_grant", "The account is not eligible for mobile authorization.", 401);
   const sessionId = opaque(24);
   const familyId = opaque(24);
   const expiresAt = new Date(Date.now() + env.mobile.refreshTokenTtlDays * 24 * 60 * 60_000);
-  await db.insert(mobileDeviceSessions).values({ id: sessionId, tokenFamilyId: familyId, deviceId: row.deviceId, userId: row.userId, expiresAt });
-  const scopes = Array.isArray(row.scopes) ? row.scopes.filter((value): value is string => typeof value === "string") : ["mobile:read", "mobile:write"];
+  const scopes = approvedScopes(Array.isArray(row.scopes) ? row.scopes.filter((value): value is string => typeof value === "string") : []);
+  await db.insert(mobileDeviceSessions).values({ id: sessionId, tokenFamilyId: familyId, deviceId: row.deviceId, userId: row.userId, scopes, expiresAt });
   const tokens = await issueTokenSet({ userId: row.userId, deviceId: row.deviceId, sessionId, familyId, scopes });
-  void recordSecurityEvent({ eventType: "login.success", message: "Native authorization code exchanged for a device-bound token family", userId: row.userId, ipAddress: input.ip ?? null, userAgent: input.userAgent ?? null, metadata: { channel: "mobile", deviceId: row.deviceId } });
+  void recordSecurityEvent({ eventType: "mobile.token_issued", message: "Native authorization code exchanged for a device-bound token family", userId: row.userId, ipAddress: input.ip ?? null, userAgent: input.userAgent ?? null, metadata: { channel: "mobile", scope: scopes } });
   return tokens;
 }
 
@@ -183,7 +203,7 @@ async function revokeFamily(familyId: string, reason: string, metadata?: { userI
   const now = new Date();
   await db.update(mobileDeviceSessions).set({ status: "revoked", revokedAt: now, revokedReason: reason }).where(eq(mobileDeviceSessions.tokenFamilyId, familyId));
   await db.update(mobileRefreshTokens).set({ status: "revoked", revokedAt: now }).where(eq(mobileRefreshTokens.tokenFamilyId, familyId));
-  if (metadata?.userId) void recordSecurityEvent({ eventType: "session.revoked", outcome: "blocked", message: `Native token family revoked: ${reason}`, userId: metadata.userId, ipAddress: metadata.ip ?? null, userAgent: metadata.userAgent ?? null, metadata: { channel: "mobile" } });
+  if (metadata?.userId) void recordSecurityEvent({ eventType: "mobile.token_revoked", outcome: "blocked", message: "Native token family revoked", userId: metadata.userId, ipAddress: metadata.ip ?? null, userAgent: metadata.userAgent ?? null, metadata: { channel: "mobile", reason } });
 }
 
 export async function rotateRefreshToken(input: { refreshToken: string; clientId: string; ip?: string | null; userAgent?: string | null }) {
@@ -195,9 +215,9 @@ export async function rotateRefreshToken(input: { refreshToken: string; clientId
     await revokeFamily(row.tokenFamilyId, "refresh_token_reuse_or_expiry", { userId: session?.userId, ip: input.ip, userAgent: input.userAgent });
     throw new MobileOAuthError("invalid_grant", "The refresh token is no longer valid.", 401);
   }
-  const user = (await db.select({ id: users.id, status: users.status, role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1))[0];
+  const user = (await db.select({ id: users.id, status: users.status, emailVerified: users.emailVerified, mfaEnabled: users.mfaEnabled, mustChangePassword: users.mustChangePassword }).from(users).where(eq(users.id, session.userId)).limit(1))[0];
   const device = (await db.select({ id: mobileDevices.id, status: mobileDevices.status }).from(mobileDevices).where(eq(mobileDevices.id, session.deviceId)).limit(1))[0];
-  if (!user || user.status !== "active" || !device || device.status !== "active") {
+  if (!accountEligible(user) || !device || device.status !== "active") {
     await revokeFamily(row.tokenFamilyId, "user_or_device_no_longer_active", { userId: session.userId, ip: input.ip, userAgent: input.userAgent });
     throw new MobileOAuthError("invalid_grant", "The mobile session is no longer active.", 401);
   }
@@ -209,8 +229,9 @@ export async function rotateRefreshToken(input: { refreshToken: string; clientId
     throw new MobileOAuthError("invalid_grant", "The refresh token is no longer valid.", 401);
   }
   await db.update(mobileDeviceSessions).set({ lastSeenAt: new Date() }).where(eq(mobileDeviceSessions.id, session.id));
-  const tokens = await issueTokenSet({ userId: session.userId, deviceId: session.deviceId, sessionId: session.id, familyId: session.tokenFamilyId, scopes: ["mobile:read", "mobile:write"], rotate: true });
-  void recordSecurityEvent({ eventType: "login.success", message: "Native refresh token rotated", userId: session.userId, ipAddress: input.ip ?? null, userAgent: input.userAgent ?? null, metadata: { channel: "mobile", deviceId: session.deviceId } });
+  const scopes = approvedScopes(Array.isArray(session.scopes) ? session.scopes.filter((value): value is string => typeof value === "string") : []);
+  const tokens = await issueTokenSet({ userId: session.userId, deviceId: session.deviceId, sessionId: session.id, familyId: session.tokenFamilyId, scopes });
+  void recordSecurityEvent({ eventType: "mobile.token_rotated", message: "Native refresh token rotated", userId: session.userId, ipAddress: input.ip ?? null, userAgent: input.userAgent ?? null, metadata: { channel: "mobile", scope: scopes } });
   return tokens;
 }
 
@@ -221,10 +242,26 @@ export async function revokePresentedRefreshToken(refreshToken: string, audit: {
   await revokeFamily(row.tokenFamilyId, "native_logout", { userId: session?.userId, ip: audit.ip, userAgent: audit.userAgent });
 }
 
+/** Revoke every mobile token family when account recovery, lock, or deletion changes trust. */
+export async function revokeMobileSessionsForUser(userId: number, reason: string): Promise<void> {
+  const sessions = await db.select({ id: mobileDeviceSessions.id }).from(mobileDeviceSessions).where(eq(mobileDeviceSessions.userId, userId));
+  const sessionIds = sessions.map((session) => session.id);
+  const now = new Date();
+  await db.update(mobileDeviceSessions)
+    .set({ status: "revoked", revokedAt: now, revokedReason: reason.slice(0, 190) })
+    .where(and(eq(mobileDeviceSessions.userId, userId), eq(mobileDeviceSessions.status, "active")));
+  if (sessionIds.length) {
+    await db.update(mobileRefreshTokens)
+      .set({ status: "revoked", revokedAt: now })
+      .where(and(inArray(mobileRefreshTokens.sessionId, sessionIds), eq(mobileRefreshTokens.status, "active")));
+  }
+  void recordSecurityEvent({ eventType: "mobile.token_revoked", outcome: "blocked", message: "All native mobile sessions revoked", userId, metadata: { channel: "mobile", reason } });
+}
+
 export async function resolveMobilePrincipal(accessToken: string): Promise<MobilePrincipal> {
   let payload: Record<string, unknown>;
   try {
-    const verified = await jwtVerify(accessToken, key, { issuer: env.mobile.issuer, audience: ACCESS_AUDIENCE });
+    const verified = await jwtVerify(accessToken, key, { issuer: env.mobile.issuer, audience: ACCESS_AUDIENCE, algorithms: ["HS256"] });
     payload = verified.payload as Record<string, unknown>;
   } catch {
     throw new MobileOAuthError("invalid_token", "The mobile access token is invalid or expired.", 401);
@@ -234,11 +271,11 @@ export async function resolveMobilePrincipal(accessToken: string): Promise<Mobil
   const deviceId = typeof payload.did === "string" ? payload.did : "";
   if (!sessionId || !Number.isSafeInteger(userId) || !deviceId) throw new MobileOAuthError("invalid_token", "The mobile access token is invalid.", 401);
   const session = (await db.select().from(mobileDeviceSessions).where(and(eq(mobileDeviceSessions.id, sessionId), eq(mobileDeviceSessions.userId, userId), eq(mobileDeviceSessions.deviceId, deviceId), eq(mobileDeviceSessions.status, "active"), gt(mobileDeviceSessions.expiresAt, new Date()))).limit(1))[0];
-  const user = (await db.select({ id: users.id, role: users.role, status: users.status }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  const user = (await db.select({ id: users.id, role: users.role, status: users.status, emailVerified: users.emailVerified, mfaEnabled: users.mfaEnabled, mustChangePassword: users.mustChangePassword }).from(users).where(eq(users.id, userId)).limit(1))[0];
   const device = (await db.select({ id: mobileDevices.id, status: mobileDevices.status }).from(mobileDevices).where(eq(mobileDevices.id, deviceId)).limit(1))[0];
-  if (!session || !user || user.status !== "active" || !device || device.status !== "active") throw new MobileOAuthError("invalid_token", "The mobile session is no longer active.", 401);
+  if (!session || !user || !accountEligible(user) || !device || device.status !== "active") throw new MobileOAuthError("invalid_token", "The mobile session is no longer active.", 401);
   await db.update(mobileDeviceSessions).set({ lastSeenAt: new Date() }).where(eq(mobileDeviceSessions.id, session.id));
-  return { userId, role: user.role, deviceId, sessionId, scopes: typeof payload.scope === "string" ? payload.scope.split(" ").filter(Boolean) : [] };
+  return { userId, role: user.role, deviceId, sessionId, scopes: approvedScopes(typeof payload.scope === "string" ? payload.scope.split(" ").filter(Boolean) : []) };
 }
 
 export function hashMobileValue(value: string): string { return digest(value); }

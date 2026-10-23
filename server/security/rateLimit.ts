@@ -137,6 +137,8 @@ const FORM_PROCEDURES = new Set([
 export function classifyRequest(req: Request): RateLimitCategory {
   const path = req.path;
 
+  if (path.startsWith("/api/mobile/v1/token") || path.startsWith("/api/mobile/v1/authorize") || path.startsWith("/api/mobile/v1/revoke")) return "auth_high_risk";
+  if (path.startsWith("/api/mobile/") && (path.includes("/uploads") || path.includes("/content"))) return "expensive";
   if (path.startsWith("/api/trpc/")) {
     const procedures = path
       .slice("/api/trpc/".length)

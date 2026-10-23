@@ -2662,11 +2662,6 @@ export const mobileDevices = mysqlTable(
     platform: varchar("platform", { length: 16 }).notNull(),
     appVersion: varchar("app_version", { length: 32 }).notNull(),
     deviceName: varchar("device_name", { length: 128 }),
-    pushTokenHash: char("push_token_hash", { length: 64 }),
-    // Hash supports deduplication; encrypted value is required only by the
-    // server-side APNs/FCM dispatcher and is never returned to clients.
-    pushTokenEnc: text("push_token_enc"),
-    pushPlatform: varchar("push_platform", { length: 16 }),
     status: varchar("status", { length: 16 }).notNull().default("active"),
     lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
     revokedAt: timestamp("revoked_at"),
@@ -2687,6 +2682,8 @@ export const mobileDeviceSessions = mysqlTable(
     tokenFamilyId: varchar("token_family_id", { length: 64 }).notNull(),
     deviceId: varchar("device_id", { length: 96 }).notNull(),
     userId: int("user_id").notNull(),
+    /** OAuth scopes are server-authoritative and survive refresh-token rotation. */
+    scopes: json("scopes").notNull(),
     status: varchar("status", { length: 16 }).notNull().default("active"),
     lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
     expiresAt: timestamp("expires_at").notNull(),

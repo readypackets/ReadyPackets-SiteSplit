@@ -83,6 +83,7 @@ import { affectedRows } from "../db/result.js";
 import { getMfaPolicyForRole, mfaRequirement } from "../auth/mfaPolicy.js";
 import { isAdministratorOnlyAccessEnabled, isRoleBlockedByAdministratorOnlyAccess } from "../auth/adminOnlyAccess.js";
 import { getBusinessProfile } from "../services/businessProfile.js";
+import { revokeMobileSessionsForUser } from "../auth/mobileOidc.js";
 import { publicProcedure, protectedProcedure, router, sessionProcedure } from "../trpc/trpc.js";
 
 /** The single message returned for every credential failure. */
@@ -770,6 +771,7 @@ export const authRouter = router({
 
       // A password change invalidates every existing session.
       await revokeAllUserSessions(user.id, "password_reset");
+      await revokeMobileSessionsForUser(user.id, "password_reset");
 
       void recordSecurityEvent({
         eventType: "password.reset_completed",
@@ -866,6 +868,7 @@ export const authRouter = router({
 
       // Keep the current session, drop every other one.
       await revokeAllUserSessions(user.id, "password_changed", session.sessionId);
+      await revokeMobileSessionsForUser(user.id, "password_changed");
       const refreshed = await resolveSession(ctx.req);
       if (refreshed) await rotateSession(ctx.res, refreshed);
 
@@ -984,6 +987,7 @@ export const authRouter = router({
 
       await disableMfa(user.id);
       await setMfaEnabled(user.id, false);
+      await revokeMobileSessionsForUser(user.id, "mfa_disabled");
       void recordSecurityEvent({
         eventType: "mfa.disabled",
         severity: "warning",

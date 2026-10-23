@@ -95,6 +95,16 @@ paths:
       responses:
         '200':
           description: Task-oriented dashboard
+  /catalog:
+    get:
+      summary: Listed packet catalog for native order selection
+      description: Returns only active, customer-visible packets. Pricing and availability remain Portal-authoritative and can change before order creation.
+      responses:
+        '200':
+          description: Packet groups and listed packet choices
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CatalogPage' }
   /orders:
     get:
       summary: Cursor-paginated orders permitted to the bearer subject
@@ -105,6 +115,24 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+    post:
+      summary: Create a customer order from listed packet SKUs
+      description: Requires `mobile:write`. The server resolves products, pricing, tier constraints, payment status, audit data, and workflow; clients must not provide price, payment status, or internal product identifiers.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrderRequest' }
+      responses:
+        '201':
+          description: Order accepted with server-authoritative next action
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateOrderReply' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /orders/{publicOrderId}:
     get:
       summary: Order detail after server-side object authorization
@@ -113,18 +141,152 @@ paths:
           in: path
           required: true
           schema: { type: string, maxLength: 48 }
+  /public/browser-entrypoints:
+    get:
+      security: []
+      summary: Exact-origin Portal and marketing browser handoffs
+      description: Sensitive account actions use the configured Portal origin. Public policy, accessibility, contact, and solutions links use the configured marketing origin and require a separate native public-web URL policy.
+      responses:
+        '200':
+          description: Separately trusted browser handoff URLs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BrowserEntrypoints' }
   /me/devices:
     get:
       summary: Registered native application installations
+  /me/devices/{deviceId}:
+    delete:
+      summary: Revoke one customer-owned native installation and its token sessions
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 96 }
+        - $ref: '#/components/parameters/IdempotencyKey'
   /devices:
     post:
-      summary: Register or update an installation metadata record
+      summary: Register or update an authenticated installation metadata record
+      description: The self-hosted baseline accepts only device ID, platform, app version, and optional display name. Provider push tokens are rejected.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceRegistration' }
   /me/data-deletion-request:
     post:
       summary: Request server-managed account deletion
       parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/detail:
+    get:
+      summary: Customer-safe order, workflow, deliverable, message, and activity detail
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+  /customer/orders/{publicOrderId}/files:
+    get:
+      summary: Customer-visible files for an authorised order
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+  /customer/files/{mobileFileRef}/content:
+    get:
+      summary: Authenticated file download or range-enabled inline audio stream
+      parameters:
+        - $ref: '#/components/parameters/MobileFileRef'
+        - name: disposition
+          in: query
+          schema: { type: string, enum: [attachment, inline] }
+  /customer/files/{mobileFileRef}:
+    delete:
+      summary: Delete a customer-owned intake attachment before its workflow lock
+      parameters:
+        - $ref: '#/components/parameters/MobileFileRef'
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/uploads:
+    post:
+      summary: Upload selected documents or explicitly recorded/pre-recorded audio
+      description: The Portal validates order access, workflow capability, phase lock, content type, byte limit, duration, digest, naming, and storage. Native recordings are M4A AAC-LC or accepted WebM audio; the client never uploads directly to storage.
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files, phase]
+              properties:
+                files: { type: array, minItems: 1, maxItems: 5, items: { type: string, format: binary } }
+                phase: { type: string, pattern: '^[a-z0-9_]{2,64}$' }
+                recordedAudio: { type: boolean, default: false }
+                prerecordedAudio: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Accepted files and any rejected input details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadReply' }
+  /customer/orders/{publicOrderId}/intake:
+    get:
+      summary: Read the current customer intake draft and server-provided limits
+      parameters: [{ $ref: '#/components/parameters/PublicOrderId' }]
+    put:
+      summary: Save an editable customer intake draft
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/intake/submit:
+    post:
+      summary: Submit an accurate intake and let the Portal lock or advance workflow state
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/mnda:
+    get:
+      summary: Current published MNDA and acceptance state, optionally for one authorised order
+      parameters:
+        - name: publicOrderId
+          in: query
+          schema: { type: string }
+  /customer/mnda/accept:
+    post:
+      summary: Record a typed, authority-confirmed MNDA acceptance with Portal audit evidence
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+  /customer/orders/{publicOrderId}/questions:
+    get:
+      summary: Customer-visible clarification questions and current answers
+      parameters: [{ $ref: '#/components/parameters/PublicOrderId' }]
+  /customer/questions/{mobileQuestionRef}/answer:
+    post:
+      summary: Submit or version a customer answer to an authorised workflow question
+      parameters:
+        - name: mobileQuestionRef
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/workflow/{phaseKey}/submit:
+    post:
+      summary: Submit and lock a configured customer workflow phase
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - name: phaseKey
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
+  /customer/orders/{publicOrderId}/workflow/{phaseKey}/advance:
+    post:
+      summary: Continue a configured customer workflow phase that permits non-locking advancement
+      parameters:
+        - $ref: '#/components/parameters/PublicOrderId'
+        - name: phaseKey
+          in: path
+          required: true
+          schema: { type: string }
         - $ref: '#/components/parameters/IdempotencyKey'
 components:
   parameters:
@@ -148,6 +310,16 @@ components:
       in: header
       required: true
       schema: { type: string, minLength: 16, maxLength: 128 }
+    PublicOrderId:
+      name: publicOrderId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^RP-ORD-[A-Z0-9-]{8,48}$' }
+    MobileFileRef:
+      name: mobileFileRef
+      in: path
+      required: true
+      schema: { type: string, minLength: 24, maxLength: 1024, description: User-bound opaque mobile reference, never a database identifier. }
   responses:
     Problem:
       description: RFC 9457-compatible problem response with a correlation identifier.
@@ -172,6 +344,115 @@ components:
         displayName: { type: string }
         role: { type: string, enum: [customer, staff, admin] }
         capabilities: { type: array, items: { type: string } }
+    CatalogPacket:
+      type: object
+      required: [sku, name, tier, customPricing, deliveryEstimate]
+      properties:
+        sku: { type: string, maxLength: 64 }
+        name: { type: string }
+        tier: { type: string }
+        priceCents: { type: [integer, 'null'], minimum: 0, description: Null means the packet requires a custom quote. }
+        customPricing: { type: boolean }
+        deliveryEstimate: { type: string }
+        outcome: { type: [string, 'null'] }
+        description: { type: [string, 'null'] }
+    CatalogGroup:
+      type: object
+      required: [slug, number, name, category, packets]
+      properties:
+        slug: { type: string }
+        number: { type: integer }
+        name: { type: string }
+        category: { type: string }
+        summary: { type: [string, 'null'] }
+        packets: { type: array, items: { $ref: '#/components/schemas/CatalogPacket' } }
+    CatalogPage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CatalogGroup' } }
+    OrderSelection:
+      type: object
+      required: [sku]
+      properties:
+        sku: { type: string, minLength: 1, maxLength: 64 }
+        quantity: { type: integer, minimum: 1, maximum: 25, default: 1 }
+    CreateOrderRequest:
+      type: object
+      required: [selections]
+      properties:
+        projectName: { type: string, maxLength: 160 }
+        selections: { type: array, minItems: 1, maxItems: 12, items: { $ref: '#/components/schemas/OrderSelection' } }
+    CreateOrderReply:
+      type: object
+      required: [order, nextAction, message]
+      properties:
+        order:
+          type: object
+          required: [publicOrderId, status, paymentStatus, totalCents, requiresCustomQuote]
+          properties:
+            publicOrderId: { type: string }
+            projectName: { type: [string, 'null'] }
+            status: { type: string }
+            paymentStatus: { type: string }
+            totalCents: { type: integer, minimum: 0 }
+            requiresCustomQuote: { type: boolean }
+        nextAction: { type: string, enum: [complete_payment_in_portal, await_quote] }
+        message: { type: string }
+    DeviceRegistration:
+      type: object
+      additionalProperties: false
+      required: [deviceId, platform, appVersion]
+      properties:
+        deviceId: { type: string, minLength: 16, maxLength: 96, pattern: '^[A-Za-z0-9._-]+$' }
+        platform: { type: string, enum: [ios, android] }
+        appVersion: { type: string, maxLength: 32 }
+        deviceName: { type: [string, 'null'], maxLength: 128 }
+    BrowserEntrypoints:
+      type: object
+      required: [registrationUrl, emailVerificationUrl, passwordRecoveryUrl, customerSecurityUrl, publicWebsiteUrl, publicSolutionsUrl, privacyUrl, termsUrl, refundPolicyUrl, accessibilityUrl, publicContactUrl]
+      properties:
+        registrationUrl: { type: string, format: uri }
+        emailVerificationUrl: { type: string, format: uri }
+        passwordRecoveryUrl: { type: string, format: uri }
+        customerSecurityUrl: { type: string, format: uri }
+        publicWebsiteUrl: { type: string, format: uri }
+        publicSolutionsUrl: { type: string, format: uri }
+        privacyUrl: { type: string, format: uri }
+        termsUrl: { type: string, format: uri }
+        refundPolicyUrl: { type: string, format: uri }
+        accessibilityUrl: { type: string, format: uri }
+        publicContactUrl: { type: string, format: uri }
+    CustomerFile:
+      type: object
+      required: [mobileFileRef, originalName, sizeBytes, version, audio]
+      properties:
+        mobileFileRef: { type: string }
+        originalName: { type: string }
+        extension: { type: [string, 'null'] }
+        sizeBytes: { type: integer, minimum: 0 }
+        durationSeconds: { type: [number, 'null'], minimum: 0 }
+        category: { type: [string, 'null'] }
+        phase: { type: [string, 'null'] }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: [string, 'null'], format: date-time }
+        uploadedByStaff: { type: [boolean, 'null'] }
+        audio: { type: boolean }
+    UploadReply:
+      type: object
+      required: [files, rejected]
+      properties:
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerFile' }
+        rejected:
+          type: array
+          items:
+            type: object
+            required: [name, reason]
+            properties:
+              name: { type: string }
+              reason: { type: string }
     Problem:
       type: object
       required: [type, title, status, code, correlationId]

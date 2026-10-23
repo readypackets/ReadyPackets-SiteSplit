@@ -100,6 +100,7 @@ const DEV_FALLBACKS = {
   SESSION_SECRET: "dev_session_secret_do_not_use_in_production_0123456789abcdef",
   DATA_ENCRYPTION_KEY: "6465765f6461746100000000000000000000000000000000000000000000dead",
   EMAIL_INDEX_KEY: "6465765f696e646578000000000000000000000000000000000000000000beef",
+  MOBILE_ACCESS_TOKEN_SECRET: "dev_mobile_access_token_secret_do_not_use_in_production_0123456789abcdef",
   APP_URL: "http://localhost:3000",
 } as const;
 
@@ -140,6 +141,47 @@ try {
 }
 if (isProduction && appUrl.protocol !== "https:") {
   problems.push("APP_URL must use https in production");
+}
+
+function httpsUrl(key: string, raw: string): URL {
+  let value: URL;
+  try {
+    value = new URL(raw);
+  } catch {
+    problems.push(`${key} must be an absolute HTTPS URL`);
+    return new URL("https://invalid.invalid");
+  }
+  if (value.protocol !== "https:" || !value.hostname || value.username || value.password || value.hash || value.search) {
+    problems.push(`${key} must be an exact HTTPS URL without credentials, query, or fragment`);
+  }
+  if (isProduction && (value.hostname.endsWith(".example.com") || value.hostname.endsWith(".invalid"))) {
+    problems.push(`${key} cannot use a placeholder hostname in production`);
+  }
+  return value;
+}
+
+const mobileIssuerFallback = isProduction ? appUrl.origin : "https://mobile-issuer.invalid";
+const mobileIssuerUrl = httpsUrl("MOBILE_OAUTH_ISSUER", optional("MOBILE_OAUTH_ISSUER") ?? mobileIssuerFallback);
+if (isProduction && mobileIssuerUrl.origin !== appUrl.origin) {
+  problems.push("MOBILE_OAUTH_ISSUER must match the canonical APP_URL origin in production");
+}
+const mobileRedirectUris = list("MOBILE_OAUTH_REDIRECT_URIS");
+if (isProduction && mobileRedirectUris.length === 0) {
+  problems.push("MOBILE_OAUTH_REDIRECT_URIS must contain at least one registered HTTPS App or Universal Link callback in production");
+}
+for (const redirectUri of mobileRedirectUris) {
+  const callback = httpsUrl("MOBILE_OAUTH_REDIRECT_URIS", redirectUri);
+  if (callback.pathname !== "/auth/callback") {
+    problems.push("MOBILE_OAUTH_REDIRECT_URIS callbacks must use the exact /auth/callback path");
+  }
+}
+const mobileAccessTokenSecret = secret("MOBILE_ACCESS_TOKEN_SECRET", 48);
+if (isProduction && mobileAccessTokenSecret === secret("SESSION_SECRET", 48)) {
+  problems.push("MOBILE_ACCESS_TOKEN_SECRET must differ from SESSION_SECRET");
+}
+const mobileAccessTokenKeyId = str("MOBILE_ACCESS_TOKEN_KID", "mobile-access-v1");
+if (!/^[A-Za-z0-9._-]{3,64}$/.test(mobileAccessTokenKeyId)) {
+  problems.push("MOBILE_ACCESS_TOKEN_KID must contain 3-64 letters, digits, periods, underscores, or hyphens");
 }
 
 // APP_URL remains the canonical portal/API origin so existing mail links, SAML
@@ -194,6 +236,17 @@ for (const origin of allowedOrigins) {
 }
 
 const smtpHost = optional("SMTP_HOST");
+const syslogTarget = optional("SYSLOG_TARGET");
+if (syslogTarget) {
+  try {
+    const destination = new URL(syslogTarget);
+    if (destination.protocol !== "tls:" || !destination.hostname || !destination.port || destination.username || destination.password || destination.pathname !== "/" || destination.search || destination.hash) {
+      problems.push("SYSLOG_TARGET must use tls://host:port without credentials, path, query, or fragment");
+    }
+  } catch {
+    problems.push("SYSLOG_TARGET must be an absolute tls://host:port URL");
+  }
+}
 
 const instanceRoleRaw = (optional("INSTANCE_ROLE") ?? "all").toLowerCase();
 const instanceRole = instanceRoleRaw === "web" || instanceRoleRaw === "worker" || instanceRoleRaw === "all"
@@ -253,8 +306,10 @@ export const env = {
 
   /** Native clients use OAuth 2.1/OIDC + PKCE; callback hosts are explicitly allowlisted. */
   mobile: {
-    issuer: optional("MOBILE_OAUTH_ISSUER") ?? appUrl.origin,
-    redirectUris: list("MOBILE_OAUTH_REDIRECT_URIS"),
+    issuer: mobileIssuerUrl.origin,
+    redirectUris: mobileRedirectUris,
+    accessTokenSecret: mobileAccessTokenSecret,
+    accessTokenKeyId: mobileAccessTokenKeyId,
     accessTokenTtlSeconds: num("MOBILE_ACCESS_TOKEN_TTL_SECONDS", 600),
     refreshTokenTtlDays: num("MOBILE_REFRESH_TOKEN_TTL_DAYS", 30),
   },
@@ -301,7 +356,7 @@ export const env = {
   },
 
   adminIpAllowlist: list("ADMIN_IP_ALLOWLIST"),
-  syslogTarget: optional("SYSLOG_TARGET"),
+  syslogTarget,
   logLevel: str("LOG_LEVEL", isProduction ? "info" : "debug"),
 
   /** Microsoft Graph / SharePoint integration. */

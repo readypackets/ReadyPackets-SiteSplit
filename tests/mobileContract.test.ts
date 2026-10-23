@@ -40,11 +40,11 @@ describe("native mobile contract safeguards", () => {
     expect(router).toContain("requireScope(req, \"mobile:write\")");
     expect(router).toContain("resolveListedProducts(selections)");
     expect(router).toContain("createOrder({");
-    expect(router).toContain("Enter an order or project name before placing an order.");
+    expect(router).toContain("projectName: projectName || null");
     expect(router).toContain("productBySku.get(selection.sku)!.id");
     expect(router).not.toContain("req.body?.priceCents");
     expect(router).not.toContain("req.body?.paymentStatus");
-    expect(contract).toContain("required: [projectName, selections]");
+    expect(contract).toContain("required: [selections]");
   });
 
   it("keeps browser CSRF protection and exempts only the bearer/code mobile prefix", async () => {
@@ -84,6 +84,18 @@ describe("native mobile contract safeguards", () => {
     expect(publicRouter).toContain('router.get("/catalog"');
     expect(publicRouter).toContain('router.post("/contact"');
     expect(publicRouter).not.toContain("mobile:write");
+  });
+
+  it("separates exact-origin secure Portal and public marketing browser handoffs", async () => {
+    const [publicRouter, contract] = await Promise.all([
+      text("server/http/mobile/public.ts"),
+      text("server/http/mobile/openapi.yaml"),
+    ]);
+    expect(publicRouter).toContain("env.marketingSiteUrl");
+    expect(publicRouter).toContain("publicSolutionsUrl");
+    expect(publicRouter).toContain("customerSecurityUrl");
+    expect(contract).toContain("BrowserEntrypoints:");
+    expect(contract).toContain("publicContactUrl");
   });
 
   it("gives the unsigned iOS simulator build an explicit non-empty application product name", async () => {

@@ -50,13 +50,13 @@ describe("critical database schema contract", () => {
     );
   });
 
-  it("blocks startup when native mobile encrypted-token storage is absent", async () => {
+  it("blocks startup when native mobile session scope storage is absent", async () => {
     const incompleteRows = contractRows().filter(
-      (row) => !(row.tableName === "mobile_devices" && row.columnName === "push_token_enc"),
+      (row) => !(row.tableName === "mobile_device_sessions" && row.columnName === "scopes"),
     );
 
     await expect(assertCriticalSchemaContract(connectionReturning(incompleteRows))).rejects.toThrow(
-      "mobile_devices.push_token_enc",
+      "mobile_device_sessions.scopes",
     );
   });
 

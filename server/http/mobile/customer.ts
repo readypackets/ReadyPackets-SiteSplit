@@ -352,7 +352,19 @@ export function createMobileCustomerRouter(): Router {
           category: "intake_attachment", phase, visibleToCustomer: true,
         });
         const fileId = insertedId(result);
-        accepted.push({ mobileFileRef: sealReference("file", fileId, principal.userId), originalName, sizeBytes: stored.sizeBytes, durationSeconds, detectedMime: validated.mime });
+        accepted.push({
+          mobileFileRef: sealReference("file", fileId, principal.userId),
+          originalName,
+          extension: validated.extension,
+          sizeBytes: stored.sizeBytes,
+          durationSeconds,
+          category: "intake_attachment",
+          phase,
+          version: 1,
+          createdAt: new Date().toISOString(),
+          uploadedByStaff: false,
+          audio,
+        });
         void queueOrderFileSharePointSync(fileId);
         void queueStageFileProcessing(fileId, conversionPolicy).catch(() => undefined);
         void recordActivity({ actorUserId: principal.userId, actorRole: "customer", action: audio ? "audio.upload" : "file.upload", entityType: "file", entityId: fileId, summary: "Customer mobile upload accepted", changes: { order: req.params.publicOrderId, phase, audio }, ipAddress: clientIp(res) });
@@ -792,12 +804,12 @@ export function createMobileCustomerRouter(): Router {
     // Auth lifecycle and legal flows run in the secure system browser so the app
     // retains Portal antifraud, email, session, SSO, and step-up-auth controls.
     res.json({
-      catalogueUrl: new URL("/packets", env.appUrl).toString(),
+      catalogueUrl: new URL("/solutions.html", env.marketingSiteUrl).toString(),
       registrationUrl: new URL("/register", env.appUrl).toString(),
       passwordRecoveryUrl: new URL("/forgot-password", env.appUrl).toString(),
       securityUrl: new URL("/portal/account/security", env.appUrl).toString(),
-      policiesUrl: new URL("/policies", env.appUrl).toString(),
-      contactUrl: new URL("/contact", env.appUrl).toString(),
+      policiesUrl: new URL("/privacy.html", env.marketingSiteUrl).toString(),
+      contactUrl: new URL("/contact.html", env.marketingSiteUrl).toString(),
     });
   }));
 

@@ -1,15 +1,14 @@
 /** Versioned, bearer-token mobile API. Browser sessions/tRPC are intentionally not reused as an API contract. */
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { env } from "../../config/env.js";
-import { MOBILE_CLIENT_ID, MobileOAuthError, allowedRedirectUri, createAuthorizationCode, exchangeAuthorizationCode, hashMobileValue, opaqueMobileId, resolveMobilePrincipal, revokePresentedRefreshToken, rotateRefreshToken, validateAuthorizeInput, type MobilePrincipal } from "../../auth/mobileOidc.js";
+import { MOBILE_CLIENT_ID, MobileOAuthError, allowedRedirectUri, createAuthorizationCode, exchangeAuthorizationCode, hashMobileValue, opaqueMobileId, resolveMobilePrincipal, revokeMobileSessionsForUser, revokePresentedRefreshToken, rotateRefreshToken, validateAuthorizeInput, type MobilePrincipal } from "../../auth/mobileOidc.js";
 import { resolveSession } from "../../auth/session.js";
 import { db } from "../../db/client.js";
-import { mobileDevices, mobileIdempotencyKeys, orders, packetGroups, products, users } from "../../db/schema.js";
+import { mobileDeviceSessions, mobileDevices, mobileIdempotencyKeys, mobileRefreshTokens, orders, packetGroups, products, users } from "../../db/schema.js";
 import { getUserById, displayNameOf } from "../../db/users.js";
 import { recordSecurityEvent } from "../../observability/audit.js";
-import { encryptField } from "../../security/crypto.js";
 import { assertOrderAccess, createOrder, listOrdersForUser, OrderStateError } from "../../services/orders.js";
 import { createMobileCustomerRouter } from "./customer.js";
 import { createMobilePublicRouter } from "./public.js";
@@ -18,8 +17,11 @@ interface MobileRequest extends Request { mobile?: MobilePrincipal; }
 
 function correlationId(): string { return randomBytes(9).toString("base64url"); }
 function clientIp(res: Response): string | null { return (res.locals.clientIp as string | undefined) ?? null; }
+function requestCorrelationId(res: Response): string {
+  return (res.locals.mobileCorrelationId as string | undefined) ?? correlationId();
+}
 function safeProblem(res: Response, status: number, code: string, title: string, detail?: string): void {
-  res.status(status).type("application/problem+json").json({ type: `https://readypackets.com/problems/${code}`, title, status, code, detail, correlationId: correlationId() });
+  res.status(status).type("application/problem+json").json({ type: `https://readypackets.com/problems/${code}`, title, status, code, detail, correlationId: requestCorrelationId(res) });
 }
 function serializeDate(value: Date | null | undefined): string | null { return value ? value.toISOString() : null; }
 function opaqueOrderId(orderNumber: string): string { return orderNumber; }
@@ -67,6 +69,7 @@ async function bearer(req: MobileRequest, res: Response, next: NextFunction): Pr
   try { req.mobile = await resolveMobilePrincipal(header.slice("Bearer ".length)); next(); }
   catch (error) {
     const problem = error instanceof MobileOAuthError ? error : new MobileOAuthError("invalid_token", "The mobile access token is invalid.", 401);
+    void recordSecurityEvent({ eventType: "mobile.authorization_failed", outcome: "blocked", message: "Mobile bearer authentication rejected", ipAddress: clientIp(res), userAgent: req.headers["user-agent"]?.slice(0, 255) ?? null, metadata: { channel: "mobile", code: problem.code, correlationId: requestCorrelationId(res) } });
     safeProblem(res, problem.status, problem.code, "Mobile authentication failed", problem.message);
   }
 }
@@ -84,7 +87,11 @@ async function runIdempotent<T>(req: MobileRequest, route: string, body: unknown
   const requestHash = hashMobileValue(JSON.stringify(body ?? null));
   const existing = (await db.select().from(mobileIdempotencyKeys).where(and(eq(mobileIdempotencyKeys.userId, principal.userId), eq(mobileIdempotencyKeys.keyHash, keyHash))).limit(1))[0];
   if (existing) {
-    if (existing.requestHash !== requestHash || existing.route !== route) throw new MobileOAuthError("idempotency_conflict", "This Idempotency-Key was already used for a different request.", 409);
+    if (existing.requestHash !== requestHash || existing.route !== route) {
+      void recordSecurityEvent({ eventType: "mobile.idempotency_conflict", outcome: "blocked", message: "Mobile idempotency key conflicted", userId: principal.userId, metadata: { channel: "mobile", route } });
+      throw new MobileOAuthError("idempotency_conflict", "This Idempotency-Key was already used for a different request.", 409);
+    }
+    void recordSecurityEvent({ eventType: "mobile.idempotency_replayed", message: "Mobile idempotent response replayed", userId: principal.userId, metadata: { channel: "mobile", route } });
     return { replayed: true, value: existing.responseJson as T };
   }
   const value = await action();
@@ -112,6 +119,15 @@ export function createMobileDiscoveryRouter(): Router {
 
 export function createMobileRouter(): Router {
   const router = Router();
+  router.use((req, res, next) => {
+    const supplied = typeof req.headers["x-correlation-id"] === "string" ? req.headers["x-correlation-id"] : "";
+    const id = /^[A-Za-z0-9_-]{12,96}$/.test(supplied) ? supplied : correlationId();
+    res.locals.mobileCorrelationId = id;
+    res.setHeader("X-Correlation-ID", id);
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("Vary", "Authorization");
+    next();
+  });
   router.get("/authorize", withMobileError(async (req, res) => {
     const input = validateAuthorizeInput({
       clientId: typeof req.query.client_id === "string" ? req.query.client_id : undefined,
@@ -124,10 +140,10 @@ export function createMobileRouter(): Router {
       platform: req.query.platform === "ios" || req.query.platform === "android" ? req.query.platform : undefined,
       appVersion: typeof req.query.app_version === "string" ? req.query.app_version : undefined,
       deviceName: typeof req.query.device_name === "string" ? req.query.device_name : undefined,
-      scopes: typeof req.query.scope === "string" ? req.query.scope.split(" ").filter((scope) => ["mobile:read", "mobile:write"].includes(scope)) : [],
+      scopes: typeof req.query.scope === "string" ? req.query.scope.split(" ").filter(Boolean) : [],
     });
     const session = await resolveSession(req);
-    if (!session || session.mfaPending || session.restricted || session.user.status !== "active") {
+    if (!session || session.mfaPending || session.restricted || session.user.status !== "active" || !session.user.emailVerified || !session.user.mfaEnabled || session.user.mustChangePassword) {
       res.redirect(`/login?continue=${encodeURIComponent(req.originalUrl)}`);
       return;
     }
@@ -160,6 +176,10 @@ export function createMobileRouter(): Router {
 	router.use("/public", createMobilePublicRouter());
 
 	router.use(bearer);
+	router.use((req, _res, next) => {
+	  try { requireScope(req as MobileRequest, "mobile:read"); next(); }
+	  catch (error) { next(error); }
+	});
 	// Customer parity endpoints retain a separate allowlist from the browser tRPC
 	// surface. Staff and administrator roles are denied by this subrouter.
 	router.use("/customer", createMobileCustomerRouter());
@@ -202,13 +222,12 @@ export function createMobileRouter(): Router {
 	    const listed = await resolveListedProducts(selections);
 	    const productBySku = new Map(listed.map((product) => [product.sku, product]));
 	    const projectName = typeof req.body?.projectName === "string" ? req.body.projectName.trim() : "";
-	    if (!projectName) throw new MobileOAuthError("invalid_request", "Enter an order or project name before placing an order.");
 	    if (projectName.length > 160) throw new MobileOAuthError("invalid_request", "The project name must be 160 characters or fewer.");
 	    try {
 	      const created = await createOrder({
 	        userId: req.mobile!.userId,
 	        selections: selections.map((selection) => ({ productId: productBySku.get(selection.sku)!.id, quantity: selection.quantity })),
-	        projectName,
+	        projectName: projectName || null,
 	        paymentRequirement: "required",
 	        actorUserId: req.mobile!.userId,
 	        actorRole: req.mobile!.role,
@@ -219,7 +238,7 @@ export function createMobileRouter(): Router {
 	      return {
 	        order: {
 	          publicOrderId: opaqueOrderId(created.orderNumber),
-	          projectName,
+	          projectName: projectName || null,
 	          status: "new",
 	          paymentStatus: requiresCustomQuote ? "awaiting_invoice" : "unpaid",
 	          totalCents: quote.totalCents,
@@ -280,32 +299,59 @@ export function createMobileRouter(): Router {
   }));
 
   router.get("/me/devices", withMobileError(async (req, res) => {
+    requireScope(req, "mobile:read");
     const rows = await db.select({ id: mobileDevices.id, platform: mobileDevices.platform, appVersion: mobileDevices.appVersion, deviceName: mobileDevices.deviceName, status: mobileDevices.status, lastSeenAt: mobileDevices.lastSeenAt, createdAt: mobileDevices.createdAt, revokedAt: mobileDevices.revokedAt }).from(mobileDevices).where(eq(mobileDevices.userId, req.mobile!.userId)).orderBy(desc(mobileDevices.lastSeenAt));
     res.json({ items: rows.map((row) => ({ ...row, lastSeenAt: serializeDate(row.lastSeenAt), createdAt: serializeDate(row.createdAt), revokedAt: serializeDate(row.revokedAt), current: row.id === req.mobile!.deviceId })) });
   }));
 
+  router.delete("/me/devices/:deviceId", withMobileError(async (req, res) => {
+    requireScope(req, "mobile:write");
+    const rawDeviceId = req.params.deviceId;
+    const deviceId = typeof rawDeviceId === "string" ? rawDeviceId : "";
+    if (!/^[A-Za-z0-9._-]{16,96}$/.test(deviceId)) throw new MobileOAuthError("not_found", "The requested device was not found.", 404);
+    const result = await runIdempotent(req, "DELETE /me/devices/:deviceId", { deviceId }, async () => {
+      const target = (await db.select({ id: mobileDevices.id }).from(mobileDevices).where(and(eq(mobileDevices.id, deviceId), eq(mobileDevices.userId, req.mobile!.userId), eq(mobileDevices.status, "active"))).limit(1))[0];
+      if (!target) throw new MobileOAuthError("not_found", "The requested device was not found.", 404);
+      const now = new Date();
+      await db.update(mobileDevices).set({ status: "revoked", revokedAt: now, revokedReason: "user_requested_mobile_revoke" }).where(eq(mobileDevices.id, deviceId));
+      const sessions = await db.select({ id: mobileDeviceSessions.id }).from(mobileDeviceSessions).where(and(eq(mobileDeviceSessions.userId, req.mobile!.userId), eq(mobileDeviceSessions.deviceId, deviceId)));
+      const sessionIds = sessions.map((session) => session.id);
+      await db.update(mobileDeviceSessions).set({ status: "revoked", revokedAt: now, revokedReason: "user_requested_mobile_revoke" }).where(and(eq(mobileDeviceSessions.userId, req.mobile!.userId), eq(mobileDeviceSessions.deviceId, deviceId), eq(mobileDeviceSessions.status, "active")));
+      if (sessionIds.length) await db.update(mobileRefreshTokens).set({ status: "revoked", revokedAt: now }).where(and(inArray(mobileRefreshTokens.sessionId, sessionIds), eq(mobileRefreshTokens.status, "active")));
+      void recordSecurityEvent({ eventType: "mobile.device_revoked", message: "Mobile device revoked by account holder", userId: req.mobile!.userId, ipAddress: clientIp(res), metadata: { channel: "mobile", currentDevice: deviceId === req.mobile!.deviceId, correlationId: requestCorrelationId(res) } });
+      return { revoked: true };
+    });
+    res.status(result.replayed ? 200 : 202).json(result.value);
+  }));
+
   router.post("/devices", withMobileError(async (req, res) => {
+    requireScope(req, "mobile:write");
     const result = await runIdempotent(req, "POST /devices", req.body, async () => {
-      const body = req.body ?? {};
+      if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) throw new MobileOAuthError("invalid_request", "A valid device registration is required.");
+      const body = req.body as Record<string, unknown>;
       if (!/^[A-Za-z0-9._-]{16,96}$/.test(String(body.deviceId ?? ""))) throw new MobileOAuthError("invalid_request", "A valid device installation identifier is required.");
-      if (!["ios", "android"].includes(body.platform)) throw new MobileOAuthError("invalid_request", "A supported platform is required.");
+      const platform = typeof body.platform === "string" ? body.platform : "";
+      if (!["ios", "android"].includes(platform)) throw new MobileOAuthError("invalid_request", "A supported platform is required.");
       if (!body.appVersion || String(body.appVersion).length > 32) throw new MobileOAuthError("invalid_request", "A valid app version is required.");
       if (body.deviceId !== req.mobile!.deviceId) throw new MobileOAuthError("invalid_request", "Device registration must match the authenticated installation.", 403);
-	      const pushToken = typeof body.pushToken === "string" && body.pushToken.length > 0 ? body.pushToken.slice(0, 4096) : null;
-	      await db.update(mobileDevices).set({ platform: body.platform, appVersion: String(body.appVersion), deviceName: typeof body.deviceName === "string" ? body.deviceName.slice(0, 128) : null, pushPlatform: typeof body.pushPlatform === "string" ? body.pushPlatform.slice(0, 16) : null, pushTokenHash: pushToken ? createHash("sha256").update(pushToken).digest("hex") : null, pushTokenEnc: pushToken ? encryptField(pushToken, `mobile_device:${body.deviceId}:push_token`) : null, lastSeenAt: new Date() }).where(eq(mobileDevices.id, body.deviceId));
+      if ("pushToken" in body || "pushPlatform" in body) throw new MobileOAuthError("invalid_request", "Provider push tokens are not supported by the self-hosted mobile baseline.");
+      await db.update(mobileDevices).set({ platform, appVersion: String(body.appVersion), deviceName: typeof body.deviceName === "string" ? body.deviceName.slice(0, 128) : null, lastSeenAt: new Date() }).where(eq(mobileDevices.id, String(body.deviceId)));
+      void recordSecurityEvent({ eventType: "mobile.device_registered", message: "Authenticated mobile installation refreshed", userId: req.mobile!.userId, ipAddress: clientIp(res), metadata: { channel: "mobile", platform, correlationId: requestCorrelationId(res) } });
       return { registered: true };
     });
     res.status(result.replayed ? 200 : 201).json(result.value);
   }));
 
   router.post("/me/data-deletion-request", withMobileError(async (req, res) => {
+    requireScope(req, "mobile:write");
     const result = await runIdempotent(req, "POST /me/data-deletion-request", req.body, async () => {
       if (req.body?.confirmPhrase !== "DELETE MY ACCOUNT") throw new MobileOAuthError("invalid_request", "The deletion confirmation phrase is required.");
       const activeOrders = await db.select({ id: orders.id, status: orders.status }).from(orders).where(eq(orders.userId, req.mobile!.userId));
       const openOrders = activeOrders.filter((order) => !["closed", "cancelled", "refunded"].includes(order.status));
       await db.update(users).set({ status: "deactivated" }).where(eq(users.id, req.mobile!.userId));
       await db.update(mobileDevices).set({ status: "revoked", revokedAt: new Date(), revokedReason: "account_deletion_requested" }).where(eq(mobileDevices.userId, req.mobile!.userId));
-      void recordSecurityEvent({ eventType: "settings.changed", severity: "notice", message: "Mobile account deletion request accepted; account deactivated pending retention review", userId: req.mobile!.userId, ipAddress: clientIp(res), metadata: { channel: "mobile", openOrders: openOrders.length } });
+      await revokeMobileSessionsForUser(req.mobile!.userId, "account_deletion_requested");
+      void recordSecurityEvent({ eventType: "mobile.account_deletion_requested", severity: "notice", message: "Mobile account deletion request accepted; account deactivated pending retention review", userId: req.mobile!.userId, ipAddress: clientIp(res), metadata: { channel: "mobile", openOrders: openOrders.length, correlationId: requestCorrelationId(res) } });
       return { accepted: true, openOrders: openOrders.length, message: openOrders.length ? "Your account has been deactivated. Our team will contact you about work in progress." : "Your account has been deactivated and the deletion request is recorded." };
     });
     res.status(result.replayed ? 200 : 202).json(result.value);

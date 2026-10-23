@@ -4,7 +4,8 @@
  * These routes reuse only published Portal content and do not expose customer,
  * staff, administrative, storage, or session data. Account creation, email
  * verification, password recovery and identity assurance intentionally open the
- * verified Portal in the platform system browser.
+ * verified Portal in the platform system browser. Public legal and marketing
+ * documents intentionally open the separately hosted marketing website.
  */
 import type { Request, Response, Router } from "express";
 import { Router as createRouter } from "express";
@@ -47,6 +48,10 @@ function publicCaller(req: Request, res: Response) {
     clientIp: clientIp(res),
     userAgent: req.headers["user-agent"]?.slice(0, 255) ?? null,
   });
+}
+
+function marketingUrl(path: string): string {
+  return new URL(path, env.marketingSiteUrl).toString();
 }
 
 export function createMobilePublicRouter(): Router {
@@ -96,12 +101,20 @@ export function createMobilePublicRouter(): Router {
 
   router.get("/browser-entrypoints", (_req, res) => {
     res.setHeader("Cache-Control", "no-store").json({
+      // Sensitive account lifecycle actions stay on the configured portal origin.
       registrationUrl: new URL("/register", env.appUrl).toString(),
       emailVerificationUrl: new URL("/verify-email", env.appUrl).toString(),
       passwordRecoveryUrl: new URL("/forgot-password", env.appUrl).toString(),
       customerSecurityUrl: new URL("/portal/account/security", env.appUrl).toString(),
-      legalUrl: new URL("/policies", env.appUrl).toString(),
-      contactUrl: new URL("/contact", env.appUrl).toString(),
+      // Public content is only hosted by the marketing site and must be opened by
+      // clients through their separate exact-origin public-web trust policy.
+      publicWebsiteUrl: marketingUrl("/"),
+      publicSolutionsUrl: marketingUrl("/solutions.html"),
+      privacyUrl: marketingUrl("/privacy.html"),
+      termsUrl: marketingUrl("/terms/"),
+      refundPolicyUrl: marketingUrl("/refunds/"),
+      accessibilityUrl: marketingUrl("/accessibility.html"),
+      publicContactUrl: marketingUrl("/contact.html"),
     });
   });
 

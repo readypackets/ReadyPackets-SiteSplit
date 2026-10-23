@@ -141,14 +141,40 @@ paths:
           in: path
           required: true
           schema: { type: string, maxLength: 48 }
+  /public/browser-entrypoints:
+    get:
+      security: []
+      summary: Exact-origin Portal and marketing browser handoffs
+      description: Sensitive account actions use the configured Portal origin. Public policy, accessibility, contact, and solutions links use the configured marketing origin and require a separate native public-web URL policy.
+      responses:
+        '200':
+          description: Separately trusted browser handoff URLs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BrowserEntrypoints' }
   /me/devices:
     get:
       summary: Registered native application installations
+  /me/devices/{deviceId}:
+    delete:
+      summary: Revoke one customer-owned native installation and its token sessions
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 96 }
+        - $ref: '#/components/parameters/IdempotencyKey'
   /devices:
     post:
-      summary: Register or update an installation metadata record
+      summary: Register or update an authenticated installation metadata record
+      description: The self-hosted baseline accepts only device ID, platform, app version, and optional display name. Provider push tokens are rejected.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceRegistration' }
   /me/data-deletion-request:
     post:
       summary: Request server-managed account deletion
@@ -197,6 +223,12 @@ paths:
                 phase: { type: string, pattern: '^[a-z0-9_]{2,64}$' }
                 recordedAudio: { type: boolean, default: false }
                 prerecordedAudio: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Accepted files and any rejected input details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadReply' }
   /customer/orders/{publicOrderId}/intake:
     get:
       summary: Read the current customer intake draft and server-provided limits
@@ -347,9 +379,9 @@ components:
         quantity: { type: integer, minimum: 1, maximum: 25, default: 1 }
     CreateOrderRequest:
       type: object
-      required: [projectName, selections]
+      required: [selections]
       properties:
-        projectName: { type: string, minLength: 1, maxLength: 160 }
+        projectName: { type: string, maxLength: 160 }
         selections: { type: array, minItems: 1, maxItems: 12, items: { $ref: '#/components/schemas/OrderSelection' } }
     CreateOrderReply:
       type: object
@@ -367,6 +399,60 @@ components:
             requiresCustomQuote: { type: boolean }
         nextAction: { type: string, enum: [complete_payment_in_portal, await_quote] }
         message: { type: string }
+    DeviceRegistration:
+      type: object
+      additionalProperties: false
+      required: [deviceId, platform, appVersion]
+      properties:
+        deviceId: { type: string, minLength: 16, maxLength: 96, pattern: '^[A-Za-z0-9._-]+$' }
+        platform: { type: string, enum: [ios, android] }
+        appVersion: { type: string, maxLength: 32 }
+        deviceName: { type: [string, 'null'], maxLength: 128 }
+    BrowserEntrypoints:
+      type: object
+      required: [registrationUrl, emailVerificationUrl, passwordRecoveryUrl, customerSecurityUrl, publicWebsiteUrl, publicSolutionsUrl, privacyUrl, termsUrl, refundPolicyUrl, accessibilityUrl, publicContactUrl]
+      properties:
+        registrationUrl: { type: string, format: uri }
+        emailVerificationUrl: { type: string, format: uri }
+        passwordRecoveryUrl: { type: string, format: uri }
+        customerSecurityUrl: { type: string, format: uri }
+        publicWebsiteUrl: { type: string, format: uri }
+        publicSolutionsUrl: { type: string, format: uri }
+        privacyUrl: { type: string, format: uri }
+        termsUrl: { type: string, format: uri }
+        refundPolicyUrl: { type: string, format: uri }
+        accessibilityUrl: { type: string, format: uri }
+        publicContactUrl: { type: string, format: uri }
+    CustomerFile:
+      type: object
+      required: [mobileFileRef, originalName, sizeBytes, version, audio]
+      properties:
+        mobileFileRef: { type: string }
+        originalName: { type: string }
+        extension: { type: [string, 'null'] }
+        sizeBytes: { type: integer, minimum: 0 }
+        durationSeconds: { type: [number, 'null'], minimum: 0 }
+        category: { type: [string, 'null'] }
+        phase: { type: [string, 'null'] }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: [string, 'null'], format: date-time }
+        uploadedByStaff: { type: [boolean, 'null'] }
+        audio: { type: boolean }
+    UploadReply:
+      type: object
+      required: [files, rejected]
+      properties:
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerFile' }
+        rejected:
+          type: array
+          items:
+            type: object
+            required: [name, reason]
+            properties:
+              name: { type: string }
+              reason: { type: string }
     Problem:
       type: object
       required: [type, title, status, code, correlationId]

@@ -4887,3 +4887,12 @@ The immutable fetched source remains root-owned. Rather than changing that sourc
 **Credential cleanup:** The temporary diagnostics/migration SSH public key was removed from the VPS `root` authorized-key list after final verification, preserving unrelated keys. Its local private key, public key, and host-key cache were removed from the workspace immediately afterward. No password or private-key material was committed, printed, or retained in the repository/session record.
 
 **Release evidence:** The migration code release `c95bfcdd83b3a10349b554b4ae21f967b2876c72` passed authoritative GitHub Actions before live use: **ReadyPackets Portal CI** run `39872824924` (including disposable-MySQL migration/seed/schema/security/application gates) and **Native mobile validation** run `39872824997` (mobile API/source safeguards, unsigned iOS simulator build, and Android API 36 compile/tests) both completed successfully. This entry records the actual controlled beta-host migration result; private publication of this closing record follows.
+
+
+## 2026-10-23 — Native mobile split-platform rebuild
+
+**User request:** Rebuild the native mobile applications against the split ReadyPackets Portal (`ReadyPackets-SiteSplit`) and public marketing website (`ReadyPackets-Marketing-Site`).
+
+**Completed:** The Portal now exposes separate exact-origin browser handoffs for secure account actions and public marketing content; the self-hosted mobile boundary includes mobile access-token isolation, PKCE scope persistence, token-family/device revocation, password/MFA/deletion trust revocation, correlation-aware audit events, optional privacy-minimised TLS syslog forwarding, and mobile-specific rate limiting. Migration `0059_mobile_identity_hardening.sql` moves the database to the no-provider-push schema. The canonical OpenAPI contract is synchronized with the standalone native repository.
+
+**Security and release boundary:** `my.readypackets.com` is the intended authenticated Portal/API origin; `www.readypackets.com` is the public marketing origin. The two must remain separately configured and validated. No secret, signing identity, customer information, session token, payment data, or provider credential was committed. See `docs/application-context/2026-10-23-native-mobile-split-rebuild.md` and `docs/session/SESSION_TRANSCRIPT_2026-10-23_SPLIT_PLATFORM_REBUILD.md`.

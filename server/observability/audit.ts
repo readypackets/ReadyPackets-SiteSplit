@@ -14,6 +14,7 @@ import { db } from "../db/client.js";
 import { activityLogs, securityLogs, systemAlerts } from "../db/schema.js";
 import { blindIndex } from "../security/crypto.js";
 import { logger } from "./logger.js";
+import { forwardSecurityEvent } from "./siem.js";
 import type { LogSeverity } from "../../shared/domain.js";
 
 export type SecurityEventType =
@@ -57,7 +58,18 @@ export type SecurityEventType =
   | "magic_link.blocked_administrator_only"
   | "register.blocked_administrator_only"
   | "session.revoked_administrator_only"
-  | "privacy.cookie_consent_saved";
+  | "privacy.cookie_consent_saved"
+  | "mobile.authorization_granted"
+  | "mobile.authorization_denied"
+  | "mobile.token_issued"
+  | "mobile.token_rotated"
+  | "mobile.token_revoked"
+  | "mobile.device_registered"
+  | "mobile.device_revoked"
+  | "mobile.idempotency_replayed"
+  | "mobile.idempotency_conflict"
+  | "mobile.authorization_failed"
+  | "mobile.account_deletion_requested";
 
 interface SecurityEventInput {
   eventType: SecurityEventType;
@@ -99,6 +111,13 @@ export async function recordSecurityEvent(input: SecurityEventInput): Promise<vo
     `security:${input.eventType}`,
     { outcome: input.outcome, userId: input.userId, ip: input.ipAddress },
   );
+  forwardSecurityEvent({
+    eventType: input.eventType,
+    severity,
+    outcome,
+    userId: input.userId ?? null,
+    correlationId: typeof input.metadata?.correlationId === "string" ? input.metadata.correlationId : null,
+  });
 }
 
 interface ActivityEventInput {

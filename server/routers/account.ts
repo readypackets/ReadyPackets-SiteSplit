@@ -27,6 +27,7 @@ import {
 import { decryptField } from "../security/crypto.js";
 import { displayNameOf, getProfileValues, getUserById } from "../db/users.js";
 import { recordActivity, recordSecurityEvent } from "../observability/audit.js";
+import { revokeMobileSessionsForUser } from "../auth/mobileOidc.js";
 import { listOrdersForUser } from "../services/orders.js";
 import { queueTemplatedEmail, wrapHtmlBody } from "../services/email.js";
 import { policyAcceptanceProcedure, protectedProcedure, router } from "../trpc/trpc.js";
@@ -246,6 +247,7 @@ export const accountRouter = router({
       );
 
       await db.update(users).set({ status: "deactivated" }).where(eq(users.id, userId));
+      await revokeMobileSessionsForUser(userId, "account_deletion_requested");
 
       void recordSecurityEvent({
         eventType: "settings.changed",
