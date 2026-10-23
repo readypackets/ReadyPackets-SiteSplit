@@ -4905,3 +4905,15 @@ The immutable fetched source remains root-owned. Rather than changing that sourc
 **Completed in source:** The Portal can now serve `/.well-known/assetlinks.json` from validated public Android signing-certificate fingerprints configured through `ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS`. The endpoint deliberately has no private signing material. The required OAuth callback remains the exact verified HTTPS URL `https://my.readypackets.com/auth/callback`.
 
 **Deployment gate:** Redeploy the current Portal source, apply migration `0059_mobile_identity_hardening.sql`, set the exact mobile OAuth configuration and public signing fingerprint in the protected runtime environment, and exempt the association document and native API from inappropriate Cloudflare challenges. The application continues to fail closed until those conditions are met.
+
+
+## 2026-10-23 — Beta Microsoft Entra SAML AADSTS700016 triage
+
+**User-reported result:** Microsoft Entra returned `AADSTS700016` while signing in through beta Portal SAML SSO.
+
+**Verified evidence:** The live beta SP metadata and decoded AuthnRequest both used entity ID `https://beta.readypackets.com/api/saml/metadata`, sent to tenant `33b787b2-14ee-4c2e-a9ad-e5b8a3c8f8f6`. Entra’s error confirms no enterprise application in that tenant currently recognizes that identifier. The Portal did not receive an assertion, so this is an IdP application-registration mismatch rather than a local account, MFA, or ACS-validation event.
+
+**Remediation:** Register or correct the beta enterprise application’s SAML Identifier, ACS Reply URL, Sign-on URL, signing certificate, and narrowly assigned beta test users exactly as documented in `docs/ENTRA_BETA_SAML_SSO_RUNBOOK.md`. Preserve certificate validation, tenant restriction, MFA policy, and privacy-minimised audit logging. No private key, token, assertion, or user profile was recorded.
+
+
+**Additional SSO hardening:** Portal source now records a privacy-minimised `saml.login_started` security event with the selected IdP/configuration and public service-provider entity ID, permitting correlation with Entra sign-in logs when Entra rejects an AuthnRequest before returning an assertion. The source also pins the configured IdP issuer where supported and clarifies the distinct ReadyPackets Identifier, ACS, Sign-on URL, and Entra Identifier fields in administration screens. No raw RelayState, SAML request/response, assertion, token, private key, or full identity profile is logged.

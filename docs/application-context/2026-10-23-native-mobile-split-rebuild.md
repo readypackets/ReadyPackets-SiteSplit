@@ -43,3 +43,8 @@ Native protected release environments need `PORTAL_BASE_URL`, `MARKETING_BASE_UR
 ## Functional Android test APK follow-up
 
 The selected authenticated test topology is `https://my.readypackets.com` for Portal/API and verified Android App Link callback, and `https://www.readypackets.com` for public website navigation. The Portal source now serves `/.well-known/assetlinks.json` from the public, validated `ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS` setting. The deployment must publish the current Portal source, configure the exact callback in `MOBILE_OAUTH_REDIRECT_URIS`, and ensure Cloudflare does not challenge or block the association document. A protected GitHub environment holds the matching test signing key; its private material must never enter the Portal repository or server environment.
+
+
+## Beta Microsoft Entra SAML registration follow-up
+
+Live beta SSO sends the service-provider entity ID `https://beta.readypackets.com/api/saml/metadata` and assertion consumer service URL `https://beta.readypackets.com/api/saml/acs` to Entra tenant `33b787b2-14ee-4c2e-a9ad-e5b8a3c8f8f6`. An `AADSTS700016` response confirms that the tenant enterprise application is absent or its Identifier does not exactly match the Portal issuer. The correction is an Entra-side, least-privilege enterprise application configuration and restricted beta test assignment, documented in `docs/ENTRA_BETA_SAML_SSO_RUNBOOK.md`; it must not be addressed by disabling signature checks, MFA, tenancy controls, or audit protections.

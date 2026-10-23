@@ -1000,7 +1000,8 @@ function SamlPanel() {
           placeholder="https://idp.example.com/sso/saml"
         />
         <Input
-          label="Issuer (entity ID)"
+          label="Identity provider issuer"
+          help="Use the IdP-provided issuer, such as the Microsoft Entra Identifier. The ReadyPackets service-provider entity ID is published separately at /api/saml/metadata."
           value={form.issuer}
           onChange={(event) => setDraft({ ...form, issuer: event.target.value })}
         />

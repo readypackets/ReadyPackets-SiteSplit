@@ -87,12 +87,21 @@ function buildSamlInstance(config: SamlConfigRow): SAML {
     issuer: `${env.appUrl}/api/saml/metadata`,
     callbackUrl: `${env.appUrl}/api/saml/acs`,
     idpCert: config.idpCertificate,
+    idpIssuer: config.issuer,
     signatureAlgorithm: config.signatureAlgorithm as "sha1" | "sha256" | "sha512",
     wantAssertionsSigned: true,
     wantAuthnResponseSigned: false,
     disableRequestedAuthnContext: true,
   };
   return new SAML(samlOptions);
+}
+
+function identityProviderHost(entryPoint: string): string | null {
+  try {
+    return new URL(entryPoint).hostname;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -129,9 +138,35 @@ export async function handleLoginRedirect(req: Request, res: Response): Promise<
     const relayState = requestedReturn.startsWith("/portal") || requestedReturn.startsWith("/api/mobile/v1/authorize?") ? requestedReturn : "";
     const authorizeUrl = await saml.getAuthorizeUrlAsync(relayState, req.headers.host ?? "", {});
     const redirectUrl = typeof authorizeUrl === "string" ? authorizeUrl : (authorizeUrl as any).context as string;
+    await recordSecurityEvent({
+      eventType: "saml.login_started",
+      outcome: "success",
+      message: "SAML SSO redirect initiated",
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"]?.slice(0, 255) ?? null,
+      metadata: {
+        samlConfigId: config.id,
+        identityProvider: config.name,
+        identityProviderHost: identityProviderHost(config.entryPoint),
+        serviceProviderEntityId: `${env.appUrl}/api/saml/metadata`,
+        relayStateAccepted: Boolean(relayState),
+      },
+    });
     res.redirect(redirectUrl);
   } catch (err) {
-    logger.error("saml.login.redirect_failed", { error: err });
+    logger.error("saml.login.redirect_failed", {
+      errorName: err instanceof Error ? err.name : "UnknownError",
+      samlConfigId: config.id,
+      identityProvider: config.name,
+    });
+    await recordSecurityEvent({
+      eventType: "login.failure",
+      outcome: "failure",
+      message: "SAML SSO redirect could not be initiated",
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"]?.slice(0, 255) ?? null,
+      metadata: { samlConfigId: config.id, identityProvider: config.name },
+    });
     res.status(500).type("text/plain").send("Failed to initiate SSO. Please try again.");
   }
 }

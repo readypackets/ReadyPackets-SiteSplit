@@ -69,7 +69,8 @@ export type SecurityEventType =
   | "mobile.idempotency_replayed"
   | "mobile.idempotency_conflict"
   | "mobile.authorization_failed"
-  | "mobile.account_deletion_requested";
+  | "mobile.account_deletion_requested"
+  | "saml.login_started";
 
 interface SecurityEventInput {
   eventType: SecurityEventType;
