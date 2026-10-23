@@ -98,6 +98,18 @@ describe("native mobile contract safeguards", () => {
     expect(contract).toContain("publicContactUrl");
   });
 
+  it("serves a configured Android App Link association without embedding signing secrets", async () => {
+    const [app, env] = await Promise.all([
+      text("server/app.ts"),
+      text("server/config/env.ts"),
+    ]);
+    expect(app).toContain('app.get("/.well-known/assetlinks.json"');
+    expect(app).toContain("delegate_permission/common.handle_all_urls");
+    expect(app).toContain("sha256_cert_fingerprints");
+    expect(env).toContain("ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS");
+    expect(env).not.toContain("ANDROID_APP_LINK_PRIVATE_KEY");
+  });
+
   it("gives the unsigned iOS simulator build an explicit non-empty application product name", async () => {
     const [manifest, project] = await Promise.all([
       text("mobile/ios/ReadyPackets/project.yml"),

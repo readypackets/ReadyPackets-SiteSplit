@@ -184,6 +184,17 @@ if (!/^[A-Za-z0-9._-]{3,64}$/.test(mobileAccessTokenKeyId)) {
   problems.push("MOBILE_ACCESS_TOKEN_KID must contain 3-64 letters, digits, periods, underscores, or hyphens");
 }
 
+const androidAppLinkPackageName = str("ANDROID_APP_LINK_PACKAGE_NAME", "com.readypackets.mobile");
+if (!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(androidAppLinkPackageName)) {
+  problems.push("ANDROID_APP_LINK_PACKAGE_NAME must be a valid Android package name");
+}
+const androidAppLinkCertFingerprints = list("ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS");
+for (const fingerprint of androidAppLinkCertFingerprints) {
+  if (!/^[A-Fa-f0-9]{2}(?::[A-Fa-f0-9]{2}){31}$/.test(fingerprint)) {
+    problems.push("ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS entries must be colon-separated SHA-256 certificate fingerprints");
+  }
+}
+
 // APP_URL remains the canonical portal/API origin so existing mail links, SAML
 // callbacks, native clients, and session-facing services remain stable. The
 // optional public origin is a separate, anonymous marketing surface. Portal-only
@@ -312,6 +323,10 @@ export const env = {
     accessTokenKeyId: mobileAccessTokenKeyId,
     accessTokenTtlSeconds: num("MOBILE_ACCESS_TOKEN_TTL_SECONDS", 600),
     refreshTokenTtlDays: num("MOBILE_REFRESH_TOKEN_TTL_DAYS", 30),
+  },
+  androidAppLink: {
+    packageName: androidAppLinkPackageName,
+    sha256CertFingerprints: androidAppLinkCertFingerprints,
   },
 
   storage: {

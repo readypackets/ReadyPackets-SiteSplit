@@ -4896,3 +4896,12 @@ The immutable fetched source remains root-owned. Rather than changing that sourc
 **Completed:** The Portal now exposes separate exact-origin browser handoffs for secure account actions and public marketing content; the self-hosted mobile boundary includes mobile access-token isolation, PKCE scope persistence, token-family/device revocation, password/MFA/deletion trust revocation, correlation-aware audit events, optional privacy-minimised TLS syslog forwarding, and mobile-specific rate limiting. Migration `0059_mobile_identity_hardening.sql` moves the database to the no-provider-push schema. The canonical OpenAPI contract is synchronized with the standalone native repository.
 
 **Security and release boundary:** `my.readypackets.com` is the intended authenticated Portal/API origin; `www.readypackets.com` is the public marketing origin. The two must remain separately configured and validated. No secret, signing identity, customer information, session token, payment data, or provider credential was committed. See `docs/application-context/2026-10-23-native-mobile-split-rebuild.md` and `docs/session/SESSION_TRANSCRIPT_2026-10-23_SPLIT_PLATFORM_REBUILD.md`.
+
+
+## 2026-10-23 — Functional Android APK App Link readiness
+
+**User request:** Build a fully functional Android APK against `my.readypackets.com` after the debug APK correctly refused unconfigured Portal settings.
+
+**Completed in source:** The Portal can now serve `/.well-known/assetlinks.json` from validated public Android signing-certificate fingerprints configured through `ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS`. The endpoint deliberately has no private signing material. The required OAuth callback remains the exact verified HTTPS URL `https://my.readypackets.com/auth/callback`.
+
+**Deployment gate:** Redeploy the current Portal source, apply migration `0059_mobile_identity_hardening.sql`, set the exact mobile OAuth configuration and public signing fingerprint in the protected runtime environment, and exempt the association document and native API from inappropriate Cloudflare challenges. The application continues to fail closed until those conditions are met.

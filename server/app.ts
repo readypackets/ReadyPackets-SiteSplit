@@ -252,6 +252,30 @@ export function createApp(): Express {
   app.use(securityHeadersMiddleware());
   app.use(ipBlacklistMiddleware());
 
+  // Android verifies this exact public association document before it will route
+  // an HTTPS OAuth callback back into the native app. Certificate fingerprints
+  // are public identifiers, never private signing material.
+  app.get("/.well-known/assetlinks.json", (_req: Request, res: Response) => {
+    if (env.androidAppLink.sha256CertFingerprints.length === 0) {
+      res.status(404).type("text/plain").send("Android App Link association is not configured");
+      return;
+    }
+    res
+      .status(200)
+      .type("application/json")
+      .setHeader("Cache-Control", "public, max-age=300, must-revalidate")
+      .json([
+        {
+          relation: ["delegate_permission/common.handle_all_urls"],
+          target: {
+            namespace: "android_app",
+            package_name: env.androidAppLink.packageName,
+            sha256_cert_fingerprints: env.androidAppLink.sha256CertFingerprints,
+          },
+        },
+      ]);
+  });
+
   // Health probes must stay cheap and must not require a session, but they also
   // must not disclose anything useful to an unauthenticated caller.
   app.use(createMobileDiscoveryRouter());

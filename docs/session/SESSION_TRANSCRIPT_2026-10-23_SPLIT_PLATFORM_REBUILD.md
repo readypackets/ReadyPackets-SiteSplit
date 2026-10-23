@@ -20,3 +20,8 @@ The shared mobile OpenAPI contract was synchronized to the standalone native rep
 ## Result and release conditions
 
 iOS and Android now receive separately validated Portal and marketing URLs, and upload response models are aligned. Remaining release conditions are documented in the companion application-context record: database migration, protected release variables, app-link association files, device validation, and a reviewed public deletion-information page for store metadata.
+
+
+## Functional APK follow-up
+
+The user selected `my.readypackets.com` for an authenticated Android test APK. Portal source now exposes the public Android Digital Asset Links association document from validated public certificate fingerprints only. Deployment must set the exact OAuth callback, serve that document without Cloudflare challenge interference, and use the same fingerprint as the protected native test signing key. Private key material, credentials, user data, and session tokens were not stored in the repository or transcript.

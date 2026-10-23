@@ -38,3 +38,8 @@ Native protected release environments need `PORTAL_BASE_URL`, `MARKETING_BASE_UR
 3. Publish a reviewed public account-deletion information route on the marketing site before using a deletion URL in store metadata.
 4. Apply database migration `0059` and validate the schema contract before starting the Portal.
 5. Configure secure SIEM certificate trust and monitoring if `SYSLOG_TARGET` is enabled.
+
+
+## Functional Android test APK follow-up
+
+The selected authenticated test topology is `https://my.readypackets.com` for Portal/API and verified Android App Link callback, and `https://www.readypackets.com` for public website navigation. The Portal source now serves `/.well-known/assetlinks.json` from the public, validated `ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS` setting. The deployment must publish the current Portal source, configure the exact callback in `MOBILE_OAUTH_REDIRECT_URIS`, and ensure Cloudflare does not challenge or block the association document. A protected GitHub environment holds the matching test signing key; its private material must never enter the Portal repository or server environment.
