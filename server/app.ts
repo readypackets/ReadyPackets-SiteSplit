@@ -252,6 +252,25 @@ export function createApp(): Express {
   app.use(securityHeadersMiddleware());
   app.use(ipBlacklistMiddleware());
 
+  // The Portal service worker has no API runtime cache, and these headers make
+  // the server-side contract explicit for browsers, proxies, and future client
+  // code. API responses can contain account, order, workflow, or admin data and
+  // must never be reused after logout or across users on a shared device.
+  app.use("/api", (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    next();
+  });
+
+  // Service worker updates must be checked against the network. Static chunks
+  // remain fingerprinted and immutable, but the controlling worker itself is
+  // always revalidated before it can govern a Portal session.
+  app.use("/portal-service-worker.js", (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
+    res.setHeader("Service-Worker-Allowed", "/");
+    next();
+  });
+
   // Android verifies this exact public association document before it will route
   // an HTTPS OAuth callback back into the native app. Certificate fingerprints
   // are public identifiers, never private signing material.
@@ -494,6 +513,8 @@ export function createApp(): Express {
       res.setHeader("X-Content-Type-Options", "nosniff");
       if (/\.[0-9a-f]{8,}\.(js|css|woff2?|png|svg|jpg|webp)$/i.test(filePath)) {
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      } else if (/portal-service-worker\.js$/i.test(filePath)) {
+        res.setHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
       } else if (/\.(png|svg|jpg|jpeg|webp|ico|woff2?)$/i.test(filePath)) {
         res.setHeader("Cache-Control", "public, max-age=86400");
       } else {

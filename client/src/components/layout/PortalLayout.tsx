@@ -11,6 +11,7 @@ import { ChevronLeft, LogOut, Menu, PanelTopOpen, X } from "lucide-react";
 import { BRAND, BRAND_ASSETS } from "@shared/brand";
 import { trpc, errorMessage } from "@/lib/trpc";
 import { useSession, type UserRole } from "@/lib/session";
+import { clearPortalClientRuntimeState } from "@/lib/portalPwa";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Alert, Skeleton } from "@/components/ui/Surface";
@@ -48,6 +49,7 @@ export function PortalLayout({
 
   const logout = trpc.auth.logout.useMutation({
     async onSuccess() {
+      await clearPortalClientRuntimeState();
       await session.refresh();
       navigate("/login");
     },

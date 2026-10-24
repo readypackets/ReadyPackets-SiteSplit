@@ -40,11 +40,12 @@ describe("native mobile contract safeguards", () => {
     expect(router).toContain("requireScope(req, \"mobile:write\")");
     expect(router).toContain("resolveListedProducts(selections)");
     expect(router).toContain("createOrder({");
-    expect(router).toContain("projectName: projectName || null");
+    expect(router).toContain("Enter an order or project name before placing an order.");
+    expect(router).toContain("projectName,");
     expect(router).toContain("productBySku.get(selection.sku)!.id");
     expect(router).not.toContain("req.body?.priceCents");
     expect(router).not.toContain("req.body?.paymentStatus");
-    expect(contract).toContain("required: [selections]");
+    expect(contract).toContain("required: [projectName, selections]");
   });
 
   it("keeps browser CSRF protection and exempts only the bearer/code mobile prefix", async () => {

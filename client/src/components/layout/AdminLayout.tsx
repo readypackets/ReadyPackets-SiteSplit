@@ -52,6 +52,7 @@ import {
 import { BRAND, BRAND_ASSETS } from "@shared/brand";
 import { trpc, errorMessage } from "@/lib/trpc";
 import { useSession } from "@/lib/session";
+import { clearPortalClientRuntimeState } from "@/lib/portalPwa";
 import { Badge } from "@/components/ui/Surface";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -159,6 +160,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 
   const logout = trpc.auth.logout.useMutation({
     async onSuccess() {
+      await clearPortalClientRuntimeState();
       await session.refresh();
       navigate("/login");
     },

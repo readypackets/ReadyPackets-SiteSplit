@@ -10,6 +10,7 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { rm } from "node:fs/promises";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,12 +42,29 @@ function cspNoncePlugin(): Plugin {
   };
 }
 
+/** The legacy combined shell is not an installable Portal PWA surface. */
+function removePortalPwaArtifacts(): Plugin {
+  return {
+    name: "readypackets-remove-portal-pwa-artifacts",
+    apply: "build",
+    async closeBundle() {
+      const destination = path.join(here, "client", "dist");
+      await Promise.all(
+        ["manifest.webmanifest", "offline.html", "offline.css", "portal-service-worker.js", "portal-service-worker.mjs"].map(
+          (file) => rm(path.join(destination, file), { force: true }),
+        ),
+      );
+    },
+  };
+}
+
 export default defineConfig({
   root: path.join(here, "client"),
   base: "/",
   plugins: [
     react(),
     cspNoncePlugin(),
+    removePortalPwaArtifacts(),
   ],
   resolve: {
     alias: {

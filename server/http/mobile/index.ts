@@ -222,12 +222,13 @@ export function createMobileRouter(): Router {
 	    const listed = await resolveListedProducts(selections);
 	    const productBySku = new Map(listed.map((product) => [product.sku, product]));
 	    const projectName = typeof req.body?.projectName === "string" ? req.body.projectName.trim() : "";
+	    if (!projectName) throw new MobileOAuthError("invalid_request", "Enter an order or project name before placing an order.");
 	    if (projectName.length > 160) throw new MobileOAuthError("invalid_request", "The project name must be 160 characters or fewer.");
 	    try {
 	      const created = await createOrder({
 	        userId: req.mobile!.userId,
 	        selections: selections.map((selection) => ({ productId: productBySku.get(selection.sku)!.id, quantity: selection.quantity })),
-	        projectName: projectName || null,
+	        projectName,
 	        paymentRequirement: "required",
 	        actorUserId: req.mobile!.userId,
 	        actorRole: req.mobile!.role,
@@ -238,7 +239,7 @@ export function createMobileRouter(): Router {
 	      return {
 	        order: {
 	          publicOrderId: opaqueOrderId(created.orderNumber),
-	          projectName: projectName || null,
+	          projectName,
 	          status: "new",
 	          paymentStatus: requiresCustomQuote ? "awaiting_invoice" : "unpaid",
 	          totalCents: quote.totalCents,

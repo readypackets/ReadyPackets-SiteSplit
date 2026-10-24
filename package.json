@@ -13,10 +13,10 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite",
     "build": "pnpm build:client && pnpm build:server",
-    "build:client": "pnpm build:legacy && pnpm build:public && pnpm build:portal",
+    "build:client": "pnpm build:legacy && pnpm build:public && pnpm build:portal && pnpm verify:pwa-build",
     "build:legacy": "vite build",
     "build:public": "vite build --config vite.public.config.ts",
-    "build:portal": "vite build --config vite.portal.config.ts",
+    "build:portal": "vite build --config vite.portal.config.ts && pnpm verify:pwa-build:portal",
     "build:server": "esbuild server/index.ts --bundle --platform=node --target=node22 --format=esm --packages=external --outfile=dist/server.js",
     "start": "node dist/server.js",
     "migrate": "tsx scripts/migrate.ts",
@@ -26,11 +26,13 @@
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "audit:headers": "tsx scripts/audit-headers.ts"
+    "audit:headers": "tsx scripts/audit-headers.ts",
+    "verify:pwa-build": "node scripts/verify-pwa-build.mjs",
+    "verify:pwa-build:portal": "node scripts/verify-pwa-build.mjs --portal-only"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1152.0",
-    "@azure/identity": "^4.13.1",
+    "@azure/identity": "^4.14.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@node-saml/node-saml": "^5.1.0",
     "@stripe/stripe-js": "^9.13.0",
@@ -51,9 +53,9 @@
     "helmet": "^8.0.0",
     "jose": "^5.9.6",
     "lucide-react": "^0.469.0",
-    "multer": "^2.4.0",
+    "multer": "^2.5.0",
     "mysql2": "^3.12.0",
-    "nodemailer": "^10.1.2",
+    "nodemailer": "^10.2.1",
     "otpauth": "^9.3.6",
     "passport": "^0.7.0",
     "qrcode": "^1.5.4",
@@ -63,7 +65,7 @@
     "stripe": "^22.4.0",
     "tailwind-merge": "^2.6.0",
     "wouter": "^3.3.5",
-    "zod": "^3.24.1"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",
@@ -94,7 +96,16 @@
     "vite": "^6.0.7",
     "vite-plugin-pwa": "^1.3.0",
     "vitest": "^2.1.8",
+    "workbox-core": "7.4.1",
+    "workbox-precaching": "7.4.1",
+    "workbox-routing": "7.4.1",
+    "workbox-strategies": "7.4.1",
     "workbox-window": "^7.4.1"
   },
-  "packageManager": "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299921a89f976381ee107d41f12cfa4b66681ca9c718f0668fa0831ed4c6d8ba56c"
+  "packageManager": "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299921a89f976381ee107d41f12cfa4b66681ca9c718f0668fa0831ed4c6d8ba56c",
+  "pnpm": {
+    "overrides": {
+      "@azure/msal-node": "7.1.1"
+    }
+  }
 }

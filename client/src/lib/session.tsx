@@ -19,7 +19,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { trpc } from "./trpc";
+import { SESSION_INVALID_EVENT, trpc } from "./trpc";
+import { clearPortalClientRuntimeState } from "./portalPwa";
 
 export type UserRole = "customer" | "staff" | "admin";
 
@@ -89,25 +90,55 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-/** Warn this many milliseconds before the assumed session lifetime elapses. */
+/** Warn this many milliseconds before the authoritative session expiry. */
 const WARN_BEFORE_MS = 5 * 60 * 1000;
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const query = trpc.auth.session.useQuery(undefined, {
     // The session is the root of every authorisation decision in the UI, so it
-    // is refetched on focus and reconnect rather than trusted indefinitely.
+    // is refetched on focus, reconnect, and a bounded active-tab interval rather
+    // than trusted indefinitely on a shared device.
     staleTime: 30_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+    refetchInterval: 5 * 60_000,
+    refetchIntervalInBackground: false,
     retry: 1,
   });
 
   const [expiryWarning, setExpiryWarning] = useState(false);
   const warnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dismissed = useRef(false);
+  const wasAuthenticated = useRef(false);
 
   const data = query.data;
   const authenticated = data?.authenticated === true;
+
+  // A local explicit logout clears this state before the session refresh. This
+  // second path covers a revoked or expired session detected by a later query,
+  // so a shared device cannot retain an order draft or other Portal runtime
+  // state after the server has withdrawn the account session.
+  useEffect(() => {
+    if (authenticated) {
+      wasAuthenticated.current = true;
+      return;
+    }
+    if (wasAuthenticated.current) {
+      wasAuthenticated.current = false;
+      void clearPortalClientRuntimeState();
+    }
+  }, [authenticated]);
+
+  useEffect(() => {
+    const handleSessionInvalid = () => {
+      wasAuthenticated.current = false;
+      void clearPortalClientRuntimeState();
+      void query.refetch();
+    };
+    window.addEventListener(SESSION_INVALID_EVENT, handleSessionInvalid);
+    return () => window.removeEventListener(SESSION_INVALID_EVENT, handleSessionInvalid);
+  }, [query]);
 
   const refresh = useCallback(async () => {
     dismissed.current = false;
@@ -115,22 +146,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await query.refetch();
   }, [query]);
 
-  // Schedule the expiry warning from the session lifetime the server reports.
+  // Schedule warning and a final authoritative revalidation from the server's
+  // actual expiry timestamp rather than a duplicated browser-side lifetime.
   useEffect(() => {
     if (warnTimer.current) clearTimeout(warnTimer.current);
+    if (expiryTimer.current) clearTimeout(expiryTimer.current);
     if (!authenticated) {
       setExpiryWarning(false);
       return;
     }
-    const lifetimeMs = 12 * 60 * 60 * 1000;
-    const delay = Math.max(lifetimeMs - WARN_BEFORE_MS, 60_000);
+    const expiryAt = typeof data?.sessionExpiresAt === "string" ? Date.parse(data.sessionExpiresAt) : Number.NaN;
+    if (!Number.isFinite(expiryAt)) {
+      setExpiryWarning(false);
+      return;
+    }
+    const delay = Math.max(expiryAt - Date.now() - WARN_BEFORE_MS, 1_000);
     warnTimer.current = setTimeout(() => {
       if (!dismissed.current) setExpiryWarning(true);
     }, delay);
+    expiryTimer.current = setTimeout(() => {
+      void query.refetch();
+    }, Math.max(expiryAt - Date.now() + 1_000, 1_000));
     return () => {
       if (warnTimer.current) clearTimeout(warnTimer.current);
+      if (expiryTimer.current) clearTimeout(expiryTimer.current);
     };
-  }, [authenticated, data]);
+  }, [authenticated, data?.sessionExpiresAt, query]);
 
   const value = useMemo<SessionContextValue>(() => {
     const user = (data?.user ?? null) as SessionUser | null;

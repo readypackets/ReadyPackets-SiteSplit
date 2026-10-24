@@ -13,6 +13,7 @@ import type { AppRouter } from "@server/routers/index.js";
 export const trpc = createTRPCReact<AppRouter>();
 
 const CSRF_HEADER = "x-rp-csrf";
+export const SESSION_INVALID_EVENT = "readypackets:session-invalid";
 
 /** Read a cookie by name. Handles both the plain and `__Host-` prefixed forms. */
 export function readCookie(name: string): string | null {
@@ -66,6 +67,11 @@ export function createTrpcClient() {
             // Never follow a redirect for an API call: a redirect to an
             // unexpected origin would be a sign of tampering.
             redirect: "error",
+          }).then((response) => {
+            if (response.status === 401 && typeof window !== "undefined") {
+              window.dispatchEvent(new Event(SESSION_INVALID_EVENT));
+            }
+            return response;
           });
         },
       }),

@@ -314,7 +314,7 @@ export const intakeRouter = router({
         projectName: z.string().trim().min(1, "Enter an order or project name.").max(190),
         desiredOutcomes: z.array(z.enum(INTAKE_OUTCOMES)).max(4).optional(),
         integrityChoice: z.enum(INTEGRITY_CHOICES).optional(),
-        answers: z.record(z.string().max(8000)).optional(),
+        answers: z.record(z.string(), z.string().max(8000)).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

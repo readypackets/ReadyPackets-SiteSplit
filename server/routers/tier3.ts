@@ -401,7 +401,7 @@ const abTestRouter = router({
       experimentKey: z.string().trim().min(1).max(128),
       variantKey: z.string().trim().min(1).max(64),
       eventType: z.string().trim().max(64).default("impression"),
-      metadata: z.record(z.unknown()).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       await db.insert(pwaAbEvents).values({

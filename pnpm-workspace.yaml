@@ -4,3 +4,5 @@ packages:
 onlyBuiltDependencies:
   - argon2
   - esbuild
+overrides:
+  body-parser: 2.4.0

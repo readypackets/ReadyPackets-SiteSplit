@@ -36,6 +36,12 @@ Sensitive user and integration fields use AES-256-GCM with bound associated data
 
 The platform includes protected backup, restore, configuration export, cloud synchronization, release scan/approval/rollback, native installer, Docker installer, factory reset, and operational documentation paths.
 
+### Portal PWA boundary — 2026-10-23
+
+The dedicated Portal split bundle is installable as a PWA. The separate public website and legacy combined bundle do not register a service worker or ship Portal manifest/offline assets. The injected-manifest worker precaches only versioned static JavaScript/CSS, self-hosted fonts, approved brand assets, favicon, and a generic offline notice. It has no runtime caching, background sync, periodic sync, push, API caching, document caching, file caching, upload queue, or offline customer data.
+
+Every `/api/*` response and `portal-service-worker.js` is explicitly `no-store`; user-controlled updates use `updateViaCache: "none"` and a waiting-worker prompt. Offline fallback is limited to anonymous entry paths. Authenticated Portal/admin navigation, uploads, downloads, orders, workflow, and all customer/staff data remain network-only. Explicit logout and server-detected session loss clear ReadyPackets-prefixed browser storage, Portal runtime caches, and in-memory React Query results before another account can use the tab. Operator verification is documented in `docs/PORTAL_PWA_OPERATIONS.md`; regression coverage is in `tests/portalPwa.test.ts`.
+
 ## Current priority backlog
 
 | Priority | Remaining item |

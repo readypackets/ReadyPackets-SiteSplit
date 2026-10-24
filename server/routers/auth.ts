@@ -179,6 +179,7 @@ export const authRouter = router({
         passwordPolicy: policy,
         csrfToken: null as string | null,
         businessProfile,
+        sessionExpiresAt: null as string | null,
       };
     }
 
@@ -207,6 +208,7 @@ export const authRouter = router({
       passwordPolicy: policy,
       csrfToken: ctx.session.csrfSecret,
       businessProfile,
+      sessionExpiresAt: ctx.session.expiresAt.toISOString(),
     };
   }),
 
@@ -246,7 +248,7 @@ export const authRouter = router({
         phone: z.string().trim().max(40).optional(),
         marketingOptIn: z.boolean().default(false),
         acceptedPolicies: z.boolean(),
-        customFields: z.record(z.string().max(2000)).optional(),
+        customFields: z.record(z.string(), z.string().max(2000)).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

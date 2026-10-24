@@ -1,8 +1,8 @@
 {
-  "name": "ReadyPackets",
+  "name": "ReadyPackets Portal",
   "short_name": "ReadyPackets",
-  "description": "Your Business, Professionally Packeted. Client portal for ReadyPackets business documentation packets.",
-  "start_url": "/portal",
+  "description": "Secure ReadyPackets customer and administration portal.",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "background_color": "#F7F9FA",
@@ -10,13 +10,19 @@
   "orientation": "portrait-primary",
   "icons": [
     {
+      "src": "/brand/readypackets-approved-icon-light-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/brand/readypackets-approved-icon-light-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/brand/readypackets-approved-icon-light-512.png",
+      "src": "/brand/readypackets-approved-icon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

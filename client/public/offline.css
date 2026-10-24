@@ -1,0 +1,44 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  background: #F5F7FA;
+  color: #0E2A47;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 3rem 2.5rem;
+  max-width: 480px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 4px 24px rgba(14, 42, 71, 0.08);
+}
+.icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1.5rem;
+  background: #E8F4F2;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.75rem; }
+p { color: #6B7280; line-height: 1.6; margin-bottom: 1.5rem; }
+.retry {
+  display: inline-block;
+  background: #1A9E8A;
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.retry:hover, .retry:focus-visible { background: #158A78; }
+.retry:focus-visible { outline: 3px solid #0E2A47; outline-offset: 3px; }
