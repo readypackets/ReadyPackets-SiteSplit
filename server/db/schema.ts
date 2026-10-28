@@ -56,6 +56,8 @@ export const users = mysqlTable(
     passwordHash: varchar("password_hash", { length: 255 }),
     role: varchar("role", { length: 16 }).notNull().default("customer"),
     loginMethod: varchar("login_method", { length: 16 }).notNull().default("local"),
+    /** Per-account SAML gate; local conversion disables SSO without changing role or data. */
+    samlLoginEnabled: boolean("saml_login_enabled").notNull().default(true),
     status: varchar("status", { length: 16 }).notNull().default("active"),
     emailVerified: boolean("email_verified").notNull().default(false),
     mustChangePassword: boolean("must_change_password").notNull().default(false),

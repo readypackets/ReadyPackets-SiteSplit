@@ -914,6 +914,9 @@ export function AdminCustomerDetailPage() {
   const [roleOpen, setRoleOpen] = useState(false);
   const [newRole, setNewRole] = useState("customer");
   const [resetOpen, setResetOpen] = useState(false);
+  const [localLoginOpen, setLocalLoginOpen] = useState(false);
+  const [localLoginConfirmation, setLocalLoginConfirmation] = useState("");
+  const [localLoginTemporaryPassword, setLocalLoginTemporaryPassword] = useState<string | null>(null);
   const [changeCustomerIdOpen, setChangeCustomerIdOpen] = useState(false);
   const [newCustomerId, setNewCustomerId] = useState("");
   const [customerIdChangeReason, setCustomerIdChangeReason] = useState("");
@@ -961,6 +964,17 @@ export function AdminCustomerDetailPage() {
     },
   });
 
+  const convertSamlAccountToLocal = trpc.admin.convertSamlAccountToLocal.useMutation({
+    async onSuccess(result) {
+      setLocalLoginTemporaryPassword(result.temporaryPassword);
+      await detail.refetch();
+      toast.success("Local sign-in enabled", "SSO is disabled for this account. Deliver the one-time password through a secure channel.");
+    },
+    onError(error) {
+      toast.error("Could not enable local sign-in", errorMessage(error));
+    },
+  });
+
   const changeCustomerId = trpc.admin.changeCustomerId.useMutation({
     async onSuccess() {
       setChangeCustomerIdOpen(false);
@@ -999,6 +1013,13 @@ export function AdminCustomerDetailPage() {
     setNewCustomerId("");
     setCustomerIdChangeReason("");
     setCustomerIdChangeConfirmation("");
+  }
+
+  function closeLocalLoginModal() {
+    if (convertSamlAccountToLocal.isPending) return;
+    setLocalLoginOpen(false);
+    setLocalLoginConfirmation("");
+    setLocalLoginTemporaryPassword(null);
   }
 
   if (detail.isLoading) {
@@ -1044,13 +1065,23 @@ export function AdminCustomerDetailPage() {
               <Button variant="outline" busy={validateAccount.isPending} onClick={() => validateAccount.mutate({ userId })} leadingIcon={<BadgeCheck className="size-4" aria-hidden="true" />}>
                 Validate account
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => setResetOpen(true)}
-                leadingIcon={<KeyRound className="size-4" aria-hidden="true" />}
-              >
-                Reset password
-              </Button>
+              {user.loginMethod === "saml" ? (
+                <Button
+                  variant="outline"
+                  onClick={() => setLocalLoginOpen(true)}
+                  leadingIcon={<KeyRound className="size-4" aria-hidden="true" />}
+                >
+                  Enable local sign-in
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => setResetOpen(true)}
+                  leadingIcon={<KeyRound className="size-4" aria-hidden="true" />}
+                >
+                  Reset password
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => {
@@ -1195,7 +1226,7 @@ export function AdminCustomerDetailPage() {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-body">Sign-in method</dt>
-                <dd className="text-ink">{user.loginMethod}</dd>
+                <dd className="text-ink">{user.loginMethod === "local" && !user.samlLoginEnabled ? "local (SSO disabled)" : user.loginMethod}</dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-body">Last sign-in</dt>
@@ -1258,14 +1289,25 @@ export function AdminCustomerDetailPage() {
                 >
                   Revoke all sessions
                 </Button>
-                <Button
-                  variant="outline"
-                  fullWidth
-                  onClick={() => setResetOpen(true)}
-                  leadingIcon={<Link2 className="size-4" aria-hidden="true" />}
-                >
-                  Reset password
-                </Button>
+                {user.loginMethod === "saml" ? (
+                  <Button
+                    variant="outline"
+                    fullWidth
+                    onClick={() => setLocalLoginOpen(true)}
+                    leadingIcon={<KeyRound className="size-4" aria-hidden="true" />}
+                  >
+                    Enable local sign-in
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    fullWidth
+                    onClick={() => setResetOpen(true)}
+                    leadingIcon={<Link2 className="size-4" aria-hidden="true" />}
+                  >
+                    Reset password
+                  </Button>
+                )}
               </div>
             </Card>
           ) : null}
@@ -1279,6 +1321,66 @@ export function AdminCustomerDetailPage() {
         open={resetOpen}
         onClose={() => setResetOpen(false)}
       />
+
+      <Modal
+        open={localLoginOpen}
+        onClose={closeLocalLoginModal}
+        title="Enable local sign-in"
+        description="Convert this SSO account to local-only authentication."
+        footer={
+          localLoginTemporaryPassword ? (
+            <Button onClick={closeLocalLoginModal}>I have recorded it</Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={closeLocalLoginModal}>Cancel</Button>
+              <Button
+                busy={convertSamlAccountToLocal.isPending}
+                disabled={localLoginConfirmation !== "ENABLE LOCAL LOGIN"}
+                onClick={() => convertSamlAccountToLocal.mutate({ userId, confirmation: "ENABLE LOCAL LOGIN" })}
+              >
+                Enable local sign-in
+              </Button>
+            </>
+          )
+        }
+      >
+        {localLoginTemporaryPassword ? (
+          <div className="space-y-4">
+            <Alert tone="warning">
+              This one-time password is shown only once. The user must change it at the next local sign-in. All active sessions were revoked; existing MFA enrolment remains in force.
+            </Alert>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted mb-1">One-time password</p>
+              <code className="block rounded border border-line bg-surface-soft px-3 py-2 font-mono text-sm text-ink break-all">
+                {localLoginTemporaryPassword}
+              </code>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              leadingIcon={<Copy className="size-4" aria-hidden="true" />}
+              onClick={() => {
+                void navigator.clipboard.writeText(localLoginTemporaryPassword);
+                toast.success("Copied to clipboard");
+              }}
+            >
+              Copy password
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Alert tone="warning">
+              This disables SSO for this account only and preserves its role, orders, MFA enrolment, and profile. A future SAML assertion cannot switch the account back. Deliver the generated password through a secure channel, never email it.
+            </Alert>
+            <Input
+              label="Type ENABLE LOCAL LOGIN to confirm"
+              value={localLoginConfirmation}
+              onChange={(event) => setLocalLoginConfirmation(event.target.value)}
+              autoComplete="off"
+            />
+          </div>
+        )}
+      </Modal>
 
       <ConfirmDialog
         open={suspendOpen}

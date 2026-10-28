@@ -84,6 +84,14 @@ export function LoginPage() {
     return true;
   };
 
+  useEffect(() => {
+    const error = new URLSearchParams(window.location.search).get("error");
+    if (error === "saml_local_only") {
+      setFormError("Single sign-on is disabled for this account. Use the local email and password supplied by your administrator.");
+      window.history.replaceState({}, document.title, "/login");
+    }
+  }, []);
+
   // A server-side idle timeout can leave a stale session-bound CSRF cookie in an
   // open tab. Refresh a same-origin anonymous token before any new sign-in
   // attempt so the user never needs to clear storage or hard-refresh.

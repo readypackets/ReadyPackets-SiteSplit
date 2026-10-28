@@ -6,10 +6,12 @@
  * notes are visually separated from shared notes to make an accidental disclosure
  * to the customer difficult.
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "wouter";
 import {
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Cloud,
   Download,
@@ -57,7 +59,7 @@ import {
 } from "../portal/orderStatus";
 
 /** Modal for admins to create an order on behalf of a customer. */
-function CreateOrderModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function CreateOrderModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const toast = useToast();
   const utils = trpc.useUtils();
   const [userId, setUserId] = useState("");
@@ -81,6 +83,7 @@ function CreateOrderModal({ open, onClose }: { open: boolean; onClose: () => voi
     async onSuccess(result) {
       toast.success("Order created", `Order ${result.orderNumber} created successfully.`);
       await utils.admin.orders.invalidate();
+      onCreated();
       onClose();
       setUserId("");
       setCustomerSearch("");
@@ -280,6 +283,17 @@ interface AdminOrderRow {
   attention: { state: "awaiting_staff_review" | "awaiting_customer_response" | "none"; phaseKey: string | null; occurredAt: string | Date | null };
 }
 
+interface AdminOrderPage {
+  items: AdminOrderRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  scope: "active_platform";
+}
+
+const ORDER_QUEUE_PAGE_SIZE = 100;
+
 function adminAttentionLabel(attention: AdminOrderRow["attention"]) {
   if (attention.state === "awaiting_staff_review") return "Customer submission awaiting review";
   if (attention.state === "awaiting_customer_response") return "Awaiting customer response";
@@ -290,6 +304,20 @@ function adminAttentionTone(attention: AdminOrderRow["attention"]): "warning" | 
   if (attention.state === "awaiting_staff_review") return "warning";
   if (attention.state === "awaiting_customer_response") return "teal";
   return "neutral";
+}
+
+function orderQueueErrorMessage(error: unknown): string {
+  const message = errorMessage(error);
+  if (message === "PASSWORD_CHANGE_REQUIRED") {
+    return "This account must change its temporary password before it can access operational records.";
+  }
+  if (message === "MFA_REQUIRED" || message === "MFA_SETUP_REQUIRED" || message === "ADMIN_MFA_REQUIRED") {
+    return "Complete multi-factor authentication setup or verification before accessing operational records.";
+  }
+  if (message === "EMAIL_VERIFICATION_REQUIRED") {
+    return "Verify the account email address before accessing operational records.";
+  }
+  return message;
 }
 
 /** Grid card with inline completion editing; lifecycle status changes stay in the audited order workspace control. */
@@ -409,18 +437,30 @@ export function AdminOrdersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkTrashOpen, setBulkTrashOpen] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const selectedAttention = attention === "awaiting_staff_review" || attention === "awaiting_customer_response"
+    ? attention
+    : undefined;
 
   const orders = trpc.admin.orders.useQuery({
     status: status || undefined,
-    attention: attention === "awaiting_staff_review" || attention === "awaiting_customer_response" ? attention : undefined,
-    limit: 200,
-    offset: 0,
+    attention: selectedAttention,
+    limit: ORDER_QUEUE_PAGE_SIZE,
+    offset,
   });
   const configuredStatuses = trpc.admin.orderStatusOptions.useQuery();
+  const page = (orders.data ?? {
+    items: [],
+    total: 0,
+    limit: ORDER_QUEUE_PAGE_SIZE,
+    offset,
+    hasMore: false,
+    scope: "active_platform",
+  }) as unknown as AdminOrderPage;
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    const list = (orders.data ?? []) as unknown as AdminOrderRow[];
+    const list = page.items;
     if (!needle) return list;
     return list.filter(
       (order) =>
@@ -428,7 +468,28 @@ export function AdminOrdersPage() {
         order.customer.toLowerCase().includes(needle) ||
         (order.projectName ?? "").toLowerCase().includes(needle),
     );
-  }, [orders.data, search]);
+  }, [page.items, search]);
+
+  // Concurrent work or a mutation can empty the last page. Move back one
+  // bounded page instead of leaving an operator at a stranded blank page.
+  useEffect(() => {
+    if (!orders.isFetching && offset > 0 && page.items.length === 0 && page.total <= offset) {
+      setOffset(Math.max(0, offset - ORDER_QUEUE_PAGE_SIZE));
+    }
+  }, [offset, orders.isFetching, page.items.length, page.total]);
+
+  const pageStart = page.total === 0 ? 0 : offset + 1;
+  const pageEnd = Math.min(offset + page.items.length, page.total);
+
+  function resetToFirstPage() {
+    setOffset(0);
+    setSelectedIds([]);
+  }
+
+  function goToOffset(nextOffset: number) {
+    setSelectedIds([]);
+    setOffset(Math.max(0, nextOffset));
+  }
 
   const bulkTrash = trpc.admin.bulkSoftDeleteOrders.useMutation({
     async onSuccess(result) { setSelectedIds([]); setBulkTrashOpen(false); await utils.admin.orders.invalidate(); toast.success(`${result.count} order(s) moved to trash`); },
@@ -535,7 +596,7 @@ export function AdminOrdersPage() {
 
   return (
     <>
-      <CreateOrderModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      <CreateOrderModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={resetToFirstPage} />
       <ConfirmDialog open={bulkTrashOpen} onClose={() => setBulkTrashOpen(false)} onConfirm={() => bulkTrash.mutate({ orderIds: selectedIds, confirmation: "MOVE_TO_TRASH" })} title="Move selected orders to trash?" message={`This soft-deletes ${selectedIds.length} order(s). They can be restored until the configured retention period expires.`} confirmLabel="Move to trash" cancelLabel="Cancel" variant="danger" busy={bulkTrash.isPending} />
       <PageHeader
         title="Order queue"
@@ -569,10 +630,14 @@ export function AdminOrdersPage() {
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex-1 min-w-48">
             <Input
-              label="Search"
+              label="Search current page"
               placeholder="Order number, customer, or project"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSelectedIds([]);
+                setSearch(event.target.value);
+              }}
+              help="Searches the active page. Use the page controls to review older orders."
               leadingIcon={<Search className="size-4" aria-hidden="true" />}
             />
           </div>
@@ -580,7 +645,10 @@ export function AdminOrdersPage() {
             <Select
               label="Status"
               value={status}
-              onChange={(event) => setStatus(event.target.value)}
+              onChange={(event) => {
+                setStatus(event.target.value);
+                resetToFirstPage();
+              }}
               options={[
                 { value: "", label: "All statuses" },
                 ...(configuredStatuses.data ?? []).filter((option) => option.active).map((option) => ({ value: option.key, label: option.label })),
@@ -591,7 +659,10 @@ export function AdminOrdersPage() {
             <Select
               label="Next action"
               value={attention}
-              onChange={(event) => setAttention(event.target.value)}
+              onChange={(event) => {
+                setAttention(event.target.value);
+                resetToFirstPage();
+              }}
               options={[
                 { value: "", label: "All response states" },
                 { value: "awaiting_staff_review", label: "Customer submission awaiting review" },
@@ -626,7 +697,41 @@ export function AdminOrdersPage() {
         </div>
       </Card>
 
-      {orders.isLoading ? (
+      {!orders.isLoading && !orders.isError ? (
+        <nav className="mb-5 flex flex-wrap items-center justify-between gap-3" aria-label="Order queue pages">
+          <p className="text-sm text-muted" aria-live="polite">
+            {page.total === 0
+              ? "No active orders"
+              : `Showing ${pageStart}–${pageEnd} of ${page.total} active order${page.total === 1 ? "" : "s"}.`}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={offset === 0 || orders.isFetching}
+              onClick={() => goToOffset(offset - ORDER_QUEUE_PAGE_SIZE)}
+              leadingIcon={<ChevronLeft className="size-4" aria-hidden="true" />}
+            >
+              Newer
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!page.hasMore || orders.isFetching}
+              onClick={() => goToOffset(offset + ORDER_QUEUE_PAGE_SIZE)}
+              trailingIcon={<ChevronRight className="size-4" aria-hidden="true" />}
+            >
+              Older
+            </Button>
+          </div>
+        </nav>
+      ) : null}
+
+      {orders.isError ? (
+        <Alert tone="danger" title="Order queue could not load">
+          {orderQueueErrorMessage(orders.error)}
+        </Alert>
+      ) : orders.isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 6 }, (_, index) => (
             <Skeleton key={index} className="h-16 w-full" />

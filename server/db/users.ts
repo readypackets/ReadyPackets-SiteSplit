@@ -27,6 +27,7 @@ export interface DecryptedUser {
   notes: string | null;
   role: UserRole;
   loginMethod: string;
+  samlLoginEnabled: boolean;
   status: string;
   emailVerified: boolean;
   mustChangePassword: boolean;
@@ -74,6 +75,7 @@ export function decryptUser(row: UserRow): DecryptedUser {
     notes: decryptField(row.notesEnc, aad),
     role: row.role as UserRole,
     loginMethod: row.loginMethod,
+    samlLoginEnabled: row.samlLoginEnabled,
     status: row.status,
     emailVerified: row.emailVerified,
     mustChangePassword: row.mustChangePassword,

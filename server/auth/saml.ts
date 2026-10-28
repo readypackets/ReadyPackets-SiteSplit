@@ -260,6 +260,18 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
     user = await createUser(input);
     logger.info("saml.user_provisioned", { userId: user.id });
   } else {
+    if (!user.samlLoginEnabled) {
+      await recordSecurityEvent({
+        eventType: "login.failure",
+        outcome: "blocked",
+        severity: "notice",
+        message: "SAML login blocked because this account is configured for local-only sign-in",
+        userId: user.id,
+        ipAddress: req.ip ?? null,
+      });
+      res.redirect(`${env.appUrl}/login?error=saml_local_only`);
+      return;
+    }
     // Ensure the user's login method is set to SAML.
     if (user.loginMethod !== "saml") {
       await db

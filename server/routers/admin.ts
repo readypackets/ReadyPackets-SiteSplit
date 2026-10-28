@@ -121,6 +121,16 @@ function normalizeAppliedWorkflowStages(rawStages: unknown): AppliedWorkflowStag
     .sort((left, right) => left.order - right.order || left.key.localeCompare(right.key));
 }
 
+/** Normal operational paths must not read or mutate records in the admin-only trash. */
+async function assertActiveOrderExists(orderId: number): Promise<void> {
+  const [order] = await db
+    .select({ id: orders.id })
+    .from(orders)
+    .where(and(eq(orders.id, orderId), isNull(orders.deletedAt)))
+    .limit(1);
+  if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found." });
+}
+
 /** Matches historic Phase 1/2 lock keys to the stable keys used by current workflows. */
 function equivalentPhaseKeys(phaseKey: string): string[] {
   if (phaseKey === "phase_1" || phaseKey === "phase_1_intake") return ["phase_1", "phase_1_intake"];
@@ -509,25 +519,57 @@ export const adminRouter = router({
       const conditions = [isNull(orders.deletedAt)];
       if (input?.status) conditions.push(eq(orders.status, input.status));
 
-      const rows = await db
-        .select({
-          id: orders.id,
-          orderNumber: orders.orderNumber,
-          userId: orders.userId,
-          status: orders.status,
-          paymentStatus: orders.paymentStatus,
-          totalCents: orders.totalCents,
-          bundleApplied: orders.bundleApplied,
-          completionPercent: orders.completionPercent,
-          createdAt: orders.createdAt,
-          dueAt: orders.dueAt,
-          projectNameEnc: orders.projectNameEnc,
-        })
-        .from(orders)
-        .where(and(...conditions))
-        .orderBy(desc(orders.createdAt))
-        .limit(input?.limit ?? 50)
-        .offset(input?.offset ?? 0);
+      // Apply queue attention predicates before paging. Filtering an already
+      // bounded page would make older matching orders undiscoverable.
+      const awaitingStaffReview = sql`EXISTS (
+        SELECT 1
+        FROM ${orderPhaseLocks}
+        WHERE ${orderPhaseLocks.orderId} = ${orders.id}
+          AND ${orderPhaseLocks.unlockedAt} IS NULL
+          AND ${orderPhaseLocks.reviewedAt} IS NULL
+      )`;
+      const awaitingCustomerResponse = sql`EXISTS (
+        SELECT 1
+        FROM ${orderQuestions}
+        WHERE ${orderQuestions.orderId} = ${orders.id}
+          AND ${orderQuestions.status} = ${"open"}
+      )`;
+      if (input?.attention === "awaiting_staff_review") conditions.push(awaitingStaffReview);
+      if (input?.attention === "awaiting_customer_response") {
+        // Keep the same precedence as getOrderAttentionStates: a submitted
+        // phase awaiting staff review takes priority over an open question.
+        conditions.push(sql`${awaitingCustomerResponse} AND NOT ${awaitingStaffReview}`);
+      }
+
+      const limit = input?.limit ?? 100;
+      const offset = input?.offset ?? 0;
+
+      const [pageWithSentinel, totalRows] = await Promise.all([
+        db
+          .select({
+            id: orders.id,
+            orderNumber: orders.orderNumber,
+            userId: orders.userId,
+            status: orders.status,
+            paymentStatus: orders.paymentStatus,
+            totalCents: orders.totalCents,
+            bundleApplied: orders.bundleApplied,
+            completionPercent: orders.completionPercent,
+            createdAt: orders.createdAt,
+            dueAt: orders.dueAt,
+            projectNameEnc: orders.projectNameEnc,
+          })
+          .from(orders)
+          .where(and(...conditions))
+          // An ID tie-breaker makes page boundaries deterministic when orders
+          // were created in the same timestamp tick.
+          .orderBy(desc(orders.createdAt), desc(orders.id))
+          .limit(limit + 1)
+          .offset(offset),
+        db.select({ total: count() }).from(orders).where(and(...conditions)),
+      ]);
+      const hasMore = pageWithSentinel.length > limit;
+      const rows = hasMore ? pageWithSentinel.slice(0, limit) : pageWithSentinel;
 
       const customerNames = new Map<number, string>();
       for (const userId of new Set(rows.map((row) => row.userId))) {
@@ -551,7 +593,14 @@ export const adminRouter = router({
         dueAt: row.dueAt,
         attention: attentionByOrder.get(row.id) ?? { state: "none" as const, phaseKey: null, occurredAt: null },
       }));
-      return input?.attention ? result.filter((row) => row.attention.state === input.attention) : result;
+      return {
+        items: result,
+        total: Number(totalRows[0]?.total ?? 0),
+        limit,
+        offset,
+        hasMore,
+        scope: "active_platform" as const,
+      };
     }),
 
   trashedOrders: adminProcedure
@@ -646,7 +695,7 @@ export const adminRouter = router({
   orderDetail: staffProcedure
     .input(z.object({ orderId: z.number().int().positive() }))
     .query(async ({ input }) => {
-      const rows = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
+      const rows = await db.select().from(orders).where(and(eq(orders.id, input.orderId), isNull(orders.deletedAt))).limit(1);
       const order = rows[0];
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found." });
 
@@ -819,6 +868,7 @@ export const adminRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertActiveOrderExists(input.orderId);
       const patch: Partial<typeof orders.$inferInsert> = {};
       if (input.completionPercent !== undefined) patch.completionPercent = input.completionPercent;
       if (input.dueAt !== undefined) patch.dueAt = input.dueAt ? new Date(input.dueAt) : null;
@@ -857,6 +907,7 @@ export const adminRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertActiveOrderExists(input.orderId);
       const inserted = await db.insert(orderNotes).values({
         orderId: input.orderId,
         authorUserId: ctx.session.user.id,
@@ -896,6 +947,7 @@ export const adminRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertActiveOrderExists(input.orderId);
       const inserted = await db.insert(orderQuestions).values({
         orderId: input.orderId,
         askedByUserId: ctx.session.user.id,
@@ -997,6 +1049,7 @@ export const adminRouter = router({
   applyQuestionTemplate: staffProcedure
     .input(z.object({ orderId: z.number().int().positive(), templateId: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
+      await assertActiveOrderExists(input.orderId);
       const template = (await db.select().from(orderQuestionTemplates).where(and(eq(orderQuestionTemplates.id, input.templateId), eq(orderQuestionTemplates.isActive, true))).limit(1))[0];
       if (!template) throw new TRPCError({ code: "NOT_FOUND", message: "Question template not found." });
       const phases = template.phase === "both" ? ["phase_1", "phase_2"] : [template.phase || "unassigned"];
@@ -1015,6 +1068,7 @@ export const adminRouter = router({
     .mutation(async ({ ctx, input }) => {
       const question = (await db.select({ id: orderQuestions.id, orderId: orderQuestions.orderId }).from(orderQuestions).where(eq(orderQuestions.id, input.questionId)).limit(1))[0];
       if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found." });
+      await assertActiveOrderExists(question.orderId);
       const existing = (await db.select().from(orderAnswers).where(eq(orderAnswers.questionId, input.questionId)).limit(1))[0];
       if (existing) {
         await db.insert(orderAnswerHistory).values({ answerId: existing.id, previousAnswerEnc: existing.answerEnc, version: existing.version, changedByUserId: ctx.session.user.id });
@@ -1224,6 +1278,7 @@ export const adminRouter = router({
           status: user.status,
           emailVerified: user.emailVerified,
           mfaEnabled: user.mfaEnabled,
+          samlLoginEnabled: user.samlLoginEnabled,
           loginMethod: user.loginMethod,
           timezone: user.timezone,
           notes: user.notes,
@@ -1479,7 +1534,18 @@ export const adminRouter = router({
         message: `Account role changed to ${input.role}`,
         userId: input.userId,
         ipAddress: ctx.clientIp,
-        metadata: { actorUserId: ctx.session.user.id },
+        metadata: { actorUserId: ctx.session.user.id, role: input.role },
+      });
+      void recordActivity({
+        actorUserId: ctx.session.user.id,
+        actorRole: "admin",
+        action: "account.role_changed",
+        entityType: "user",
+        entityId: input.userId,
+        severity: "warning",
+        summary: `Administrator changed account role to ${input.role}`,
+        changes: { role: input.role },
+        ipAddress: ctx.clientIp,
       });
       return { ok: true as const };
     }),
@@ -1512,7 +1578,20 @@ export const adminRouter = router({
         message: `New ${input.role} account created`,
         userId: user.id,
         ipAddress: ctx.clientIp,
-        metadata: { actorUserId: ctx.session.user.id },
+        metadata: { actorUserId: ctx.session.user.id, role: input.role },
+      });
+      // The activity stream intentionally contains role and IDs only. It must
+      // never retain the temporary password or account identifier.
+      void recordActivity({
+        actorUserId: ctx.session.user.id,
+        actorRole: "admin",
+        action: "account.provisioned",
+        entityType: "user",
+        entityId: user.id,
+        severity: "warning",
+        summary: `Administrator provisioned ${input.role} account`,
+        changes: { role: input.role, mustChangePassword: true },
+        ipAddress: ctx.clientIp,
       });
 
       return { ok: true as const, userId: user.id, temporaryPassword: temporary };
@@ -1801,6 +1880,7 @@ export const adminRouter = router({
   reviewWorkflowPhase: staffProcedure
     .input(z.object({ orderId: z.number().int().positive(), phaseKey: z.string().trim().regex(/^[a-z0-9_]+$/).max(64) }))
     .mutation(async ({ ctx, input }) => {
+      await assertActiveOrderExists(input.orderId);
       const lockRows = await db
         .select({ id: orderPhaseLocks.id })
         .from(orderPhaseLocks)
@@ -1831,6 +1911,7 @@ export const adminRouter = router({
       confirmation: z.literal("UNLOCK PHASE"),
     }))
     .mutation(async ({ ctx, input }) => {
+      await assertActiveOrderExists(input.orderId);
       const lockRows = await db
         .select({ id: orderPhaseLocks.id, phaseKey: orderPhaseLocks.phaseKey })
         .from(orderPhaseLocks)
@@ -1859,20 +1940,23 @@ export const adminRouter = router({
 
   workflowStageRuns: staffProcedure
     .input(z.object({ orderId: z.number().int().positive() }))
-    .query(async ({ input }) =>
-      db.select().from(workflowStageRuns).where(eq(workflowStageRuns.orderId, input.orderId)).orderBy(desc(workflowStageRuns.startedAt), desc(workflowStageRuns.id)),
-    ),
+    .query(async ({ input }) => {
+      await assertActiveOrderExists(input.orderId);
+      return db.select().from(workflowStageRuns).where(eq(workflowStageRuns.orderId, input.orderId)).orderBy(desc(workflowStageRuns.startedAt), desc(workflowStageRuns.id));
+    }),
 
   workflowCompletionJobs: staffProcedure
     .input(z.object({ orderId: z.number().int().positive() }))
-    .query(async ({ input }) =>
-      db.select().from(workflowCompletionJobs).where(eq(workflowCompletionJobs.orderId, input.orderId)).orderBy(desc(workflowCompletionJobs.createdAt), desc(workflowCompletionJobs.id)),
-    ),
+    .query(async ({ input }) => {
+      await assertActiveOrderExists(input.orderId);
+      return db.select().from(workflowCompletionJobs).where(eq(workflowCompletionJobs.orderId, input.orderId)).orderBy(desc(workflowCompletionJobs.createdAt), desc(workflowCompletionJobs.id));
+    }),
 
   runWorkflowStageActions: adminProcedure
     .input(z.object({ orderId: z.number().int().positive(), stageKey: z.string().trim().regex(/^[a-z0-9_]+$/).max(64) }))
     .mutation(async ({ ctx, input }) => {
       try {
+        await assertActiveOrderExists(input.orderId);
         return await runWorkflowStageActions({ orderId: input.orderId, stageKey: input.stageKey, actorUserId: ctx.session.user.id, actorRole: "admin", ipAddress: ctx.clientIp });
       } catch (error) {
         return toTrpcError(error);
@@ -2807,6 +2891,9 @@ export const adminRouter = router({
     .mutation(async ({ ctx, input }) => {
       const user = await getUserById(input.userId);
       if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found." });
+      if (user.loginMethod !== "local") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Convert this single sign-on account to local sign-in before resetting its password." });
+      }
       const temporary = `${randomToken(9)}Aa1!`;
       await db
         .update(users)
@@ -2821,6 +2908,63 @@ export const adminRouter = router({
         ipAddress: ctx.clientIp,
         metadata: { targetUserId: input.userId },
       });
+      return { ok: true as const, temporaryPassword: temporary };
+    }),
+
+  /**
+   * Convert one SSO account to local-only authentication without changing the
+   * user's role, data, MFA enrolment, or customer/order access. The password is
+   * generated server-side, shown once to the acting administrator, and must be
+   * changed at the next sign-in. SAML is explicitly disabled for this identity
+   * so a subsequent SSO assertion cannot silently switch it back.
+   */
+  convertSamlAccountToLocal: adminProcedure
+    .input(z.object({ userId: z.number().int().positive(), confirmation: z.literal("ENABLE LOCAL LOGIN") }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.userId === ctx.session.user.id) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Use a different active administrator to convert your own sign-in method." });
+      }
+      const user = await getUserById(input.userId);
+      if (!user || user.status !== "active") throw new TRPCError({ code: "NOT_FOUND", message: "Active user not found." });
+      if (user.loginMethod !== "saml") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account is already configured for local sign-in." });
+      }
+
+      const temporary = `${randomToken(9)}Aa1!`;
+      await db
+        .update(users)
+        .set({
+          passwordHash: await hashPassword(temporary),
+          passwordChangedAt: new Date(),
+          mustChangePassword: true,
+          loginMethod: "local",
+          samlLoginEnabled: false,
+          failedLoginCount: 0,
+          lockedUntil: null,
+        })
+        .where(and(eq(users.id, input.userId), isNull(users.deletedAt)));
+      await revokeAllUserSessions(input.userId, "saml_converted_to_local");
+
+      void recordSecurityEvent({
+        eventType: "settings.changed",
+        severity: "warning",
+        message: "Administrator converted SSO account to local-only sign-in",
+        userId: input.userId,
+        ipAddress: ctx.clientIp,
+        metadata: { actorUserId: ctx.session.user.id, authenticationMethod: "local", samlLoginEnabled: false },
+      });
+      void recordActivity({
+        actorUserId: ctx.session.user.id,
+        actorRole: "admin",
+        action: "account.saml_converted_to_local",
+        entityType: "user",
+        entityId: input.userId,
+        severity: "warning",
+        summary: "Administrator converted an SSO account to local-only sign-in",
+        changes: { authenticationMethod: "local", samlLoginEnabled: false, mustChangePassword: true },
+        ipAddress: ctx.clientIp,
+      });
+
       return { ok: true as const, temporaryPassword: temporary };
     }),
 

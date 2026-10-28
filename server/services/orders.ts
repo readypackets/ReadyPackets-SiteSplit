@@ -987,7 +987,7 @@ export async function assertOrderAccess(
     const exists = await db
       .select({ id: orders.id })
       .from(orders)
-      .where(eq(orders.id, orderId))
+      .where(and(eq(orders.id, orderId), isNull(orders.deletedAt)))
       .limit(1);
     if (!exists[0]) throw new OrderStateError("Order not found.");
     return;
