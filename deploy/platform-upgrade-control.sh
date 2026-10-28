@@ -98,7 +98,10 @@ load_runtime_config() {
 
 safe_copy_tree() {
   local source="$1" destination="$2"
-  rm -rf "$destination"
+  # A failed installer can leave this shell in SOURCE_DIR. Move away before
+  # replacing any whole tree so rollback never unlinks its own working directory.
+  cd -- /
+  rm -rf -- "$destination"
   mkdir -p "$destination"
   cp -a "$source/." "$destination/"
 }

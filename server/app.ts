@@ -275,8 +275,8 @@ export function createApp(): Express {
   // an HTTPS OAuth callback back into the native app. Certificate fingerprints
   // are public identifiers, never private signing material.
   app.get("/.well-known/assetlinks.json", (_req: Request, res: Response) => {
-    if (env.androidAppLink.sha256CertFingerprints.length === 0) {
-      res.status(404).type("text/plain").send("Android App Link association is not configured");
+    if (!env.mobile.enabled || env.androidAppLink.sha256CertFingerprints.length === 0) {
+      res.status(404).type("text/plain").send("Not found");
       return;
     }
     res
@@ -294,10 +294,6 @@ export function createApp(): Express {
         },
       ]);
   });
-
-  // Health probes must stay cheap and must not require a session, but they also
-  // must not disclose anything useful to an unauthenticated caller.
-  app.use(createMobileDiscoveryRouter());
 
   app.get("/api/health", (_req: Request, res: Response) => {
     res.status(200).json({ status: "ok" });
@@ -330,6 +326,18 @@ export function createApp(): Express {
     }
   );
 
+  // Native OAuth is opt-in. Keep the disabled surface indistinguishable from a
+  // missing route before it can reach body parsing, CSRF, or stateful routing.
+  // Strict-host, HTTPS, security-header, and IP-blocklist controls have already
+  // run above.
+  if (!env.mobile.enabled) {
+    const mobileNotFound = (_req: Request, res: Response) => {
+      res.status(404).type("application/json").json({ error: "Not found" });
+    };
+    app.all("/.well-known/openid-configuration", mobileNotFound);
+    app.use("/api/mobile", mobileNotFound);
+  }
+
   app.use(
     express.json({
       limit: "256kb",
@@ -341,6 +349,9 @@ export function createApp(): Express {
   app.use(cookieParser());
 
   app.use(rateLimitMiddleware());
+  if (env.mobile.enabled) {
+    app.use(createMobileDiscoveryRouter());
+  }
   app.use(csrfMiddleware());
 
   // Maintenance mode: the API and the site are closed to everyone except an
@@ -394,7 +405,9 @@ export function createApp(): Express {
   app.get("/api/saml/logout", handleLogout);
   app.use("/api/integrations/sharepoint", createSharePointDelegatedAuthRouter());
   // Native OAuth/bearer routes use their own PKCE/token controls and never accept browser cookies as credentials.
-  app.use("/api/mobile/v1", createMobileRouter());
+  if (env.mobile.enabled) {
+    app.use("/api/mobile/v1", createMobileRouter());
+  }
 
   /**
    * Return a same-origin CSRF cookie without accepting any caller-supplied token.

@@ -79,6 +79,21 @@ function bool(key: string, fallback: boolean): boolean {
   return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
 }
 
+/**
+ * Security-sensitive feature flags must not silently accept ambiguous values.
+ * Mobile OAuth is intentionally opt-in: an ordinary web-only Portal deployment
+ * remains unavailable to mobile clients until an operator explicitly enables it.
+ */
+function strictBool(key: string, fallback: boolean): boolean {
+  const raw = optional(key);
+  if (raw === undefined) return fallback;
+  const normalized = raw.toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  problems.push(`${key} must be true or false`);
+  return fallback;
+}
+
 function list(key: string): string[] {
   const raw = optional(key);
   if (!raw) return [];
@@ -160,38 +175,50 @@ function httpsUrl(key: string, raw: string): URL {
   return value;
 }
 
-const mobileIssuerFallback = isProduction ? appUrl.origin : "https://mobile-issuer.invalid";
-const mobileIssuerUrl = httpsUrl("MOBILE_OAUTH_ISSUER", optional("MOBILE_OAUTH_ISSUER") ?? mobileIssuerFallback);
-if (isProduction && mobileIssuerUrl.origin !== appUrl.origin) {
+// Native OAuth is an explicit opt-in feature. Older web-only installations do
+// not have mobile secrets or verified callback hosts and must remain deployable.
+// When disabled, every mobile-specific value is inert and intentionally ignored.
+const mobileEnabled = strictBool("MOBILE_ENABLED", false);
+const mobileIssuerFallback = appUrl.origin;
+const mobileIssuerUrl = mobileEnabled
+  ? httpsUrl("MOBILE_OAUTH_ISSUER", optional("MOBILE_OAUTH_ISSUER") ?? mobileIssuerFallback)
+  : appUrl;
+if (mobileEnabled && isProduction && mobileIssuerUrl.origin !== appUrl.origin) {
   problems.push("MOBILE_OAUTH_ISSUER must match the canonical APP_URL origin in production");
 }
-const mobileRedirectUris = list("MOBILE_OAUTH_REDIRECT_URIS");
-if (isProduction && mobileRedirectUris.length === 0) {
+const mobileRedirectUris = mobileEnabled ? list("MOBILE_OAUTH_REDIRECT_URIS") : [];
+if (mobileEnabled && isProduction && mobileRedirectUris.length === 0) {
   problems.push("MOBILE_OAUTH_REDIRECT_URIS must contain at least one registered HTTPS App or Universal Link callback in production");
 }
-for (const redirectUri of mobileRedirectUris) {
-  const callback = httpsUrl("MOBILE_OAUTH_REDIRECT_URIS", redirectUri);
-  if (callback.pathname !== "/auth/callback") {
-    problems.push("MOBILE_OAUTH_REDIRECT_URIS callbacks must use the exact /auth/callback path");
+if (mobileEnabled) {
+  for (const redirectUri of mobileRedirectUris) {
+    const callback = httpsUrl("MOBILE_OAUTH_REDIRECT_URIS", redirectUri);
+    if (callback.pathname !== "/auth/callback") {
+      problems.push("MOBILE_OAUTH_REDIRECT_URIS callbacks must use the exact /auth/callback path");
+    }
   }
 }
-const mobileAccessTokenSecret = secret("MOBILE_ACCESS_TOKEN_SECRET", 48);
-if (isProduction && mobileAccessTokenSecret === secret("SESSION_SECRET", 48)) {
+const mobileAccessTokenSecret = mobileEnabled ? secret("MOBILE_ACCESS_TOKEN_SECRET", 48) : "";
+if (mobileEnabled && isProduction && mobileAccessTokenSecret === secret("SESSION_SECRET", 48)) {
   problems.push("MOBILE_ACCESS_TOKEN_SECRET must differ from SESSION_SECRET");
 }
-const mobileAccessTokenKeyId = str("MOBILE_ACCESS_TOKEN_KID", "mobile-access-v1");
-if (!/^[A-Za-z0-9._-]{3,64}$/.test(mobileAccessTokenKeyId)) {
+const mobileAccessTokenKeyId = mobileEnabled ? str("MOBILE_ACCESS_TOKEN_KID", "mobile-access-v1") : "mobile-disabled";
+if (mobileEnabled && !/^[A-Za-z0-9._-]{3,64}$/.test(mobileAccessTokenKeyId)) {
   problems.push("MOBILE_ACCESS_TOKEN_KID must contain 3-64 letters, digits, periods, underscores, or hyphens");
 }
+const mobileAccessTokenTtlSeconds = mobileEnabled ? num("MOBILE_ACCESS_TOKEN_TTL_SECONDS", 600) : 600;
+const mobileRefreshTokenTtlDays = mobileEnabled ? num("MOBILE_REFRESH_TOKEN_TTL_DAYS", 30) : 30;
 
-const androidAppLinkPackageName = str("ANDROID_APP_LINK_PACKAGE_NAME", "com.readypackets.mobile");
-if (!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(androidAppLinkPackageName)) {
+const androidAppLinkPackageName = mobileEnabled ? str("ANDROID_APP_LINK_PACKAGE_NAME", "com.readypackets.mobile") : "com.readypackets.mobile";
+if (mobileEnabled && !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(androidAppLinkPackageName)) {
   problems.push("ANDROID_APP_LINK_PACKAGE_NAME must be a valid Android package name");
 }
-const androidAppLinkCertFingerprints = list("ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS");
-for (const fingerprint of androidAppLinkCertFingerprints) {
-  if (!/^[A-Fa-f0-9]{2}(?::[A-Fa-f0-9]{2}){31}$/.test(fingerprint)) {
-    problems.push("ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS entries must be colon-separated SHA-256 certificate fingerprints");
+const androidAppLinkCertFingerprints = mobileEnabled ? list("ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS") : [];
+if (mobileEnabled) {
+  for (const fingerprint of androidAppLinkCertFingerprints) {
+    if (!/^[A-Fa-f0-9]{2}(?::[A-Fa-f0-9]{2}){31}$/.test(fingerprint)) {
+      problems.push("ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS entries must be colon-separated SHA-256 certificate fingerprints");
+    }
   }
 }
 
@@ -317,12 +344,13 @@ export const env = {
 
   /** Native clients use OAuth 2.1/OIDC + PKCE; callback hosts are explicitly allowlisted. */
   mobile: {
+    enabled: mobileEnabled,
     issuer: mobileIssuerUrl.origin,
     redirectUris: mobileRedirectUris,
     accessTokenSecret: mobileAccessTokenSecret,
     accessTokenKeyId: mobileAccessTokenKeyId,
-    accessTokenTtlSeconds: num("MOBILE_ACCESS_TOKEN_TTL_SECONDS", 600),
-    refreshTokenTtlDays: num("MOBILE_REFRESH_TOKEN_TTL_DAYS", 30),
+    accessTokenTtlSeconds: mobileAccessTokenTtlSeconds,
+    refreshTokenTtlDays: mobileRefreshTokenTtlDays,
   },
   androidAppLink: {
     packageName: androidAppLinkPackageName,

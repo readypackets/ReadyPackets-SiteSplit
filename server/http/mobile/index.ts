@@ -101,6 +101,12 @@ async function runIdempotent<T>(req: MobileRequest, route: string, body: unknown
 
 export function createMobileDiscoveryRouter(): Router {
   const router = Router();
+  if (!env.mobile.enabled) {
+    router.use((_req, res) => {
+      res.status(404).type("application/json").json({ error: "Not found" });
+    });
+    return router;
+  }
   router.get("/.well-known/openid-configuration", (_req, res) => {
     res.setHeader("Cache-Control", "no-store").json({
       issuer: env.mobile.issuer,
@@ -119,6 +125,12 @@ export function createMobileDiscoveryRouter(): Router {
 
 export function createMobileRouter(): Router {
   const router = Router();
+  if (!env.mobile.enabled) {
+    router.use((_req, res) => {
+      res.status(404).type("application/json").json({ error: "Not found" });
+    });
+    return router;
+  }
   router.use((req, res, next) => {
     const supplied = typeof req.headers["x-correlation-id"] === "string" ? req.headers["x-correlation-id"] : "";
     const id = /^[A-Za-z0-9_-]{12,96}$/.test(supplied) ? supplied : correlationId();

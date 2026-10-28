@@ -22,13 +22,31 @@ import { recordSecurityEvent } from "../observability/audit.js";
 
 export const MOBILE_CLIENT_ID = "readypackets-native";
 const ACCESS_AUDIENCE = "readypackets-mobile-v1";
-const key = new TextEncoder().encode(env.mobile.accessTokenSecret);
 const MOBILE_SCOPES = new Set(["mobile:read", "mobile:write"]);
 
 export class MobileOAuthError extends Error {
   constructor(public readonly code: string, message: string, public readonly status = 400) {
     super(message);
   }
+}
+
+/**
+ * Mobile OAuth is an operator-enabled surface. Keep this defensive guard inside
+ * the primitive module as well as at the Express mount so future callers cannot
+ * accidentally issue or verify a token from an inert web-only configuration.
+ */
+function requireMobileEnabled(): void {
+  if (!env.mobile.enabled) {
+    throw new MobileOAuthError("not_found", "The requested resource was not found.", 404);
+  }
+}
+
+function mobileAccessTokenKey(): Uint8Array {
+  requireMobileEnabled();
+  if (!env.mobile.accessTokenSecret) {
+    throw new MobileOAuthError("server_error", "Mobile authorization is unavailable.", 503);
+  }
+  return new TextEncoder().encode(env.mobile.accessTokenSecret);
 }
 
 export interface MobilePrincipal {
@@ -67,6 +85,7 @@ function approvedScopes(requested: string[]): string[] {
 }
 
 export function allowedRedirectUri(value: string): string {
+  requireMobileEnabled();
   if (!env.mobile.redirectUris.includes(value)) {
     throw new MobileOAuthError("invalid_request", "The mobile redirect URI is not registered.");
   }
@@ -120,6 +139,7 @@ async function ensureDevice(userId: number, input: AuthorizeInput): Promise<void
 }
 
 export async function createAuthorizationCode(userId: number, input: AuthorizeInput, audit: { ip?: string | null; userAgent?: string | null }): Promise<string> {
+  requireMobileEnabled();
   await ensureDevice(userId, input);
   const code = opaque();
   await db.insert(mobileAuthorizationCodes).values({
@@ -144,6 +164,7 @@ export async function createAuthorizationCode(userId: number, input: AuthorizeIn
 }
 
 async function signAccessToken(sessionId: string, userId: number, deviceId: string, scopes: string[]): Promise<string> {
+  const key = mobileAccessTokenKey();
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({ sid: sessionId, uid: userId, did: deviceId, scope: scopes.join(" ") })
     .setProtectedHeader({ alg: "HS256", typ: "at+jwt", kid: env.mobile.accessTokenKeyId })
@@ -173,6 +194,7 @@ function accountEligible(user: { status: string; emailVerified: boolean; mfaEnab
 }
 
 export async function exchangeAuthorizationCode(input: { code: string; codeVerifier: string; redirectUri: string; clientId: string; ip?: string | null; userAgent?: string | null }) {
+  requireMobileEnabled();
   if (input.clientId !== MOBILE_CLIENT_ID) throw new MobileOAuthError("unauthorized_client", "The native application client is not recognized.", 401);
   allowedRedirectUri(input.redirectUri);
   if (!/^[A-Za-z0-9._~-]{43,128}$/.test(input.codeVerifier)) throw new MobileOAuthError("invalid_request", "A valid PKCE verifier is required.");
@@ -207,6 +229,7 @@ async function revokeFamily(familyId: string, reason: string, metadata?: { userI
 }
 
 export async function rotateRefreshToken(input: { refreshToken: string; clientId: string; ip?: string | null; userAgent?: string | null }) {
+  requireMobileEnabled();
   if (input.clientId !== MOBILE_CLIENT_ID) throw new MobileOAuthError("unauthorized_client", "The native application client is not recognized.", 401);
   const row = (await db.select().from(mobileRefreshTokens).where(eq(mobileRefreshTokens.tokenHash, digest(input.refreshToken))).limit(1))[0];
   if (!row) throw new MobileOAuthError("invalid_grant", "The refresh token is invalid.", 401);
@@ -259,6 +282,7 @@ export async function revokeMobileSessionsForUser(userId: number, reason: string
 }
 
 export async function resolveMobilePrincipal(accessToken: string): Promise<MobilePrincipal> {
+  const key = mobileAccessTokenKey();
   let payload: Record<string, unknown>;
   try {
     const verified = await jwtVerify(accessToken, key, { issuer: env.mobile.issuer, audience: ACCESS_AUDIENCE, algorithms: ["HS256"] });

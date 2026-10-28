@@ -27,7 +27,7 @@ ReadyPackets now operates as two deliberate web surfaces:
 
 ## Required release configuration
 
-Portal production needs `APP_URL=https://my.readypackets.com`, matching `MOBILE_OAUTH_ISSUER`, an independently generated `MOBILE_ACCESS_TOKEN_SECRET`, exact `MOBILE_OAUTH_REDIRECT_URIS`, and optionally a validated `SYSLOG_TARGET=tls://host:6514`.
+Ordinary web-only Portal production keeps `MOBILE_ENABLED=false` (the default). Native OAuth/discovery and Android App Link association routes then return `404`, and mobile-only issuer, callback, signing-key, and fingerprint values are inert. A native mobile release must explicitly set `MOBILE_ENABLED=true` and then provide `APP_URL=https://my.readypackets.com`, matching `MOBILE_OAUTH_ISSUER`, an independently generated `MOBILE_ACCESS_TOKEN_SECRET`, exact `MOBILE_OAUTH_REDIRECT_URIS`, and optionally a validated `SYSLOG_TARGET=tls://host:6514`. Startup fails closed if an enabled mobile release omits or weakens those prerequisites.
 
 Native protected release environments need `PORTAL_BASE_URL`, `MARKETING_BASE_URL`, `OAUTH_REDIRECT_URI`, and `MOBILE_APP_LINK_HOST`. Production public browser links should use `https://www.readypackets.com`; they are not trusted as Portal links.
 
@@ -42,7 +42,7 @@ Native protected release environments need `PORTAL_BASE_URL`, `MARKETING_BASE_UR
 
 ## Functional Android test APK follow-up
 
-The selected authenticated test topology is `https://my.readypackets.com` for Portal/API and verified Android App Link callback, and `https://www.readypackets.com` for public website navigation. The Portal source now serves `/.well-known/assetlinks.json` from the public, validated `ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS` setting. The deployment must publish the current Portal source, configure the exact callback in `MOBILE_OAUTH_REDIRECT_URIS`, and ensure Cloudflare does not challenge or block the association document. A protected GitHub environment holds the matching test signing key; its private material must never enter the Portal repository or server environment.
+The selected authenticated test topology is `https://my.readypackets.com` for Portal/API and verified Android App Link callback, and `https://www.readypackets.com` for public website navigation. With `MOBILE_ENABLED=true`, the Portal source serves `/.well-known/assetlinks.json` from the public, validated `ANDROID_APP_LINK_SHA256_CERT_FINGERPRINTS` setting. The deployment must publish the current Portal source, configure the exact callback in `MOBILE_OAUTH_REDIRECT_URIS`, and ensure Cloudflare does not challenge or block the association document. A protected GitHub environment holds the matching test signing key; its private material must never enter the Portal repository or server environment.
 
 
 ## Beta Microsoft Entra SAML registration follow-up

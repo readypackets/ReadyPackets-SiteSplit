@@ -5,6 +5,9 @@ info:
   description: |
     Self-hosted REST boundary for the native ReadyPackets iOS and Android applications.
     Browser tRPC and cookie/CSRF contracts are not part of this API.
+    This boundary and OIDC discovery are available only when the operator sets
+    MOBILE_ENABLED=true with all required native OAuth configuration. Disabled
+    installations return generic HTTP 404 responses for this API and discovery.
 servers:
   - url: https://{host}/api/mobile/v1
     variables:

@@ -1,12 +1,51 @@
+import { createServer, request } from "node:http";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../server/app.js";
+import { env } from "../server/config/env.js";
 
 describe("Express 5 startup compatibility", () => {
   it("constructs the complete application without path-to-regexp startup errors", () => {
     expect(() => createApp()).not.toThrow();
+  });
+
+  it("returns generic 404 responses for every mobile surface until an operator explicitly enables mobile OAuth", async () => {
+    const server = createServer(createApp());
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Test server did not bind a TCP port.");
+    try {
+      for (const [path, options] of [
+        ["/.well-known/openid-configuration", {}],
+        ["/.well-known/assetlinks.json", {}],
+        ["/api/mobile/v1/authorize", {}],
+        ["/api/mobile/v1/token", { method: "POST" }],
+        ["/api/mobile/v1/revoke", { method: "POST" }],
+      ] as const) {
+        const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+          const req = request({
+            host: "127.0.0.1",
+            port: address.port,
+            path,
+            method: options.method ?? "GET",
+            headers: { Host: env.appHostname },
+          }, (res) => {
+            let body = "";
+            res.setEncoding("utf8");
+            res.on("data", (chunk: string) => { body += chunk; });
+            res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+          });
+          req.on("error", reject);
+          req.end();
+        });
+        expect(response.status, path).toBe(404);
+        expect(response.body, path).not.toContain("<!doctype html");
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
   });
 
   it("uses a named brace catch-all for the GET-only SPA fallback", () => {

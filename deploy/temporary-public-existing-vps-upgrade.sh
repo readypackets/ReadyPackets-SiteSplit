@@ -156,6 +156,9 @@ prepare_validation_staging_root() {
 
 safe_copy_tree() {
   local source="$1" destination="$2"
+  # A failed installer can leave this shell in SOURCE_DIR. Move away before
+  # replacing any whole tree so rollback never unlinks its own working directory.
+  cd -- /
   rm -rf -- "$destination"
   install -d -m 0700 -o root -g root "$destination"
   cp -a -- "$source/." "$destination/"

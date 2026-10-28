@@ -59,6 +59,7 @@ describe("existing-VPS runtime configuration preservation", () => {
     expect(installerSource).toContain("STORAGE_DRIVER=local");
     expect(installerSource).toContain("SMTP_HOST=");
     expect(installerSource).toContain("SAML_ENABLED=false");
+    expect(installerSource).toContain("MOBILE_ENABLED=false");
   });
 
   it("passes the preservation and no-seed contract through both supported existing-host update paths", () => {
@@ -78,6 +79,25 @@ describe("existing-VPS runtime configuration preservation", () => {
     expect(publicSource).toContain("UPGRADE READY PACKETS");
     expect(publicSource).not.toMatch(/git\s+pull|checkout\s+main/);
     expect(controlledSource).toContain("flock -n 9");
+  });
+
+  it("leaves a replaceable tree before deployment or rollback removes it", () => {
+    for (const [name, source] of [
+      ["temporary-public updater", publicSource],
+      ["controlled updater", controlledSource],
+    ] as const) {
+      const start = source.indexOf("safe_copy_tree() {");
+      const end = source.indexOf("\n}\n", start);
+      expect(start, `${name} must define the guarded tree copier`).toBeGreaterThanOrEqual(0);
+      expect(end, `${name} tree copier must end`).toBeGreaterThan(start);
+      const helper = source.slice(start, end);
+      expect(helper).toMatch(/cd -- \/\n\s*rm -rf -- "\$destination"/);
+      expect(source).not.toMatch(/rm -rf(?: --)?\s+(?:--\s+)?"\$SOURCE_DIR"/);
+    }
+    expect(publicSource).toContain('safe_copy_tree "$WORK_DIR/source" "$SOURCE_DIR"');
+    expect(publicSource).toContain('safe_copy_tree "${SNAPSHOT}/source" "$SOURCE_DIR"');
+    expect(controlledSource).toContain('safe_copy_tree "$work" "$SOURCE_DIR"');
+    expect(controlledSource).toContain('safe_copy_tree "$snapshot/source" "$SOURCE_DIR"');
   });
 
   it("makes only the explicit staged source path traversable for unprivileged validation", () => {

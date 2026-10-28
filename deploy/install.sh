@@ -669,6 +669,11 @@ SAML_ENTRY_POINT=
 SAML_ISSUER=
 SAML_IDP_CERT=
 
+# Native OAuth is an explicit post-install release gate. Web-only Portal
+# deployments remain fail-closed until exact callbacks and a distinct token key
+# are configured by the native mobile release procedure.
+MOBILE_ENABLED=false
+
 # Comma-separated addresses or CIDR ranges permitted to reach /admin.
 ADMIN_IP_ALLOWLIST=
 
