@@ -972,7 +972,10 @@ async function processJob(job: {
       case "attach_placeholders":
         await jobAttachPlaceholders(job.orderId, job.phase);
         break;
-      case "notify_webhooks":
+      // `dispatch_webhooks` was emitted by an earlier automatic-transition
+      // path. Treat queued legacy work as the canonical notification job so
+      // it is delivered once, without rewriting completed history.
+      case "notify_webhooks": case "dispatch_webhooks":
         await jobNotifyWebhooks(job.orderId, job.phase);
         break;
       case "notify_customer":

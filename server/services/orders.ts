@@ -822,7 +822,10 @@ export async function enqueuePhaseJobs(orderId: number, phase: OrderStatus): Pro
   if (config.createFolders) jobs.push({ jobType: "create_folders" });
   if (config.attachPlaceholders) jobs.push({ jobType: "attach_placeholders" });
   if (config.notifyCustomer) jobs.push({ jobType: "notify_customer" });
-  if (config.notifyWebhooks) jobs.push({ jobType: "dispatch_webhooks" });
+  // Keep automatic phase transitions aligned with the worker's canonical
+  // webhook job type. `dispatch_webhooks` is retained as a legacy alias by
+  // the worker below so already-queued historical rows remain deliverable.
+  if (config.notifyWebhooks) jobs.push({ jobType: "notify_webhooks" });
   if (jobs.length === 0) return;
 
   await db.insert(phaseJobs).values(

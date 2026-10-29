@@ -34,6 +34,7 @@ readonly BRANCH_RE='^[A-Za-z0-9._/-]{1,128}$'
 
 COMMIT=""
 BRANCH="$DEFAULT_BRANCH"
+STAGE_PHASE_WEBHOOK_DEFAULTS="false"
 SOURCE_DIR=""
 CONFIGURED_SOURCE_DIR=""
 DOMAIN=""
@@ -55,13 +56,18 @@ usage() {
 ReadyPackets Portal temporary-public existing-VPS updater
 
 Usage:
-  sudo bash temporary-public-existing-vps-upgrade.sh --commit <40-hex-sha> [--branch main]
+  sudo bash temporary-public-existing-vps-upgrade.sh --commit <40-hex-sha> [--branch main] [--stage-phase-webhook-defaults]
 
 This root-only updater is for an existing native ReadyPackets portal only. It
 requires a reviewed immutable commit and a temporarily public source repository.
 It refuses fresh hosts, does not accept tokens or secrets, preserves the existing
 portal.env unchanged, creates a full backup and protected rollback snapshot, and
 rolls back automatically if the upgrade cannot pass readiness.
+
+--stage-phase-webhook-defaults is optional. Only after a successful application
+update it invokes the reviewed local helper, which prompts for P101/P201 Make
+destinations with hidden terminal input. It never accepts, prints, or logs the
+destination URLs and stages non-overriding disabled endpoints only.
 USAGE
 }
 
@@ -320,6 +326,7 @@ parse_args() {
     case "$1" in
       --commit) COMMIT="${2:-}"; shift 2 ;;
       --branch) BRANCH="${2:-}"; shift 2 ;;
+      --stage-phase-webhook-defaults) STAGE_PHASE_WEBHOOK_DEFAULTS="true"; shift ;;
       -h|--help) usage; exit 0 ;;
       *) fail "Unknown option: $1" ;;
     esac
@@ -445,6 +452,7 @@ Source commit:     ${COMMIT}
 Safety controls:   full backup, root-only rollback snapshot, immutable SHA gate,
                    no seed, protected runtime config preserved byte-for-byte,
                    local readiness gate, automatic rollback on failure
+Phase defaults:    $([[ "$STAGE_PHASE_WEBHOOK_DEFAULTS" == "true" ]] && printf 'stage disabled P101/P201 after successful update' || printf 'not requested')
 PLAN
   local confirmation=""
   read -r -p "Type UPGRADE READY PACKETS to apply this exact reviewed commit: " confirmation
@@ -454,6 +462,21 @@ PLAN
   fetch_and_validate_release
   validate_staged_release
   apply_release
+
+  if [[ "$STAGE_PHASE_WEBHOOK_DEFAULTS" == "true" ]]; then
+    [[ -f "$SOURCE_DIR/deploy/configure-phase-webhook-defaults.sh" ]] \
+      || fail "The reviewed release does not contain the phase-webhook defaults helper."
+    log "Application update succeeded. Staging phase webhook defaults through the local protected helper."
+    if bash "$SOURCE_DIR/deploy/configure-phase-webhook-defaults.sh"; then
+      audit "phase webhook default staging completed target=${COMMIT:0:12}"
+    else
+      # The portal update has already passed readiness. Do not roll back its
+      # application/database snapshot just because a separately staged,
+      # non-overriding integration default was cancelled or rejected.
+      warn "Application update succeeded, but phase webhook defaults were not fully staged. Review the helper output and rerun it only after correcting the configuration."
+      audit "phase webhook default staging incomplete target=${COMMIT:0:12}"
+    fi
+  fi
 
   cat <<SUMMARY
 

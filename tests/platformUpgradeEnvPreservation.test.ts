@@ -165,4 +165,15 @@ describe("existing-VPS runtime configuration preservation", () => {
     expect(publicSource).toContain("Never echo its contents");
     expect(publicSource).toContain("authpriv.notice");
   });
+
+  it("can stage phase defaults only after a healthy update without accepting webhook capabilities as arguments", () => {
+    expect(publicSource).toContain("--stage-phase-webhook-defaults");
+    expect(publicSource).toContain('STAGE_PHASE_WEBHOOK_DEFAULTS="true"');
+    expect(publicSource).toContain('if [[ "$STAGE_PHASE_WEBHOOK_DEFAULTS" == "true" ]]; then');
+    expect(publicSource).toContain('bash "$SOURCE_DIR/deploy/configure-phase-webhook-defaults.sh"');
+    expect(publicSource).toContain("Application update succeeded, but phase webhook defaults were not fully staged.");
+    expect(publicSource).toContain("Do not roll back its");
+    expect(publicSource).not.toContain("--p101-url");
+    expect(publicSource).not.toContain("--p201-url");
+  });
 });

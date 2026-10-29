@@ -56,6 +56,7 @@ export const platformSetupProfileSchema = z.object({
       p101: z.object({ url: optionalUrl, enabled: z.boolean().default(false) }),
       p201: z.object({ url: optionalUrl, enabled: z.boolean().default(false) }),
       requiresSigningSecrets: z.boolean(),
+      requiresDestinationConfiguration: z.boolean().default(false),
     }),
     stripe: z.object({
       publishableKey: optionalText,

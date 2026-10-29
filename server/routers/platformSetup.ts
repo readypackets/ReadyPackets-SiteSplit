@@ -107,7 +107,11 @@ export const platformSetupRouter = router({
         },
         sharePoint: { tenantId: sharepointTenant ?? "", clientId: sharepointClient ?? "", siteId: sharepointSite ?? "", driveId: sharepointDrive ?? "", siteUrl: sharepointSiteUrl ?? "", rootFolderPath: sharepointRoot ?? "ReadyPackets/Orders", audioFallbackMode: audioFallback === "none" ? "none" : "mp3", requiresClientSecret: Boolean(sharepointSecret) },
         backup: { scheduleTime: /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(backupScheduleTime ?? "") ? backupScheduleTime! : (/^([01][0-9]|2[0-3]):[0-5][0-9]/.test(output.next_run ?? "") ? (output.next_run ?? "02:30").match(/([01][0-9]|2[0-3]):[0-5][0-9]/)?.[0] ?? "02:30" : "02:30"), cloudTargets: targets, cloudCredentialsIncluded: false as const },
-        webhooks: { p101: { url: p101?.url ?? "", enabled: Boolean(p101?.enabled) }, p201: { url: p201?.url ?? "", enabled: Boolean(p201?.enabled) }, requiresSigningSecrets: Boolean(p101?.secretEnc || p201?.secretEnc) },
+        // Webhook destinations can be bearer-like Make capabilities. A
+        // secret-free portable profile records only that reconfiguration is
+        // required; the protected full-backup path remains the recovery
+        // artifact for an existing operational integration.
+        webhooks: { p101: { url: "", enabled: false }, p201: { url: "", enabled: false }, requiresSigningSecrets: Boolean(p101?.secretEnc || p201?.secretEnc), requiresDestinationConfiguration: Boolean(p101 || p201) },
         stripe: { publishableKey: stripePublishable ?? "", requiresSecretKey: Boolean(stripeSecret), requiresWebhookSecret: Boolean(stripeWebhook) },
         reviewRequired: { entra: true, accessControls: true },
       },
@@ -143,8 +147,8 @@ export const platformSetupRouter = router({
       await savePhaseEndpoint(eventType, { url: endpoint.url, enabled: false }, userId);
       importedEndpoints.push(eventType);
     }
-    void recordActivity({ actorUserId: userId, actorRole: "admin", action: "platform_setup.profile_imported", entityType: "platform_setup_profile", entityId: 0, severity: "warning", summary: "Administrator imported a secret-free portable platform setup profile", changes: { importedEndpoints, secretsRequired: [email.requiresSecret ? "email" : null, sharePoint.requiresClientSecret ? "sharepoint" : null, webhooks.requiresSigningSecrets ? "webhooks" : null, stripe.requiresSecretKey || stripe.requiresWebhookSecret ? "stripe" : null].filter(Boolean) }, ipAddress: ctx.clientIp });
-    return { ok: true as const, importedEndpoints, backupTargetsRequireReconfiguration: backup.cloudTargets.map((target) => target.provider), secretsRequired: [email.requiresSecret ? "Email password/client secret" : null, sharePoint.requiresClientSecret ? "SharePoint client secret" : null, webhooks.requiresSigningSecrets ? "Webhook signing secrets" : null, stripe.requiresSecretKey || stripe.requiresWebhookSecret ? "Stripe secret and webhook signing key" : null].filter((value): value is string => Boolean(value)) };
+    void recordActivity({ actorUserId: userId, actorRole: "admin", action: "platform_setup.profile_imported", entityType: "platform_setup_profile", entityId: 0, severity: "warning", summary: "Administrator imported a secret-free portable platform setup profile", changes: { importedEndpoints, webhookDestinationConfigurationRequired: webhooks.requiresDestinationConfiguration, secretsRequired: [email.requiresSecret ? "email" : null, sharePoint.requiresClientSecret ? "sharepoint" : null, webhooks.requiresSigningSecrets ? "webhooks" : null, stripe.requiresSecretKey || stripe.requiresWebhookSecret ? "stripe" : null].filter(Boolean) }, ipAddress: ctx.clientIp });
+    return { ok: true as const, importedEndpoints, webhookDestinationConfigurationRequired: webhooks.requiresDestinationConfiguration, backupTargetsRequireReconfiguration: backup.cloudTargets.map((target) => target.provider), secretsRequired: [email.requiresSecret ? "Email password/client secret" : null, sharePoint.requiresClientSecret ? "SharePoint client secret" : null, webhooks.requiresSigningSecrets ? "Webhook signing secrets" : null, stripe.requiresSecretKey || stripe.requiresWebhookSecret ? "Stripe secret and webhook signing key" : null].filter((value): value is string => Boolean(value)) };
   }),
 
   saveEmail: adminProcedure.input(emailSchema).mutation(async ({ ctx, input }) => {

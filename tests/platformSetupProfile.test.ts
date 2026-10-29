@@ -29,7 +29,7 @@ function profile() {
         requiresClientSecret: true,
       },
       backup: { scheduleTime: "02:30", cloudTargets: [{ provider: "Amazon S3", destination: "archive:readypackets" }], cloudCredentialsIncluded: false },
-      webhooks: { p101: { url: "https://automation.example.test/p101", enabled: true }, p201: { url: "", enabled: false }, requiresSigningSecrets: true },
+      webhooks: { p101: { url: "https://automation.example.test/p101", enabled: true }, p201: { url: "", enabled: false }, requiresSigningSecrets: true, requiresDestinationConfiguration: true },
       stripe: { publishableKey: "pk_live_public_value", requiresSecretKey: true, requiresWebhookSecret: true },
       reviewRequired: { entra: true, accessControls: true },
     },

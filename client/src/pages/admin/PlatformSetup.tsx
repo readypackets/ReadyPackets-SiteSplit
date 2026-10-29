@@ -64,6 +64,7 @@ export function AdminPlatformSetupPage() {
       const followUp = [
         result.secretsRequired.length ? `Add or replace: ${result.secretsRequired.join(", ")}.` : "",
         result.backupTargetsRequireReconfiguration.length ? `Reconfigure credentials for backup target(s): ${result.backupTargetsRequireReconfiguration.join(", ")}.` : "",
+        result.webhookDestinationConfigurationRequired ? "Re-enter and review phase webhook destinations before enabling them." : "",
         "Webhooks remain disabled until reviewed.",
       ].filter(Boolean).join(" ");
       toast.success("Platform Setup profile imported", followUp);

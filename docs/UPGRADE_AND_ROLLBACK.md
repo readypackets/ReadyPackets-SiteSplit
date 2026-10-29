@@ -38,6 +38,10 @@ The update does not reinterpret or regenerate operational settings. SMTP, Graph/
 
 Do not update during an active customer submission, scheduled backup, or other maintenance window. Configure a maintenance message and login/registration policy in **Admin → System** before starting a major upgrade.
 
+### Phase-start webhook defaults after a reviewed update
+
+An application update never silently creates or changes outbound P101/P201 destinations. After a successful update, an authorized root-console operator may use [`deploy/configure-phase-webhook-defaults.sh`](../deploy/configure-phase-webhook-defaults.sh) to stage Make destinations as disabled, non-overriding defaults. The helper prompts locally rather than accepting capability URLs through command arguments, preserves any existing direct or generic webhook route, records only a masked fingerprint in audit/syslog evidence, and never enables a phase notification gate. Follow [Phase-Start Webhook Defaults](PHASE_WEBHOOK_DEFAULTS.md) to review, test, and deliberately activate each phase.
+
 ## Failed update handling
 
 A failed approved update automatically restores the recorded complete snapshot, validates/reloads Nginx, daemon-reloads systemd, restarts the fixed-action controllers, starts the prior portal service, and verifies local readiness. The Platform Updates run is marked **Failed**, maintenance mode is cleared, and the root-owned pre-upgrade snapshot remains protected under `/var/backups/readypackets/platform-upgrades/`. The administrator should review the recorded run error and service logs before retrying; do not repeatedly submit the same approved run until its cause is fixed.
