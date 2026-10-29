@@ -697,8 +697,10 @@ const systemBackupsRouter = router({
   }),
   verifyArchive: adminProcedure.input(z.object({ filename: z.string().regex(BACKUP_FILENAME, "Invalid backup filename.") })).mutation(async ({ ctx, input }) => {
     const verification = parseBackupControl(await runBackupControl(["verify-archive", input.filename]));
-    void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "backup.verified", entityType: "backup", entityId: 0, summary: `Administrator verified backup archive ${input.filename}`, ipAddress: ctx.clientIp });
-    return { archive: verification.archive ?? input.filename, databaseBytes: Number(verification.database_bytes ?? 0), includesFiles: verification.includes_files === "true" };
+    const recoveryInventory = verification.recovery_inventory === "full";
+    const referencedObjects = Number(verification.referenced_objects ?? 0);
+    void recordActivity({ actorUserId: ctx.session.user.id, actorRole: "admin", action: "backup.verified", entityType: "backup", entityId: 0, summary: `Administrator verified backup archive ${input.filename}`, changes: { recoveryInventory, referencedObjects: Number.isSafeInteger(referencedObjects) && referencedObjects >= 0 ? referencedObjects : 0 }, ipAddress: ctx.clientIp });
+    return { archive: verification.archive ?? input.filename, databaseBytes: Number(verification.database_bytes ?? 0), includesFiles: verification.includes_files === "true", recoveryInventory, referencedObjects: Number.isSafeInteger(referencedObjects) && referencedObjects >= 0 ? referencedObjects : 0 };
   }),
   restoreStatus: adminProcedure.query(async () => {
     const status = parseBackupControl(await runBackupControl(["restore-status"]));

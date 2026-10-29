@@ -50,7 +50,7 @@ Archiving an order requires a typed confirmation and a reason. It is a soft dele
 
 Customers, staff, and administrators may use **Create an order** from the portal. Staff and administrators also have **Create my order** in the Administration navigation, which opens the same self-service order flow rather than a customer-impersonation or elevated-order shortcut. Every new order requires an **Order or project name** before it can be created. The title is the customer-facing label and is snapshotted into the secure SharePoint folder name; choose a clear operational name rather than leaving it generic.
 
-For newly created orders, ReadyPackets creates an immutable friendly folder identity in the form `customer-email-RP-CUS-…/orders/project-name-RP-ORD-…`. Existing orders retain their existing folders and identifiers. Later customer-ID, user-profile, or display-title changes never move or rename external SharePoint data, preserving the audit trail and avoiding broken links.
+For orders created after the current SharePoint naming release, ReadyPackets creates an immutable friendly folder identity in the form `first-two-first-name-characters-last-name-RP-CUS-…/orders/project-name-RP-ORD-…`; for example, `Al-Example-RP-CUS-…`. This avoids placing the customer's email address in the external folder name. Existing orders retain their existing folders and identifiers. Later customer-ID, user-profile, or display-title changes never move or rename external SharePoint data, preserving the audit trail and avoiding broken links.
 
 ### Correcting an order reference
 

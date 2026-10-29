@@ -90,7 +90,7 @@ The installer performs the following, in order:
 13. Runs one backup immediately and reports the artefact, because an untested backup is not a backup, and installation is a better time to discover a broken one than a restore.
 14. Verifies that the service is active and the readiness probe succeeds.
 
-The installer and approved in-place upgrade path also apply forward-only migrations. Current releases apply 54 migrations and verify 48 critical tables, including append-only customer and order identifier-history tables, bounded login slideshow configuration, and encrypted SharePoint customer/order folder snapshots. Do not skip migrations or manually recreate these tables: administrator ID corrections depend on their unique retired-ID ledgers, while friendly external folders depend on immutable snapshots to prevent later profile or title edits from moving files.
+The installer and approved in-place upgrade path also apply forward-only migrations. Current releases apply 56 migrations and verify 48 critical tables, including append-only customer and order identifier-history tables, bounded login slideshow configuration, and encrypted SharePoint customer/order folder snapshots. Do not skip migrations or manually recreate these tables: administrator ID corrections depend on their unique retired-ID ledgers, while friendly external folders depend on immutable snapshots to prevent later profile or title edits from moving files.
 
 ### Create the first administrator
 

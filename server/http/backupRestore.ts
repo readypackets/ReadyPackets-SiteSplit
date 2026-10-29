@@ -23,6 +23,8 @@ type ArchiveManifest = {
   archive: string;
   databaseBytes: number;
   includesFiles: boolean;
+  recoveryInventory: boolean;
+  referencedObjects: number;
 };
 
 type PendingRestore = {
@@ -43,7 +45,11 @@ function parseControlOutput(output: string): ArchiveManifest {
   }
   const databaseBytes = Number(values.database_bytes ?? 0);
   if (!Number.isSafeInteger(databaseBytes) || databaseBytes <= 1024) throw new Error("The archive database dump is invalid.");
-  return { archive: values.archive, databaseBytes, includesFiles: values.includes_files === "true" };
+  const recoveryInventory = values.recovery_inventory === "full";
+  const referencedObjects = Number(values.referenced_objects ?? 0);
+  if (!Number.isSafeInteger(referencedObjects) || referencedObjects < 0) throw new Error("The archive recovery inventory is invalid.");
+  if (recoveryInventory && values.includes_files !== "true") throw new Error("A full recovery inventory requires the uploaded file archive.");
+  return { archive: values.archive, databaseBytes, includesFiles: values.includes_files === "true", recoveryInventory, referencedObjects };
 }
 
 function runBackupControl(action: "inspect-archive-import" | "start-restore-import" | "inspect-scoped-recovery-import" | "restore-scoped-recovery-import", args: string[], stdin: string): Promise<string> {
@@ -125,7 +131,7 @@ export function createBackupRestoreRouter(): Router {
       const manifest = parseControlOutput(await runBackupControl("inspect-archive-import", [filename], ""));
       const restoreToken = crypto.randomBytes(32).toString("base64url");
       pendingRestores.set(restoreToken, { filename, userId: session.user.id, expiresAt: Date.now() + PENDING_TTL_MS, manifest });
-      void recordActivity({ actorUserId: session.user.id, actorRole: "admin", action: "backup.archive_restore_preflight", entityType: "backup_restore", entityId: filename.slice(-16), severity: "warning", summary: "Administrator verified an uploaded full backup archive", changes: { databaseBytes: manifest.databaseBytes, includesFiles: manifest.includesFiles }, ipAddress: (res.locals.clientIp as string | undefined) ?? null });
+      void recordActivity({ actorUserId: session.user.id, actorRole: "admin", action: "backup.archive_restore_preflight", entityType: "backup_restore", entityId: filename.slice(-16), severity: "warning", summary: "Administrator verified an uploaded full backup archive", changes: { databaseBytes: manifest.databaseBytes, includesFiles: manifest.includesFiles, recoveryInventory: manifest.recoveryInventory, referencedObjects: manifest.referencedObjects }, ipAddress: (res.locals.clientIp as string | undefined) ?? null });
       res.setHeader("Cache-Control", "no-store").status(200).json({ restoreToken, expiresAt: new Date(Date.now() + PENDING_TTL_MS).toISOString(), manifest });
     } catch (error) {
       await fs.unlink(location).catch(() => undefined);
@@ -154,7 +160,7 @@ export function createBackupRestoreRouter(): Router {
       const result = await runBackupControl("start-restore-import", [pending.filename], `${CONFIRMATION}\n`);
       pendingRestores.delete(restoreToken);
       const unit = /^unit=([A-Za-z0-9@._-]+)$/m.exec(result)?.[1] ?? null;
-      void recordActivity({ actorUserId: session.user.id, actorRole: "admin", action: "backup.archive_restore_started", entityType: "backup_restore", entityId: pending.filename.slice(-16), severity: "warning", summary: "Administrator started production restore from a verified uploaded backup archive", changes: { databaseBytes: pending.manifest.databaseBytes, includesFiles: pending.manifest.includesFiles, restoreUnit: unit }, ipAddress: (res.locals.clientIp as string | undefined) ?? null });
+      void recordActivity({ actorUserId: session.user.id, actorRole: "admin", action: "backup.archive_restore_started", entityType: "backup_restore", entityId: pending.filename.slice(-16), severity: "warning", summary: "Administrator started production restore from a verified uploaded backup archive", changes: { databaseBytes: pending.manifest.databaseBytes, includesFiles: pending.manifest.includesFiles, recoveryInventory: pending.manifest.recoveryInventory, referencedObjects: pending.manifest.referencedObjects, restoreUnit: unit }, ipAddress: (res.locals.clientIp as string | undefined) ?? null });
       res.setHeader("Cache-Control", "no-store").status(202).json({ ok: true, restartUnit: unit, message: "Production restore has started in a protected job. The portal will be temporarily unavailable; monitor restore status before signing in." });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Backup restore could not start.";
@@ -191,7 +197,7 @@ export function createBackupRestoreRouter(): Router {
       const values = Object.fromEntries((await runBackupControl("inspect-scoped-recovery-import", [scope, filename], `${passphrase}\n`)).split("\n").map((line) => line.split("=", 2)).filter(([key, value]) => Boolean(key) && value !== undefined));
       if (values.verified !== "true" || values.scope !== scope) throw new Error("The encrypted recovery archive did not pass ReadyPackets verification.");
       const restoreToken = crypto.randomBytes(32).toString("base64url");
-      const manifest: ArchiveManifest = { archive: filename, databaseBytes: 0, includesFiles: scope === "orders" };
+      const manifest: ArchiveManifest = { archive: filename, databaseBytes: 0, includesFiles: scope === "orders", recoveryInventory: false, referencedObjects: 0 };
       pendingScopedRestores.set(restoreToken, { filename, userId: session.user.id, expiresAt: Date.now() + PENDING_TTL_MS, manifest, scope });
       void recordActivity({ actorUserId: session.user.id, actorRole: "admin", action: `backup.${scope}_recovery_preflight`, entityType: "backup_restore", entityId: filename.slice(-16), severity: "warning", summary: `Administrator verified an encrypted ${scope} recovery archive`, changes: { scope, orderFileCount: Number(values.order_file_count ?? 0) }, ipAddress: (res.locals.clientIp as string | undefined) ?? null });
       res.setHeader("Cache-Control", "no-store").status(200).json({ restoreToken, expiresAt: new Date(Date.now() + PENDING_TTL_MS).toISOString(), scope, orderFileCount: Number(values.order_file_count ?? 0) });

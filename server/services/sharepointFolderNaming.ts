@@ -17,10 +17,25 @@ export function normalizeSharepointIdentitySegment(value: string, fallback: stri
   return `${reserved ? "rp_" : ""}${safe}`.slice(0, 96);
 }
 
-export function buildSharepointCustomerFolderName(input: { email: string; customerId: string }): string {
-  const email = normalizeSharepointIdentitySegment(input.email.toLowerCase(), "customer");
+/**
+ * Create the immutable, data-minimised customer label for a newly created order.
+ * Existing order snapshots are intentionally never recalculated: changing a
+ * customer's name must not move or duplicate external SharePoint evidence.
+ */
+export function buildSharepointCustomerFolderName(input: {
+  firstName: string | null | undefined;
+  lastName: string | null | undefined;
+  customerId: string;
+}): string {
   const customerId = normalizeSharepointIdentitySegment(input.customerId, "RP-CUS-UNKNOWN");
-  return `${email}-${customerId}`.slice(0, 180);
+  const firstName = normalizeSharepointIdentitySegment(input.firstName ?? "", "");
+  const lastName = normalizeSharepointIdentitySegment(input.lastName ?? "", "");
+  const humanParts = [firstName.slice(0, 2), lastName].filter(Boolean);
+  const humanLabel = humanParts.join("-") || "Customer";
+  // Keep the opaque customer identifier intact even if an unexpectedly long
+  // legal name must be shortened. It is the collision-resistant component.
+  const maximumHumanLength = Math.max(1, 180 - customerId.length - 1);
+  return `${humanLabel.slice(0, maximumHumanLength)}-${customerId}`;
 }
 
 export function buildSharepointOrderFolderName(input: { projectName: string; orderNumber: string }): string {

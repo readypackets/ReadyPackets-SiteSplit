@@ -165,11 +165,35 @@ validate_archive_members() {
   while IFS= read -r member; do
     normalized="${member#./}"
     [[ -n "$normalized" ]] || continue
-    [[ "$normalized" =~ ^(database\.sql|MANIFEST\.txt|SHA256SUMS|storage\.tar|platform-runtime\.tar|portal\.env)$ ]] || { echo "Archive contains an unsupported member" >&2; return 1; }
+    [[ "$normalized" =~ ^(database\.sql|MANIFEST\.txt|SHA256SUMS|storage\.tar|platform-runtime\.tar|portal\.env|storage-references\.tsv|dataset-counts\.tsv|migration-ledger\.tsv)$ ]] || { echo "Archive contains an unsupported member" >&2; return 1; }
   done < <(tar -tzf "$source")
   while IFS= read -r type; do
     [[ "$type" == "-" || "$type" == "d" ]] || { echo "Archive contains links or unsupported member types" >&2; return 1; }
   done < <(tar -tvzf "$source" | awk '{print substr($1,1,1)}')
+}
+
+validate_full_recovery_inventory() {
+  local staging="$1" references="${1}/storage-references.tsv" counts="${1}/dataset-counts.tsv" ledger="${1}/migration-ledger.tsv"
+  if [[ -f "$references" || -f "$counts" || -f "$ledger" ]]; then
+    [[ -f "$references" && -f "$counts" && -f "$ledger" && -f "$staging/storage.tar" ]] || { echo "Archive full-recovery inventory is incomplete" >&2; return 1; }
+    awk -F '\t' '
+      function valid_storage_key(key, parts, count, stem, suffix) {
+        count = split(key, parts, "\\."); stem = parts[1]; suffix = parts[2]
+        return count <= 2 && length(stem) == 48 && stem ~ /^[a-f0-9]+$/ && (count == 1 || (length(suffix) >= 1 && length(suffix) <= 12 && suffix ~ /^[a-z0-9]+$/))
+      }
+      function valid_sha256(hash) { return length(hash) == 64 && hash ~ /^[a-f0-9]+$/ }
+      NF != 3 || !valid_storage_key($1) || !valid_sha256($2) || $3 !~ /^(0|[1-9][0-9]*)$/ { exit 1 }
+      seen[$1] && (hash[$1] != $2 || bytes[$1] != $3) { exit 1 }
+      { seen[$1] = 1; hash[$1] = $2; bytes[$1] = $3 }
+    ' "$references" || { echo "Archive storage reference inventory is malformed" >&2; return 1; }
+    awk -F '\t' 'NF != 2 || $1 !~ /^(users|administrators|orders|files|file_versions)$/ || $2 !~ /^(0|[1-9][0-9]*)$/ || seen[$1]++ { exit 1 } END { exit !(seen["users"] && seen["administrators"] && seen["orders"] && seen["files"] && seen["file_versions"]) }' "$counts" \
+      || { echo "Archive dataset-count inventory is malformed" >&2; return 1; }
+    awk -F '\t' 'NF != 2 || $1 !~ /^[0-9][0-9][0-9][0-9]_[A-Za-z0-9_.-]+\.sql$/ || length($2) < 8 || length($2) > 64 || $2 !~ /^[A-Za-z0-9_]+$/ || seen[$1]++ { exit 1 } END { exit NR == 0 }' "$ledger" \
+      || { echo "Archive migration ledger is malformed" >&2; return 1; }
+    printf 'full\n'
+    return 0
+  fi
+  printf 'legacy\n'
 }
 
 verify_archive_source() {
@@ -186,11 +210,14 @@ verify_archive_source() {
   if [[ -f "$staging/SHA256SUMS" ]]; then
     (cd "$staging" && sha256sum -c --ignore-missing --quiet SHA256SUMS) || { echo "Archive checksum verification failed" >&2; exit 1; }
   fi
-  local dump_bytes has_files
+  local dump_bytes has_files recovery_inventory referenced_objects
   dump_bytes="$(stat -c '%s' "$staging/database.sql")"
   [[ "$dump_bytes" -gt 1024 ]] || { echo "Archive database dump is suspiciously small" >&2; exit 1; }
   has_files="false"; [[ -f "$staging/storage.tar" ]] && has_files="true"
-  printf 'verified=true\narchive=%s\ndatabase_bytes=%s\nincludes_files=%s\n' "$filename" "$dump_bytes" "$has_files"
+  recovery_inventory="$(validate_full_recovery_inventory "$staging")" || exit 1
+  referenced_objects="0"
+  [[ "$recovery_inventory" == "full" ]] && referenced_objects="$(wc -l < "$staging/storage-references.tsv" | tr -d ' ')"
+  printf 'verified=true\narchive=%s\ndatabase_bytes=%s\nincludes_files=%s\nrecovery_inventory=%s\nreferenced_objects=%s\n' "$filename" "$dump_bytes" "$has_files" "$recovery_inventory" "$referenced_objects"
 }
 
 verify_archive() {

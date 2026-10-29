@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -60,5 +60,25 @@ describe("object storage archive adapter", () => {
     await writeFile(listFile, "../../etc/passwd\n", { mode: 0o600 });
 
     await expect(runAdapter(["export", "--destination", archiveRoot, "--keys-file", listFile], sourceRoot)).rejects.toThrow();
+  });
+
+  it("exports and verifies the exact referenced object inventory required by full recovery", async () => {
+    const sourceRoot = await temporaryDirectory("storage-source");
+    const archiveRoot = await temporaryDirectory("storage-archive");
+    const key = `${"b".repeat(48)}.pdf`;
+    const sourceFile = path.join(sourceRoot, key.slice(0, 2), key.slice(2, 4), key);
+    const bytes = Buffer.from("ready-packets-recovery-reference\n", "utf8");
+    const referenceFile = path.join(await temporaryDirectory("storage-references"), "storage-references.tsv");
+    await mkdir(path.dirname(sourceFile), { recursive: true, mode: 0o700 });
+    await writeFile(sourceFile, bytes, { mode: 0o600 });
+    await writeFile(referenceFile, `${key}\t${createHash("sha256").update(bytes).digest("hex")}\t${bytes.length}\n`, { mode: 0o600 });
+
+    const exported = await runAdapter(["export", "--destination", archiveRoot, "--references-file", referenceFile], sourceRoot);
+    expect(exported.stdout).toContain("object_count=1");
+    const verified = await runAdapter(["verify", "--references-file", referenceFile], sourceRoot);
+    expect(verified.stdout).toContain("object_count=1");
+
+    await writeFile(sourceFile, Buffer.from("changed", "utf8"), { mode: 0o600 });
+    await expect(runAdapter(["verify", "--references-file", referenceFile], sourceRoot)).rejects.toThrow();
   });
 });

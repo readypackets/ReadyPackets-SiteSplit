@@ -41,9 +41,6 @@ import { getObjectBuffer } from "./storage.js";
 import { transcodeWebmToMp3ForSharePoint } from "./audioTranscode.js";
 import { getDelegatedSharePointStatus, getDelegatedSharePointRestToken, recordDelegatedSharePointError } from "./sharepointDelegatedAuth.js";
 import { backfillCanonicalP101Scope, buildCanonicalP101Payload } from "./orderScope.js";
-import {
-  buildSharepointCustomerFolderName,
-} from "./sharepointFolderNaming.js";
 import type { OrderStatus } from "../../shared/domain.js";
 
 // ---------------------------------------------------------------------------
@@ -708,9 +705,11 @@ async function resolveOrderStageFolder(orderId: number, phase: string, graphConf
   const customerId = customer?.customerNumber ?? customer?.publicId ?? "RP-CUS-UNKNOWN";
   // Legacy orders deliberately retain their original opaque path. Orders created
   // after the folder-snapshot migration use immutable friendly labels instead.
+  // Do not derive a newly named folder for an historical null snapshot: a retry
+  // must still target the pre-snapshot customer-number hierarchy.
   const customerFolder = decryptField(order.sharepointCustomerFolderEnc, `order:${orderId}:sharepoint-customer-folder`)
     ?? customer?.customerNumber
-    ?? buildSharepointCustomerFolderName({ email: customer?.email ?? "customer", customerId });
+    ?? customerId;
   const projectName = decryptField(order.projectNameEnc, `order:${orderId}`) ?? "Order";
   const orderFolder = decryptField(order.sharepointOrderFolderEnc, `order:${orderId}:sharepoint-order-folder`)
     ?? order.orderNumber;

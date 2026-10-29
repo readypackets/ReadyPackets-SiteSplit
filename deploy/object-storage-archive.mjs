@@ -3,7 +3,8 @@
  * ReadyPackets Portal — storage archive adapter
  *
  * Exports the opaque upload-object namespace to a portable, local archive tree,
- * or imports that archive tree into the configured storage backend. This keeps
+ * imports that archive tree into the configured storage backend, or verifies
+ * that an expected object manifest is present and byte-identical. This keeps
  * full and scoped recovery compatible whether the application uses local disk
  * or an S3-compatible shared object store.
  *
@@ -27,6 +28,7 @@ import {
 
 const MAX_KEY_LENGTH = 80;
 const STORAGE_KEY = /^[a-f0-9]{48}(?:\.[a-z0-9]{1,12})?$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 
 function fail(message) {
   process.stderr.write(`[object-storage-archive] ERROR: ${message}\n`);
@@ -35,7 +37,7 @@ function fail(message) {
 }
 
 function usage() {
-  fail("Usage: object-storage-archive.mjs export --destination DIRECTORY [--keys-file FILE] | import --source DIRECTORY");
+  fail("Usage: object-storage-archive.mjs export --destination DIRECTORY [--keys-file FILE|--references-file FILE] | import --source DIRECTORY | verify --references-file FILE");
 }
 
 function storageDriver() {
@@ -71,10 +73,11 @@ function archivePathFor(root, key) {
 
 function readArguments(argv) {
   const [action, ...rest] = argv;
-  if (action !== "export" && action !== "import") usage();
+  if (action !== "export" && action !== "import" && action !== "verify") usage();
   let destination = null;
   let source = null;
   let keysFile = null;
+  let referencesFile = null;
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     const value = rest[index + 1];
@@ -82,15 +85,18 @@ function readArguments(argv) {
     if (flag === "--destination") destination = value;
     else if (flag === "--source") source = value;
     else if (flag === "--keys-file") keysFile = value;
+    else if (flag === "--references-file") referencesFile = value;
     else usage();
     index += 1;
   }
-  if (action === "export" && (!destination || source)) usage();
-  if (action === "import" && (!source || destination || keysFile)) usage();
-  const root = action === "export" ? destination : source;
-  if (!path.isAbsolute(root)) fail("Archive source and destination paths must be absolute.");
+  if (action === "export" && (!destination || source || (keysFile && referencesFile))) usage();
+  if (action === "import" && (!source || destination || keysFile || referencesFile)) usage();
+  if (action === "verify" && (!referencesFile || destination || source || keysFile)) usage();
+  const root = action === "export" ? destination : action === "import" ? source : null;
+  if (root && !path.isAbsolute(root)) fail("Archive source and destination paths must be absolute.");
   if (keysFile && !path.isAbsolute(keysFile)) fail("The storage key list path must be absolute.");
-  return { action, destination, source, keysFile };
+  if (referencesFile && !path.isAbsolute(referencesFile)) fail("The storage reference manifest path must be absolute.");
+  return { action, destination, source, keysFile, referencesFile };
 }
 
 async function ensureWritableEmptyDirectory(directory) {
@@ -119,6 +125,31 @@ async function readKeyList(keysFile) {
   return [...keys].sort();
 }
 
+/**
+ * A full recovery manifest is tab-separated: opaque storage key, content SHA-256,
+ * and byte length. It deliberately contains neither filenames nor customer data.
+ */
+async function readReferences(referencesFile) {
+  if (!referencesFile) return null;
+  const source = await (await import("node:fs/promises")).readFile(referencesFile, "utf8");
+  const references = new Map();
+  for (const raw of source.split(/\r?\n/)) {
+    if (!raw) continue;
+    const [key, sha256, sizeText, ...extra] = raw.split("\t");
+    if (extra.length > 0 || !key || !sha256 || !sizeText || !STORAGE_KEY.test(key) || !SHA256.test(sha256) || !/^(0|[1-9][0-9]*)$/.test(sizeText)) {
+      fail("Storage reference manifest contains an invalid entry.");
+    }
+    const size = Number(sizeText);
+    if (!Number.isSafeInteger(size)) fail("Storage reference manifest contains an invalid byte length.");
+    const existing = references.get(key);
+    if (existing && (existing.sha256 !== sha256 || existing.size !== size)) {
+      fail("Storage reference manifest maps one object key to conflicting content.");
+    }
+    references.set(key, { key, sha256, size });
+  }
+  return [...references.values()].sort((left, right) => left.key.localeCompare(right.key));
+}
+
 function clientFromEnvironment() {
   const bucket = process.env.S3_BUCKET?.trim();
   const region = process.env.S3_REGION?.trim();
@@ -142,11 +173,22 @@ function clientFromEnvironment() {
 
 async function hashFile(filePath) {
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
-  return hash.digest("hex");
+  let bytes = 0;
+  for await (const chunk of createReadStream(filePath)) {
+    hash.update(chunk);
+    bytes += chunk.length;
+  }
+  return { bytes, sha256: hash.digest("hex") };
 }
 
-async function copyFileVerified(source, destination, expectedSha256 = null) {
+function assertReferenceMatch(result, reference, context) {
+  if (!reference) return;
+  if (result.bytes !== reference.size || result.sha256 !== reference.sha256) {
+    fail(`Referenced upload object did not match its expected SHA-256 and size during ${context}.`);
+  }
+}
+
+async function copyFileVerified(source, destination, reference = null) {
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
   const hash = createHash("sha256");
   let bytes = 0;
@@ -161,9 +203,9 @@ async function copyFileVerified(source, destination, expectedSha256 = null) {
     }),
     createWriteStream(destination, { flags: "w", mode: 0o600 }),
   );
-  const sha256 = hash.digest("hex");
-  if (expectedSha256 && sha256 !== expectedSha256) fail("Object checksum mismatch while creating the recovery archive.");
-  return { bytes, sha256 };
+  const result = { bytes, sha256: hash.digest("hex") };
+  assertReferenceMatch(result, reference, "archive export");
+  return result;
 }
 
 async function collectArchiveObjects(root, relative = "") {
@@ -189,10 +231,9 @@ async function collectArchiveObjects(root, relative = "") {
   return found.sort((a, b) => a.key.localeCompare(b.key));
 }
 
-async function exportLocal(destination, keys) {
+async function exportLocal(destination, keys, referencesByKey) {
   const root = localRoot();
-  const selected = keys ?? [];
-  let objectKeys = selected;
+  let objectKeys = keys;
   if (!keys) {
     if (!await pathExists(root)) return { count: 0, bytes: 0 };
     objectKeys = (await collectArchiveObjects(root)).map(({ key }) => key);
@@ -203,17 +244,17 @@ async function exportLocal(destination, keys) {
     const source = localPathFor(root, key);
     const details = await stat(source).catch(() => null);
     if (!details?.isFile()) fail("Referenced upload object is missing from local storage.");
-    const result = await copyFileVerified(source, archivePathFor(destination, key));
+    const result = await copyFileVerified(source, archivePathFor(destination, key), referencesByKey?.get(key) ?? null);
     count += 1;
     bytes += result.bytes;
   }
   return { count, bytes };
 }
 
-async function downloadS3Object(client, bucket, key, destination) {
+async function downloadS3Object(client, bucket, key, destination, reference = null) {
   const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
   const expected = head.Metadata?.sha256;
-  if (!expected || !/^[a-f0-9]{64}$/.test(expected)) fail("S3 object is missing its ReadyPackets SHA-256 metadata.");
+  if (!expected || !SHA256.test(expected)) fail("S3 object is missing its ReadyPackets SHA-256 metadata.");
   const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   if (!result.Body) fail("S3 object has no readable body.");
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
@@ -230,10 +271,28 @@ async function downloadS3Object(client, bucket, key, destination) {
     }),
     createWriteStream(destination, { flags: "w", mode: 0o600 }),
   );
-  const sha256 = hash.digest("hex");
-  if (sha256 !== expected) fail("S3 object checksum did not match ReadyPackets metadata.");
-  if (head.ContentLength !== undefined && bytes !== head.ContentLength) fail("S3 object length did not match its metadata.");
-  return { bytes, sha256 };
+  const archiveResult = { bytes, sha256: hash.digest("hex") };
+  if (archiveResult.sha256 !== expected) fail("S3 object checksum did not match ReadyPackets metadata.");
+  if (head.ContentLength !== undefined && archiveResult.bytes !== head.ContentLength) fail("S3 object length did not match its metadata.");
+  assertReferenceMatch(archiveResult, reference, "archive export");
+  return archiveResult;
+}
+
+async function verifyS3Object(client, bucket, reference) {
+  const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: reference.key }));
+  const metadataSha256 = head.Metadata?.sha256;
+  if (metadataSha256 !== reference.sha256 || head.ContentLength !== reference.size) {
+    fail("Referenced S3 upload object metadata does not match the recovery manifest.");
+  }
+  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: reference.key }));
+  if (!result.Body) fail("Referenced S3 upload object has no readable body.");
+  const hash = createHash("sha256");
+  let bytes = 0;
+  for await (const chunk of result.Body) {
+    hash.update(chunk);
+    bytes += chunk.length;
+  }
+  assertReferenceMatch({ bytes, sha256: hash.digest("hex") }, reference, "storage verification");
 }
 
 async function listS3Keys(client, bucket) {
@@ -250,13 +309,13 @@ async function listS3Keys(client, bucket) {
   return [...new Set(keys)].sort();
 }
 
-async function exportS3(destination, selectedKeys) {
+async function exportS3(destination, selectedKeys, referencesByKey) {
   const { client, bucket } = clientFromEnvironment();
   const keys = selectedKeys ?? await listS3Keys(client, bucket);
   let count = 0;
   let bytes = 0;
   for (const key of keys) {
-    const result = await downloadS3Object(client, bucket, key, archivePathFor(destination, key));
+    const result = await downloadS3Object(client, bucket, key, archivePathFor(destination, key), referencesByKey?.get(key) ?? null);
     count += 1;
     bytes += result.bytes;
   }
@@ -281,7 +340,7 @@ async function importS3(source) {
   let bytes = 0;
   for (const object of objects) {
     const details = await stat(object.filePath);
-    const sha256 = await hashFile(object.filePath);
+    const { sha256 } = await hashFile(object.filePath);
     await client.send(new PutObjectCommand({
       Bucket: bucket,
       Key: object.key,
@@ -296,20 +355,48 @@ async function importS3(source) {
   return { count: objects.length, bytes };
 }
 
+async function verifyLocal(references) {
+  const root = localRoot();
+  let bytes = 0;
+  for (const reference of references) {
+    const location = localPathFor(root, reference.key);
+    const details = await stat(location).catch(() => null);
+    if (!details?.isFile()) fail("Referenced upload object is missing from local storage.");
+    const result = await hashFile(location);
+    assertReferenceMatch(result, reference, "storage verification");
+    bytes += result.bytes;
+  }
+  return { count: references.length, bytes };
+}
+
+async function verifyS3(references) {
+  const { client, bucket } = clientFromEnvironment();
+  let bytes = 0;
+  for (const reference of references) {
+    await verifyS3Object(client, bucket, reference);
+    bytes += reference.size;
+  }
+  return { count: references.length, bytes };
+}
+
 async function main() {
   const args = readArguments(process.argv.slice(2));
   const driver = storageDriver();
+  const references = await readReferences(args.referencesFile);
+  const referencesByKey = references ? new Map(references.map((reference) => [reference.key, reference])) : null;
   let result;
   if (args.action === "export") {
     await ensureWritableEmptyDirectory(args.destination);
-    const selectedKeys = await readKeyList(args.keysFile);
+    const selectedKeys = references?.map((reference) => reference.key) ?? await readKeyList(args.keysFile);
     result = driver === "s3"
-      ? await exportS3(args.destination, selectedKeys)
-      : await exportLocal(args.destination, selectedKeys);
-  } else {
+      ? await exportS3(args.destination, selectedKeys, referencesByKey)
+      : await exportLocal(args.destination, selectedKeys, referencesByKey);
+  } else if (args.action === "import") {
     const sourceDetails = await stat(args.source).catch(() => null);
     if (!sourceDetails?.isDirectory()) fail("Storage archive source directory is unavailable.");
     result = driver === "s3" ? await importS3(args.source) : await importLocal(args.source);
+  } else {
+    result = driver === "s3" ? await verifyS3(references) : await verifyLocal(references);
   }
   process.stdout.write(`storage_driver=${driver}\nobject_count=${result.count}\nobject_bytes=${result.bytes}\n`);
 }

@@ -143,7 +143,8 @@ export async function createOrder(input: CreateOrderInput) {
   const customerId = customerNumber ?? customer?.publicId ?? "RP-CUS-UNKNOWN";
   const orderNumber = generateOrderNumber(new Date(), customerNumber);
   const sharepointCustomerFolderName = buildSharepointCustomerFolderName({
-    email: customer?.email ?? "customer",
+    firstName: customer?.firstName,
+    lastName: customer?.lastName,
     customerId,
   });
   const sharepointOrderFolderName = buildSharepointOrderFolderName({ projectName, orderNumber });

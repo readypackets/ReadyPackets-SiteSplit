@@ -33,8 +33,6 @@ import { displayNameOf, getUserById } from "../db/users.js";
 import { logger } from "../observability/logger.js";
 import { recordActivity } from "../observability/audit.js";
 import {
-  buildSharepointCustomerFolderName,
-  buildSharepointOrderFolderName,
   normalizeSharepointIdentitySegment,
 } from "./sharepointFolderNaming.js";
 
@@ -612,10 +610,12 @@ async function resolveTargetLocation(orderId: number, targetBindingId: number): 
   const customer = await getUserById(order.userId);
   const customerId = customer?.customerNumber ?? customer?.publicId ?? "RP-CUS-UNKNOWN";
   const customerName = customer ? displayNameOf(customer) : "Customer";
-  const customerFolderName = decryptField(order.sharepointCustomerFolderEnc, `order:${orderId}:sharepoint-customer-folder`)
-    ?? buildSharepointCustomerFolderName({ email: customer?.email ?? "customer", customerId });
-  const orderFolderName = decryptField(order.sharepointOrderFolderEnc, `order:${orderId}:sharepoint-order-folder`)
-    ?? buildSharepointOrderFolderName({ projectName: "Order", orderNumber: order.orderNumber });
+  // A null snapshot means this order predates immutable friendly folders. Pass
+  // no fabricated value so buildSharepointOrderPath retains its historical
+  // CustomerName-CustomerID/order-number fallback instead of creating a second
+  // location under the current naming convention.
+  const customerFolderName = decryptField(order.sharepointCustomerFolderEnc, `order:${orderId}:sharepoint-customer-folder`);
+  const orderFolderName = decryptField(order.sharepointOrderFolderEnc, `order:${orderId}:sharepoint-order-folder`);
   const resolvedPath = buildSharepointOrderPath({ rootFolderPath: binding.rootFolderPath, relativeRootPath: binding.relativeRootPath, customerName, customerId, orderNumber: order.orderNumber, customerFolderName, orderFolderName });
   const inserted = await db.insert(orderSharepointLocations).values({ orderId, targetBindingId, customerNameSnapshot: customerName, customerIdSnapshot: customerId, orderNumberSnapshot: order.orderNumber, resolvedPath });
   const locationId = Number((inserted as unknown as { insertId?: number }).insertId ?? 0);

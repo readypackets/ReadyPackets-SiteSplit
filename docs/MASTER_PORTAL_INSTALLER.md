@@ -34,7 +34,7 @@ The default dedicated-host installation is **portal-only**: the canonical portal
 The fresh installation must report:
 
 ```text
-Applied 54 migration(s); 48 critical tables verified.
+Applied 56 migration(s); 48 critical tables verified.
 ```
 
 ## Before you start
@@ -133,7 +133,7 @@ The helper refuses split-host deployments and retrieves one immutable, explicitl
 3. Confirm `readypackets.service`, Nginx, MySQL, certificate coverage, and public health.
 4. Confirm the backup timer and configure encrypted off-host backups.
 5. Perform a full backup and an isolated restore drill before accepting production customer data.
-6. Configure email, payment, SharePoint/Graph, SAML, SIEM/syslog, and consented analytics only through the authenticated administrator portal. In **Administration → Login page**, administrators can configure the one-to-five-slide desktop login carousel with bounded text and approved local ReadyPackets visuals. Every new order requires an order or project name; new SharePoint paths snapshot safe customer-email and project labels.
+6. Configure email, payment, SharePoint/Graph, SAML, SIEM/syslog, and consented analytics only through the authenticated administrator portal. In **Administration → Login page**, administrators can configure the one-to-five-slide desktop login carousel with bounded text and approved local ReadyPackets visuals. Every new order requires an order or project name; new SharePoint paths snapshot a minimized first-two-first-name-characters, full-last-name, and customer-ID label plus the project label.
 
 ### Platform Setup profile
 

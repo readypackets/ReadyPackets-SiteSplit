@@ -16,6 +16,9 @@ A ReadyPackets **full backup** is a root-created archive named `readypackets-<ti
 | `platform-runtime.tar` | When backup synchronization is configured | Root-owned rclone backup-sync configuration and destination mapping. TLS private keys are deliberately excluded. |
 | `MANIFEST.txt` | Always | Creation time, source host, database name, schema version, included components, and warnings. |
 | `SHA256SUMS` | Always | SHA-256 integrity verification for every archive member. |
+| `storage-references.tsv` | Current full backups | Opaque storage keys, SHA-256 values, and byte counts referenced by the database; no customer names or filenames. |
+| `dataset-counts.tsv` | Current full backups | Account, administrator, order, file, and file-version counts used to verify the restored database. |
+| `migration-ledger.tsv` | Current full backups | Applied migration identifiers and checksums used to reject a target release older than the archive. |
 
 A **database-only** archive intentionally excludes files and environment material. It is useful for a controlled database test but is not a complete disaster-recovery artifact.
 
@@ -35,8 +38,8 @@ Use this method to recover a server from a trusted archive, including a backup c
 
 1. Open **Admin → Backup management**.
 2. Select either a listed archive’s **Restore** action or **Upload and restore backup file**.
-3. Run the archive preflight. The portal verifies the gzip archive, allowlisted members, link/path safety, manifest, checksums, and database payload before any data changes.
-4. Review the archive summary and type the exact phrase `RESTORE BACKUP`.
+3. Run the archive preflight. The portal verifies the gzip archive, allowlisted members, link/path safety, manifest, checksums, and database payload before any data changes. For a current full archive, it also verifies the bounded account/order/file count inventory and reports the count of database-referenced opaque upload objects; no customer names, emails, filenames, or contents are displayed.
+4. Review the archive summary and type the exact phrase `RESTORE BACKUP`. A legacy archive without the current database-to-file inventory remains recoverable through the protected legacy path, but should be followed by a new full backup and an isolated recovery drill.
 5. Start recovery and wait for the protected restore job to restart ReadyPackets. The Backup management page records the attempt as queued, completed, or failed with the archive name, scope, start/completion time, and safe diagnostic detail.
 6. Sign in again after the readiness status is successful. Existing sessions are invalidated by the restored database state. If moving to a different hostname, validate the target TLS certificate and target SAML reply URL before enabling SSO.
 
@@ -53,7 +56,7 @@ sudo /opt/readypackets/deploy/restore.sh \
   --restore-platform-secrets
 ```
 
-The command first validates archive structure and checksums, creates a pre-restore database snapshot, restores the database and files, restores archived application/integration secrets while preserving the target database connection, hostname, allowed origins, network binding, storage driver and target object-store identity, Cloudflare/TLS materials, and SAML activation setting, restores root-owned backup-sync runtime if available, reruns forward-only migrations and the database schema contract, and starts the service only after readiness succeeds. This allows a validated archive created from local disk to recover into a configured shared S3-compatible bucket, or vice versa, without copying source-cloud credentials to the replacement host.
+The command first validates archive structure and checksums, verifies the archive migration ledger is compatible with the reviewed target release, creates protected pre-restore database/storage rollback state, restores the database and files, and verifies that every database-referenced uploaded object has the expected opaque key, SHA-256, and byte length. It then restores archived application/integration secrets while preserving the target database connection, hostname, allowed origins, network binding, storage driver and target object-store identity, Cloudflare/TLS materials, and SAML activation setting; reruns forward-only migrations and the database schema contract; revokes restored browser sessions; and starts the service only after bounded readiness succeeds. A failure after mutation triggers rollback to the protected pre-restore database/storage state rather than reporting a completed recovery. This allows a validated archive created from local disk to recover into a configured shared S3-compatible bucket, or vice versa, without copying source-cloud credentials to the replacement host.
 
 The prior target environment is retained as a root-only file beside `portal.env` with a `.pre-full-restore-<timestamp>` suffix. The target must issue or install a valid certificate for its own public hostname; Cloudflare Origin CA material is intentionally never included in the backup archive.
 
@@ -93,10 +96,10 @@ Both archive types use an administrator-provided passphrase of at least 16 chara
 5. Review the verified scope and type `RESTORE IDENTITIES RECOVERY` or `RESTORE ORDERS RECOVERY` exactly. The preflight token is administrator-bound and expires after ten minutes.
 6. Wait for the protected root-controlled recovery operation to complete, then sign in again and verify the restored records. Identity recovery deliberately invalidates every active session.
 
-Each export, preflight, and restore is authenticated, CSRF-protected, audited, staged in a non-listable protected directory, and passed through a root-only fixed-action Unix-socket control boundary. Before selected records are merged, the server creates a root-only full database safety dump. Scoped recovery does not delete unrelated target records and is therefore not a point-in-time whole-platform rollback.
+Each export, preflight, and restore is authenticated, CSRF-protected, audited, staged in a non-listable protected directory, and passed through a root-only fixed-action Unix-socket control boundary. Before selected records are merged, the server creates a root-only full database safety dump. Scoped recovery does not delete unrelated target records and is therefore not a point-in-time whole-platform rollback. It is a same-encryption-key selective recovery tool, not a replacement for portable whole-platform recovery: use a full backup to rebuild customer ownership, roles, account access, orders, and their files on a clean replacement server.
 
 ## Current fresh-install verification
 
-The current reviewed release applies **54 forward-only migrations** and verifies **48 critical tables**, including operational UI tables, native-mobile authorization/device tables, subscriptions, billing, CRM, scheduling, AI, API, feature scheduling, PWA experiment, administration preference, selected-site SharePoint, append-only conversion pipeline tables, consent-gated dual-site analytics configuration, append-only customer and order identifier history, bounded login slideshow configuration, encrypted immutable SharePoint folder snapshots, and the inert Portal Clarity identifier plus refreshed consent version. Treat the installer's successful schema-contract line—not a manually created table list—as the authoritative fresh-install checkpoint.
+The current reviewed release applies **56 forward-only migrations** and verifies **48 critical tables**, including operational UI tables, native-mobile authorization/device tables, subscriptions, billing, CRM, scheduling, AI, API, feature scheduling, PWA experiment, administration preference, selected-site SharePoint, append-only conversion pipeline tables, consent-gated dual-site analytics configuration, append-only customer and order identifier history, bounded login slideshow configuration, encrypted immutable SharePoint folder snapshots, and the inert Portal Clarity identifier plus refreshed consent version. Treat the installer's successful schema-contract line—not a manually created table list—as the authoritative fresh-install checkpoint.
 
 > A customer password can never be backed up or restored in plaintext. Identity recovery preserves the existing one-way password hash so users can authenticate with their existing password after a compatible restore; it does not reveal or email that password.

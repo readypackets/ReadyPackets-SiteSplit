@@ -137,16 +137,61 @@ INCLUDES_RUNTIME="no"
 STORAGE_OBJECT_COUNT="0"
 STORAGE_OBJECT_BYTES="0"
 STORAGE_DRIVER_EFFECTIVE="${STORAGE_DRIVER:-local}"
+
+# A full archive must contain every opaque object referenced by the restored
+# database, and no recoverability claim is useful if the database and file tree
+# cannot later be proven to agree. The inventory contains only opaque keys,
+# content hashes, and byte counts -- never customer names or upload filenames.
+build_recovery_inventory() {
+  local references="$STAGING/storage-references.tsv"
+  local dataset_counts="$STAGING/dataset-counts.tsv"
+  local migration_ledger="$STAGING/migration-ledger.tsv"
+  MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" \
+    --batch --skip-column-names "$DB_NAME" -e '
+      SELECT storage_key, sha256, size_bytes FROM files
+      UNION
+      SELECT storage_key, sha256, size_bytes FROM file_versions
+      ORDER BY 1, 2, 3
+    ' > "$references"
+  awk -F '\t' '
+    function valid_storage_key(key, parts, count, stem, suffix) {
+      count = split(key, parts, "\\."); stem = parts[1]; suffix = parts[2]
+      return count <= 2 && length(stem) == 48 && stem ~ /^[a-f0-9]+$/ && (count == 1 || (length(suffix) >= 1 && length(suffix) <= 12 && suffix ~ /^[a-z0-9]+$/))
+    }
+    function valid_sha256(hash) { return length(hash) == 64 && hash ~ /^[a-f0-9]+$/ }
+    !valid_storage_key($1) || !valid_sha256($2) || $3 !~ /^(0|[1-9][0-9]*)$/ { exit 1 }
+    seen[$1] && (hash[$1] != $2 || bytes[$1] != $3) { exit 1 }
+    { seen[$1] = 1; hash[$1] = $2; bytes[$1] = $3 }
+  ' "$references" || die "Database file references are malformed or map one storage key to conflicting content."
+  MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" \
+    --batch --skip-column-names "$DB_NAME" -e '
+      SELECT "users", COUNT(*) FROM users
+      UNION ALL SELECT "administrators", COUNT(*) FROM users WHERE role = "admin"
+      UNION ALL SELECT "orders", COUNT(*) FROM orders
+      UNION ALL SELECT "files", COUNT(*) FROM files
+      UNION ALL SELECT "file_versions", COUNT(*) FROM file_versions
+    ' > "$dataset_counts"
+  awk -F '\t' 'NF != 2 || $1 !~ /^(users|administrators|orders|files|file_versions)$/ || $2 !~ /^(0|[1-9][0-9]*)$/ || seen[$1]++ { exit 1 } END { exit !(seen["users"] && seen["administrators"] && seen["orders"] && seen["files"] && seen["file_versions"]) }' "$dataset_counts" \
+    || die "Database recovery counts are malformed."
+  MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" \
+    --batch --skip-column-names "$DB_NAME" -e 'SELECT filename, checksum FROM schema_migrations ORDER BY filename' > "$migration_ledger"
+  awk -F '\t' 'NF != 2 || $1 !~ /^[0-9][0-9][0-9][0-9]_[A-Za-z0-9_.-]+\.sql$/ || length($2) < 8 || length($2) > 64 || $2 !~ /^[A-Za-z0-9_]+$/ || seen[$1]++ { exit 1 } END { exit NR == 0 }' "$migration_ledger" \
+    || die "Database migration ledger is malformed."
+}
+
 if [[ "$DB_ONLY" == "false" ]]; then
+  build_recovery_inventory
   # The archive adapter reads the configured local or S3-compatible backend and
   # writes an identical opaque-key tree to staging. This deliberately avoids an
   # undocumented host sync tool, preserves file hashes, and makes a full backup
   # portable between local-disk and shared object-storage deployments.
   log "Archiving uploaded files from ${STORAGE_DRIVER_EFFECTIVE} storage"
-  STORAGE_EXPORT_RESULT="$(node "${APP_ROOT}/deploy/object-storage-archive.mjs" export --destination "${STAGING}/storage")"
+  STORAGE_EXPORT_RESULT="$(node "${APP_ROOT}/deploy/object-storage-archive.mjs" export --destination "${STAGING}/storage" --references-file "${STAGING}/storage-references.tsv")"
   STORAGE_OBJECT_COUNT="$(printf '%s\n' "$STORAGE_EXPORT_RESULT" | sed -n 's/^object_count=//p' | head -n1)"
   STORAGE_OBJECT_BYTES="$(printf '%s\n' "$STORAGE_EXPORT_RESULT" | sed -n 's/^object_bytes=//p' | head -n1)"
   [[ "$STORAGE_OBJECT_COUNT" =~ ^[0-9]+$ && "$STORAGE_OBJECT_BYTES" =~ ^[0-9]+$ ]] || die "Storage archive adapter returned an invalid summary."
+  REFERENCE_OBJECT_COUNT="$(wc -l < "${STAGING}/storage-references.tsv" | tr -d ' ')"
+  [[ "$STORAGE_OBJECT_COUNT" == "$REFERENCE_OBJECT_COUNT" ]] || die "Storage archive object count does not match the database reference inventory."
   tar -C "$STAGING" -cf "${STAGING}/storage.tar" storage
 
   # Included because the encryption and service-integration keys are required
@@ -170,6 +215,7 @@ fi
 # A manifest makes a restore verifiable rather than hopeful.
 cat > "${STAGING}/MANIFEST.txt" <<MANIFEST
 ReadyPackets Portal backup
+Format version:  2
 Created:        ${TIMESTAMP}
 Host:           $(hostname -f 2>/dev/null || hostname)
 Database:       ${DB_NAME}
@@ -178,6 +224,9 @@ Includes files: $([[ "$DB_ONLY" == "false" ]] && echo yes || echo no)
 Storage driver: ${STORAGE_DRIVER_EFFECTIVE}
 Storage objects: ${STORAGE_OBJECT_COUNT}
 Storage bytes:   ${STORAGE_OBJECT_BYTES}
+Storage references: $([[ "$DB_ONLY" == "false" ]] && echo 'storage-references.tsv (opaque key, SHA-256, bytes)' || echo 'not included in database-only export')
+Dataset counts:  $([[ "$DB_ONLY" == "false" ]] && echo 'dataset-counts.tsv (users, administrators, orders, files, versions)' || echo 'not included in database-only export')
+Migration ledger: $([[ "$DB_ONLY" == "false" ]] && echo 'migration-ledger.tsv (applied migration identifiers and checksums)' || echo 'not included in database-only export')
 Includes application secrets: $([[ "$DB_ONLY" == "false" ]] && echo yes || echo no)
 Includes backup-sync runtime: ${INCLUDES_RUNTIME}
 Schema version: $(MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" \

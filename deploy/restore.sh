@@ -33,6 +33,13 @@ RECOVERY_HISTORY_FILE=""
 RESTORE_UNIT=""
 RESTORE_STARTED_AT=""
 SERVICE="readypackets"
+SAFETY=""
+TARGET_ENV_BACKUP=""
+PRE_RESTORE_STORAGE=""
+LOCAL_STORAGE_ROLLBACK_PATH=""
+RESTORE_MUTATED="false"
+RESTORE_COMPLETED="false"
+PENDING_PLATFORM_SECRET_RESTORE="false"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m warn\033[0m %s\n' "$*" >&2; }
@@ -72,6 +79,9 @@ chmod 0700 "$STAGING"
 
 write_restore_history() {
   local exit_code=$?
+  if [[ "$exit_code" -ne 0 && "$RESTORE_MUTATED" == "true" && "$RESTORE_COMPLETED" != "true" ]]; then
+    rollback_failed_restore || true
+  fi
   rm -rf "$STAGING"
   [[ -n "$RECOVERY_HISTORY_FILE" && -n "$RESTORE_UNIT" && -f "$APP_ROOT/deploy/recovery-history.sh" ]] || return 0
   # shellcheck disable=SC1090
@@ -90,6 +100,33 @@ trap 'write_restore_history' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+rollback_failed_restore() {
+  # A full restore changes both the database and storage. Keep a controlled
+  # rollback path so a migration, storage verification, or readiness failure
+  # does not leave the target claiming a completed recovery with split data.
+  set +e
+  log "Recovery failed after mutation; restoring the protected pre-restore state"
+  if [[ "$IS_PRODUCTION" == "true" ]]; then
+    systemctl stop "$SERVICE" 2>/dev/null || true
+  fi
+  if [[ -n "$SAFETY" && -f "$SAFETY" ]]; then
+    gzip -cd "$SAFETY" | MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" "$TARGET_DB" || true
+  fi
+  if [[ "$RESTORE_FILES" == "true" && "${STORAGE_DRIVER:-local}" == "local" && -n "$LOCAL_STORAGE_ROLLBACK_PATH" && -d "$LOCAL_STORAGE_ROLLBACK_PATH" ]]; then
+    rm -rf -- "${DATA_DIR}/storage"
+    mv -- "$LOCAL_STORAGE_ROLLBACK_PATH" "${DATA_DIR}/storage" || true
+  elif [[ "$RESTORE_FILES" == "true" && "${STORAGE_DRIVER:-local}" == "s3" && -n "$PRE_RESTORE_STORAGE" && -d "$PRE_RESTORE_STORAGE" ]]; then
+    node "${APP_ROOT}/deploy/object-storage-archive.mjs" import --source "$PRE_RESTORE_STORAGE" >/dev/null || true
+  fi
+  if [[ -n "$TARGET_ENV_BACKUP" && -f "$TARGET_ENV_BACKUP" ]]; then
+    install -m 0640 -o root -g readypackets "$TARGET_ENV_BACKUP" "$ENV_FILE" || true
+    set -a; source "$ENV_FILE"; set +a
+  fi
+  if [[ "$IS_PRODUCTION" == "true" ]]; then
+    systemctl start "$SERVICE" 2>/dev/null || true
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Unpack
 # ---------------------------------------------------------------------------
@@ -98,7 +135,7 @@ validate_backup_archive() {
   while IFS= read -r member; do
     normalized="${member#./}"
     [[ -n "$normalized" ]] || continue
-    [[ "$normalized" =~ ^(database\.sql|MANIFEST\.txt|SHA256SUMS|storage\.tar|platform-runtime\.tar|portal\.env)$ ]] || die "Archive contains an unsupported member."
+    [[ "$normalized" =~ ^(database\.sql|MANIFEST\.txt|SHA256SUMS|storage\.tar|platform-runtime\.tar|portal\.env|storage-references\.tsv|dataset-counts\.tsv|migration-ledger\.tsv)$ ]] || die "Archive contains an unsupported member."
   done < <(tar -tzf "$source")
   while IFS= read -r member_type; do
     [[ "$member_type" == "-" || "$member_type" == "d" ]] || die "Archive contains links or unsupported member types."
@@ -127,6 +164,64 @@ validate_storage_archive() {
   while IFS= read -r member_type; do
     [[ "$member_type" == "-" || "$member_type" == "d" ]] || die "Storage archive contains links or unsupported member types."
   done < <(tar -tvf "$source" | awk '{print substr($1,1,1)}')
+}
+
+validate_recovery_inventory() {
+  local reference="$STAGING/storage-references.tsv" counts="$STAGING/dataset-counts.tsv" ledger="$STAGING/migration-ledger.tsv"
+  if [[ -f "$reference" || -f "$counts" || -f "$ledger" ]]; then
+    [[ -f "$reference" && -f "$counts" && -f "$ledger" ]] || die "Backup recovery inventory is incomplete."
+    awk -F '\t' '
+      function valid_storage_key(key, parts, count, stem, suffix) {
+        count = split(key, parts, "\\."); stem = parts[1]; suffix = parts[2]
+        return count <= 2 && length(stem) == 48 && stem ~ /^[a-f0-9]+$/ && (count == 1 || (length(suffix) >= 1 && length(suffix) <= 12 && suffix ~ /^[a-z0-9]+$/))
+      }
+      function valid_sha256(hash) { return length(hash) == 64 && hash ~ /^[a-f0-9]+$/ }
+      NF != 3 || !valid_storage_key($1) || !valid_sha256($2) || $3 !~ /^(0|[1-9][0-9]*)$/ { exit 1 }
+      seen[$1] && (hash[$1] != $2 || bytes[$1] != $3) { exit 1 }
+      { seen[$1] = 1; hash[$1] = $2; bytes[$1] = $3 }
+    ' "$reference" || die "Backup storage reference inventory is malformed."
+    awk -F '\t' 'NF != 2 || $1 !~ /^(users|administrators|orders|files|file_versions)$/ || $2 !~ /^(0|[1-9][0-9]*)$/ || seen[$1]++ { exit 1 } END { exit !(seen["users"] && seen["administrators"] && seen["orders"] && seen["files"] && seen["file_versions"]) }' "$counts" \
+      || die "Backup dataset-count inventory is malformed."
+    awk -F '\t' 'NF != 2 || $1 !~ /^[0-9][0-9][0-9][0-9]_[A-Za-z0-9_.-]+\.sql$/ || length($2) < 8 || length($2) > 64 || $2 !~ /^[A-Za-z0-9_]+$/ || seen[$1]++ { exit 1 } END { exit NR == 0 }' "$ledger" \
+      || die "Backup migration ledger is malformed."
+    [[ -f "$STAGING/storage.tar" ]] || die "A full recovery inventory requires its referenced storage archive."
+    return
+  fi
+  warn "This legacy archive has no database-to-storage recovery inventory. File-reference verification is unavailable."
+}
+
+verify_archive_migration_compatibility() {
+  local ledger="$STAGING/migration-ledger.tsv" migration filename checksum expected actual
+  [[ -f "$ledger" ]] || return 0
+  while IFS=$'\t' read -r filename checksum; do
+    [[ -f "$APP_ROOT/drizzle/migrations/$filename" ]] || die "This backup includes migration $filename, which is newer than the target release. Upgrade the target before restoring."
+  done < "$ledger"
+  for migration in "$APP_ROOT"/drizzle/migrations/*.sql; do
+    [[ -f "$migration" ]] || continue
+    filename="$(basename "$migration")"
+    expected="$(awk -F '\t' -v name="$filename" '$1 == name { print $2; exit }' "$ledger")"
+    [[ -n "$expected" ]] || continue
+    actual="$(sha256sum "$migration" | awk '{print $1}')"
+    # One historic migration has a deliberately recorded compatibility label in
+    # old databases. The target migration runner validates that special case.
+    if [[ "$expected" != "$actual" && "$filename" != "0005_tier4_tier5.sql" ]]; then
+      die "The target release does not match an applied migration in this backup: $filename. Upgrade the target to a compatible reviewed release before restoring."
+    fi
+  done
+}
+
+verify_restored_database_inventory() {
+  local expected="$STAGING/dataset-counts.tsv" actual="$STAGING/dataset-counts.restored.tsv"
+  [[ -f "$expected" ]] || return 0
+  MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" \
+    --batch --skip-column-names "$TARGET_DB" -e '
+      SELECT "users", COUNT(*) FROM users
+      UNION ALL SELECT "administrators", COUNT(*) FROM users WHERE role = "admin"
+      UNION ALL SELECT "orders", COUNT(*) FROM orders
+      UNION ALL SELECT "files", COUNT(*) FROM files
+      UNION ALL SELECT "file_versions", COUNT(*) FROM file_versions
+    ' > "$actual"
+  cmp -s "$expected" "$actual" || die "Restored account, administrator, order, or file counts do not match the backup inventory."
 }
 
 log "Unpacking archive"
@@ -163,11 +258,12 @@ if [[ -f "${STAGING}/SHA256SUMS" ]]; then
   (cd "$STAGING" && sha256sum -c --ignore-missing --quiet SHA256SUMS) \
     || die "Checksum verification failed; the archive is corrupt."
 fi
+validate_recovery_inventory
+verify_archive_migration_compatibility
 
 # ---------------------------------------------------------------------------
 # Replacement-server secrets (explicit root-console break-glass only)
 # ---------------------------------------------------------------------------
-TARGET_ENV_BACKUP=""
 prepare_platform_secret_restore() {
   [[ -f "${STAGING}/portal.env" ]] || die "This archive has no portal.env; it cannot restore platform secrets."
   TARGET_ENV_BACKUP="${ENV_FILE}.pre-full-restore-$(date -u '+%Y%m%dT%H%M%SZ')"
@@ -195,9 +291,7 @@ if [[ -f "${STAGING}/portal.env" ]]; then
   if [[ -n "$ARCHIVE_KEY" && "$ARCHIVE_KEY" != "${DATA_ENCRYPTION_KEY:-}" ]]; then
     warn "The archive was created with a DIFFERENT DATA_ENCRYPTION_KEY than the one currently configured."
     if [[ "$RESTORE_PLATFORM_SECRETS" == "true" ]]; then
-      prepare_platform_secret_restore
-      # Reload the target connection values while retaining the archived data key.
-      set -a; source "$ENV_FILE"; set +a
+      PENDING_PLATFORM_SECRET_RESTORE="true"
     else
       warn "Encrypted customer data will not decrypt unless this is a controlled replacement-server recovery."
       warn "Use --restore-platform-secrets only from the root console after validating the archive."
@@ -207,8 +301,7 @@ if [[ -f "${STAGING}/portal.env" ]]; then
       fi
     fi
   elif [[ "$RESTORE_PLATFORM_SECRETS" == "true" ]]; then
-    prepare_platform_secret_restore
-    set -a; source "$ENV_FILE"; set +a
+    PENDING_PLATFORM_SECRET_RESTORE="true"
   fi
 elif [[ "$RESTORE_PLATFORM_SECRETS" == "true" ]]; then
   die "This archive has no portal.env; it cannot restore platform secrets."
@@ -242,13 +335,32 @@ if MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" \
   chmod 0600 "$SAFETY"
 fi
 
+# Applying archived application/integration secrets is itself a state change.
+# Delay it until the operator has confirmed recovery and the original target
+# environment has been safeguarded, so an abort or failure can restore it.
+if [[ "$PENDING_PLATFORM_SECRET_RESTORE" == "true" ]]; then
+  RESTORE_MUTATED="true"
+  prepare_platform_secret_restore
+  # Reload the target connection values while retaining the archived data key.
+  set -a; source "$ENV_FILE"; set +a
+fi
+
 # ---------------------------------------------------------------------------
 # Restore
 # ---------------------------------------------------------------------------
 if [[ "$IS_PRODUCTION" == "true" ]]; then
   log "Stopping ${SERVICE}"
   systemctl stop "$SERVICE" 2>/dev/null || docker compose stop app 2>/dev/null || \
-    warn "Could not stop the service automatically; ensure it is not writing during the restore."
+    die "Could not stop the portal service; refusing a potentially inconsistent restore."
+fi
+
+# A local target can be restored by a directory swap. For S3-compatible
+# storage, retain a verified copy of the target's current opaque namespace
+# before writes so a failed full recovery can return it without a broad delete.
+if [[ "$RESTORE_FILES" == "true" && "${STORAGE_DRIVER:-local}" == "s3" ]]; then
+  PRE_RESTORE_STORAGE="/var/backups/readypackets/pre-restore-storage-$(date -u '+%Y%m%dT%H%M%SZ')"
+  log "Capturing current S3-compatible storage for rollback"
+  node "${APP_ROOT}/deploy/object-storage-archive.mjs" export --destination "$PRE_RESTORE_STORAGE" >/dev/null
 fi
 
 log "Restoring the database into '${TARGET_DB}'"
@@ -266,6 +378,7 @@ SQL
 
 # The dump recreates each table, so an existing schema is replaced rather than
 # merged. Foreign key checks are disabled for the load and restored afterwards.
+RESTORE_MUTATED="true"
 {
   echo "SET FOREIGN_KEY_CHECKS=0;"
   echo "SET UNIQUE_CHECKS=0;"
@@ -279,6 +392,7 @@ TABLES="$(MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" \
   "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${TARGET_DB}'")"
 log "Restored ${TABLES} tables"
 [[ "$TABLES" -gt 10 ]] || die "Only ${TABLES} tables were restored; the dump appears incomplete."
+verify_restored_database_inventory
 
 # ---------------------------------------------------------------------------
 # Files
@@ -291,16 +405,20 @@ if [[ "$RESTORE_FILES" == "true" && -f "${STAGING}/storage.tar" ]]; then
   tar --no-same-owner --no-same-permissions -C "$STORAGE_RESTORE_DIR" -xf "${STAGING}/storage.tar"
   if [[ "${STORAGE_DRIVER:-local}" == "local" ]]; then
     if [[ -d "${DATA_DIR}/storage" ]]; then
-      mv "${DATA_DIR}/storage" "${DATA_DIR}/storage.replaced-$(date -u '+%Y%m%dT%H%M%SZ')"
+      LOCAL_STORAGE_ROLLBACK_PATH="${DATA_DIR}/storage.pre-full-restore-$(date -u '+%Y%m%dT%H%M%SZ')"
+      mv "${DATA_DIR}/storage" "$LOCAL_STORAGE_ROLLBACK_PATH"
     fi
   fi
   node "${APP_ROOT}/deploy/object-storage-archive.mjs" import --source "$STORAGE_RESTORE_DIR/storage"
+  if [[ -f "${STAGING}/storage-references.tsv" ]]; then
+    node "${APP_ROOT}/deploy/object-storage-archive.mjs" verify --references-file "${STAGING}/storage-references.tsv" >/dev/null
+  fi
   if [[ "${STORAGE_DRIVER:-local}" == "local" ]]; then
     chown -R readypackets:readypackets "${DATA_DIR}/storage" 2>/dev/null || true
     chmod -R go-rwx "${DATA_DIR}/storage"
   fi
 elif [[ "$RESTORE_FILES" == "true" ]]; then
-  warn "The archive contains no storage.tar; uploaded files were not restored."
+  die "The archive contains no storage.tar; uploaded files were not restored."
 fi
 
 # ---------------------------------------------------------------------------
@@ -336,16 +454,30 @@ if [[ "$IS_PRODUCTION" == "true" ]]; then
     shift
     exec "$@"
   ' sh "$ENV_FILE" node /opt/readypackets/dist/migrate.js \
-    || warn "Migration step failed; review before serving traffic."
+    || die "Migration step failed; the pre-restore state will be restored."
+
+  # A full restore reuses user and order identifiers by design, but restored
+  # session rows must not continue authenticating a prior browser session on the
+  # same hostname. Password hashes and MFA enrollments remain intact.
+  MYSQL_PWD="$DB_PASSWORD" mysql --host=127.0.0.1 --user="$DB_USER" "$TARGET_DB" \
+    -e "UPDATE user_sessions SET revoked_at=COALESCE(revoked_at, UTC_TIMESTAMP()), revoked_reason=COALESCE(revoked_reason, 'full system recovery')" \
+    || die "Recovered sessions could not be revoked; the pre-restore state will be restored."
 
   log "Starting ${SERVICE}"
-  systemctl start "$SERVICE" 2>/dev/null || docker compose start app 2>/dev/null || true
-  sleep 3
-  if curl -fsS -H "Host: localhost" http://127.0.0.1:3000/api/health/ready >/dev/null 2>&1; then
-    log "The service is ready."
-  else
-    warn "The readiness probe failed. Check the service logs."
-  fi
+  systemctl start "$SERVICE" 2>/dev/null || docker compose start app 2>/dev/null || die "The portal service could not be started; the pre-restore state will be restored."
+  ready="false"
+  for attempt in $(seq 1 20); do
+    if curl --noproxy '*' --fail --silent --show-error --max-time 3 -H "Host: localhost" http://127.0.0.1:3000/api/health/ready >/dev/null 2>&1; then
+      ready="true"
+      break
+    fi
+    sleep 2
+  done
+  [[ "$ready" == "true" ]] || die "The portal readiness probe failed after restore; the pre-restore state will be restored."
+  log "The service is ready."
 fi
 
+RESTORE_COMPLETED="true"
+[[ -n "$PRE_RESTORE_STORAGE" ]] && rm -rf -- "$PRE_RESTORE_STORAGE"
+[[ -n "$LOCAL_STORAGE_ROLLBACK_PATH" ]] && rm -rf -- "$LOCAL_STORAGE_ROLLBACK_PATH"
 log "Restore complete."
