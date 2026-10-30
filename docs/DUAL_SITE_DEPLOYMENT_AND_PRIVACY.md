@@ -81,7 +81,7 @@ sudo bash deploy/unified-install.sh \
 The installer requests one certificate covering every configured hostname, writes both `APP_URL` and `PUBLIC_SITE_URL`, compiles `client/dist-public` and `client/dist-portal`, applies every forward-only migration, and fails closed if the schema contract is incomplete. The current expected checkpoint is:
 
 ```text
-Applied 56 migration(s); 48 critical tables verified.
+Applied 57 migration(s); 48 critical tables verified.
 ```
 
 > **Certificate caution.** For Cloudflare Origin CA, use a scoped token or a manually supplied certificate that covers both the portal and public hostnames. Do not store a private key, Cloudflare token, PostHog key, or any other secret in GitHub.

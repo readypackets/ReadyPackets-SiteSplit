@@ -99,7 +99,7 @@ approved target, then return it to private visibility.
    ```
 
 5. At the prompts, supply both dedicated hostnames, select the appropriate TLS method, specify the approved full commit SHA rather than accepting a moving branch tip, and review the redacted plan before entering the confirmation phrase.
-6. Confirm the installer prints **`Applied 56 migration(s); 48 critical tables verified.`** and passes local/readiness checks.
+6. Confirm the installer prints the migration count from its exact pinned source commit and **`48 critical tables verified.`**, then passes local/readiness checks. Do not compare it to a later `main` release: this temporary-public bootstrap intentionally pins its own reviewed historical application commit. Use the private read-only deploy-key master installer when the current reviewed release is required.
 7. Make the repository private immediately after the source has been cloned and the installer has recorded the installed commit. The running portal is not interrupted by that visibility change.
 8. Run the same MFA, backup, restore-drill, and public-health verification required for every production portal.
 

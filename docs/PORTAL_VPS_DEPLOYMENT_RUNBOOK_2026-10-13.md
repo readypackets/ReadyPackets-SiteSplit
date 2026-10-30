@@ -228,7 +228,7 @@ For a replacement server, install the new host first, validate it, then use the 
 The installer must include this successful schema line:
 
 ```text
-Applied 56 migration(s); 48 critical tables verified.
+Applied 57 migration(s); 48 critical tables verified.
 ```
 
 Run these checks on the VPS before inviting users:
