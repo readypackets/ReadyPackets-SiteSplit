@@ -17,10 +17,12 @@ import { SAML, type SamlConfig } from "@node-saml/node-saml";
 import { eq } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { db } from "../db/client.js";
-import { samlConfigs, users } from "../db/schema.js";
+import { samlConfigs } from "../db/schema.js";
 import {
+  bindUserSamlSubject,
   createUser,
   getUserByEmail,
+  getUserBySamlSubject,
   recordSuccessfulLogin,
   type CreateUserInput,
 } from "../db/users.js";
@@ -63,9 +65,12 @@ async function getActiveSamlConfig(): Promise<SamlConfigRow | null> {
     .select()
     .from(samlConfigs)
     .where(eq(samlConfigs.enabled, true))
-    .limit(1);
+    .limit(2);
 
-  if (rows.length === 0) return null;
+  // There is deliberately one active trust relationship. Choosing an arbitrary
+  // row would make issuer/subject binding ambiguous, so misconfiguration fails
+  // closed until an administrator leaves exactly one enabled configuration.
+  if (rows.length !== 1) return null;
   const row = rows[0]!;
   return {
     id: row.id,
@@ -194,14 +199,14 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
   try {
     const result = await saml.validatePostResponseAsync(req.body as Record<string, string>);
     profile = result.profile as Record<string, unknown>;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn("saml.acs.validation_failed", { error: msg });
+  } catch {
+    logger.warn("saml.acs.validation_failed", { samlConfigId: config.id });
     await recordSecurityEvent({
       eventType: "login.failure",
       outcome: "failure",
-      message: `SAML assertion validation failed: ${msg}`,
+      message: "SAML assertion validation failed",
       ipAddress: req.ip ?? null,
+      metadata: { samlConfigId: config.id },
     });
     res.redirect(`${env.appUrl}/login?error=saml_invalid`);
     return;
@@ -210,6 +215,7 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
   // Extract email from the assertion using the configured attribute mapping.
   const mapping = config.attributeMapping ?? {};
   const emailAttr = mapping["email"] ?? "email";
+  const subjectAttr = mapping["subject"] ?? "nameID";
   const firstNameAttr = mapping["firstName"] ?? "firstName";
   const lastNameAttr = mapping["lastName"] ?? "lastName";
 
@@ -220,8 +226,22 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
 
   const email = rawEmail.trim().toLowerCase();
   if (!email || !email.includes("@")) {
-    logger.warn("saml.acs.no_email", { profile: JSON.stringify(profile).slice(0, 200) });
+    logger.warn("saml.acs.no_email", { samlConfigId: config.id });
     res.redirect(`${env.appUrl}/login?error=saml_no_email`);
+    return;
+  }
+  const rawSubject = profile[subjectAttr];
+  const subject = typeof rawSubject === "string" ? rawSubject.trim() : "";
+  if (!subject || subject.length > 512) {
+    logger.warn("saml.acs.no_subject", { samlConfigId: config.id });
+    await recordSecurityEvent({
+      eventType: "login.failure",
+      outcome: "failure",
+      message: "SAML login denied because a usable subject identifier was absent",
+      ipAddress: req.ip ?? null,
+      metadata: { samlConfigId: config.id },
+    });
+    res.redirect(`${env.appUrl}/login?error=saml_identity_required`);
     return;
   }
 
@@ -231,11 +251,25 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
   // Find or provision the user. Administrator-only access deliberately
   // disables SAML auto-provisioning so no new account can enter during a gate.
   const administratorOnly = await isAdministratorOnlyAccessEnabled();
-  let user = await getUserByEmail(email);
+  const subjectUser = await getUserBySamlSubject(config.id, subject);
+  if (subjectUser && subjectUser.email !== email) {
+    await recordSecurityEvent({
+      eventType: "login.failure",
+      outcome: "blocked",
+      severity: "warning",
+      message: "SAML login blocked because the bound identity no longer matches the account email",
+      userId: subjectUser.id,
+      ipAddress: req.ip ?? null,
+      metadata: { samlConfigId: config.id },
+    });
+    res.redirect(`${env.appUrl}/login?error=saml_identity_mismatch`);
+    return;
+  }
+  let user = subjectUser ?? await getUserByEmail(email);
 
   if (!user) {
     if (administratorOnly || !config.autoProvision) {
-      logger.warn("saml.acs.no_account", { email: email.slice(0, 4) + "***" });
+      logger.warn("saml.acs.no_account", { samlConfigId: config.id });
       await recordSecurityEvent({
         eventType: "login.failure",
         outcome: "failure",
@@ -272,12 +306,21 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
       res.redirect(`${env.appUrl}/login?error=saml_local_only`);
       return;
     }
-    // Ensure the user's login method is set to SAML.
+    // A matching email proves the signed assertion, not permission to alter an
+    // existing account's authentication boundary. Local accounts must be
+    // deliberately converted by a different active administrator first.
     if (user.loginMethod !== "saml") {
-      await db
-        .update(users)
-        .set({ loginMethod: "saml" })
-        .where(eq(users.id, user.id));
+      await recordSecurityEvent({
+        eventType: "login.failure",
+        outcome: "blocked",
+        severity: "notice",
+        message: "SAML login blocked because the account has not been approved for single sign-on",
+        userId: user.id,
+        ipAddress: req.ip ?? null,
+        metadata: { samlConfigId: config.id },
+      });
+      res.redirect(`${env.appUrl}/login?error=saml_conversion_required`);
+      return;
     }
   }
 
@@ -335,6 +378,20 @@ export async function handleAcs(req: Request, res: Response): Promise<void> {
       metadata: { mfaSource: samlMfaPolicy.source, claimPresent: assuranceEvidence.claimPresent },
     });
     res.redirect(`${env.appUrl}/login?error=saml_mfa_assurance_required`);
+    return;
+  }
+
+  if (!await bindUserSamlSubject(user.id, config.id, subject)) {
+    await recordSecurityEvent({
+      eventType: "login.failure",
+      outcome: "blocked",
+      severity: "warning",
+      message: "SAML login blocked because the identity binding requires administrator review",
+      userId: user.id,
+      ipAddress: req.ip ?? null,
+      metadata: { samlConfigId: config.id },
+    });
+    res.redirect(`${env.appUrl}/login?error=saml_identity_mismatch`);
     return;
   }
 

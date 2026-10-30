@@ -11,7 +11,7 @@ import { db } from "./client.js";
 import { users, userProfileValues } from "./schema.js";
 import { blindIndex, decryptField, encryptField, generateCustomerNumber } from "../security/crypto.js";
 import type { UserRole } from "../../shared/domain.js";
-import { insertedId } from "./result.js";
+import { affectedRows, insertedId } from "./result.js";
 
 export interface DecryptedUser {
   id: number;
@@ -189,6 +189,72 @@ export async function getUserByEmail(email: string): Promise<DecryptedUser | nul
     .limit(1);
   const row = rows[0];
   return row ? decryptUser(row) : null;
+}
+
+/** A keyed index binds a SAML subject to one configuration without retaining raw Entra identity data. */
+function samlSubjectBlindIndex(samlConfigId: number, subject: string): string {
+  return blindIndex(`saml-subject:${samlConfigId}:${subject.trim()}`);
+}
+
+export async function getUserBySamlSubject(samlConfigId: number, subject: string): Promise<DecryptedUser | null> {
+  const normalizedSubject = subject.trim();
+  if (!normalizedSubject || normalizedSubject.length > 512) return null;
+  const rows = await db
+    .select()
+    .from(users)
+    .where(and(
+      eq(users.samlSubjectConfigId, samlConfigId),
+      eq(users.samlSubjectIndex, samlSubjectBlindIndex(samlConfigId, normalizedSubject)),
+      isNull(users.deletedAt),
+    ))
+    .limit(1);
+  const row = rows[0];
+  return row ? decryptUser(row) : null;
+}
+
+/**
+ * Bind a user at most once to the opaque SAML subject from a validated assertion.
+ * Returns false rather than overwriting a binding if the assertion is for another
+ * account or an administrator must explicitly repair the identity mapping.
+ */
+export async function bindUserSamlSubject(userId: number, samlConfigId: number, subject: string): Promise<boolean> {
+  const normalizedSubject = subject.trim();
+  if (!normalizedSubject || normalizedSubject.length > 512) return false;
+  const subjectIndex = samlSubjectBlindIndex(samlConfigId, normalizedSubject);
+  const existing = (await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(
+      eq(users.samlSubjectConfigId, samlConfigId),
+      eq(users.samlSubjectIndex, subjectIndex),
+      isNull(users.deletedAt),
+    ))
+    .limit(1))[0];
+  if (existing) return existing.id === userId;
+
+  try {
+    const result = await db
+      .update(users)
+      .set({ samlSubjectConfigId: samlConfigId, samlSubjectIndex: subjectIndex })
+      .where(and(
+        eq(users.id, userId),
+        isNull(users.samlSubjectConfigId),
+        isNull(users.samlSubjectIndex),
+        isNull(users.deletedAt),
+      ));
+    return affectedRows(result) === 1;
+  } catch {
+    const owner = (await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(
+        eq(users.samlSubjectConfigId, samlConfigId),
+        eq(users.samlSubjectIndex, subjectIndex),
+        isNull(users.deletedAt),
+      ))
+      .limit(1))[0];
+    return owner?.id === userId;
+  }
 }
 
 export async function emailExists(email: string): Promise<boolean> {

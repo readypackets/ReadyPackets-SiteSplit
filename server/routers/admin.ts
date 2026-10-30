@@ -6,7 +6,7 @@
  * are soft deletes wherever a record has legal or financial significance.
  */
 import { TRPCError } from "@trpc/server";
-import { and, asc, count, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import {
@@ -54,6 +54,7 @@ import {
   policyAcceptances,
   policyDocuments,
   policyVersions,
+  passwordResetTokens,
   productFeatures,
   products,
   registrationFields,
@@ -61,6 +62,7 @@ import {
   ticketReplies,
   tickets,
   users,
+  samlConfigs,
   webhookDeliveries,
   webhookEndpoints,
 } from "../db/schema.js";
@@ -83,6 +85,8 @@ import {
 } from "../db/users.js";
 import { recordActivity, recordSecurityEvent } from "../observability/audit.js";
 import { revokeAllUserSessions } from "../auth/session.js";
+import { revokeMobileSessionsForUser } from "../auth/mobileOidc.js";
+import { hasConfirmedMfa } from "../auth/mfa.js";
 import {
   OrderStateError,
   createOrder,
@@ -1201,6 +1205,7 @@ export const adminRouter = router({
         status: user.status,
         emailVerified: user.emailVerified,
         mfaEnabled: user.mfaEnabled,
+        loginMethod: user.loginMethod,
         lastLoginAt: user.lastLoginAt,
         createdAt: user.createdAt,
       }));
@@ -1235,7 +1240,10 @@ export const adminRouter = router({
   customerDetail: staffProcedure
     .input(z.object({ userId: z.number().int().positive() }))
     .query(async ({ input }) => {
-      const rows = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
+      const [rows, activeSamlConfigs] = await Promise.all([
+        db.select().from(users).where(eq(users.id, input.userId)).limit(1),
+        db.select({ id: samlConfigs.id }).from(samlConfigs).where(eq(samlConfigs.enabled, true)).limit(2),
+      ]);
       const row = rows[0];
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Customer not found." });
       const user = decryptUser(row);
@@ -1279,6 +1287,7 @@ export const adminRouter = router({
           emailVerified: user.emailVerified,
           mfaEnabled: user.mfaEnabled,
           samlLoginEnabled: user.samlLoginEnabled,
+          samlSignInAvailable: activeSamlConfigs.length === 1,
           loginMethod: user.loginMethod,
           timezone: user.timezone,
           notes: user.notes,
@@ -2943,7 +2952,14 @@ export const adminRouter = router({
           lockedUntil: null,
         })
         .where(and(eq(users.id, input.userId), isNull(users.deletedAt)));
-      await revokeAllUserSessions(input.userId, "saml_converted_to_local");
+      await db
+        .update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(and(eq(passwordResetTokens.userId, input.userId), isNull(passwordResetTokens.usedAt)));
+      await Promise.all([
+        revokeAllUserSessions(input.userId, "saml_converted_to_local"),
+        revokeMobileSessionsForUser(input.userId, "saml_converted_to_local"),
+      ]);
 
       void recordSecurityEvent({
         eventType: "settings.changed",
@@ -2966,6 +2982,100 @@ export const adminRouter = router({
       });
 
       return { ok: true as const, temporaryPassword: temporary };
+    }),
+
+  /**
+   * Convert one verified local account to SAML-only authentication. This removes
+   * the password verifier rather than retaining a dormant local credential,
+   * preserves the account's role/data/MFA enrolment, and requires a separately
+   * enabled SAML configuration that will validate the account's matching email.
+   */
+  convertLocalAccountToSaml: adminProcedure
+    .input(z.object({ userId: z.number().int().positive(), confirmation: z.literal("ENABLE ENTRA SSO") }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.userId === ctx.session.user.id) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Use a different active administrator to convert your own sign-in method." });
+      }
+      const [user, activeSamlConfig] = await Promise.all([
+        getUserById(input.userId),
+        db.select({ id: samlConfigs.id }).from(samlConfigs).where(eq(samlConfigs.enabled, true)).limit(2),
+      ]);
+      if (!user || user.status !== "active") throw new TRPCError({ code: "NOT_FOUND", message: "Active user not found." });
+      if (user.loginMethod !== "local") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This account is already configured for single sign-on." });
+      }
+      if (!user.emailVerified) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Verify the account email before converting it to single sign-on." });
+      }
+      const samlConfig = activeSamlConfig[0];
+      if (!samlConfig || activeSamlConfig.length !== 1) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Exactly one enabled and tested Microsoft Entra SSO configuration is required before converting an account." });
+      }
+      if (user.role === "admin") {
+        const localAdminCandidates = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(and(
+            eq(users.role, "admin"),
+            eq(users.status, "active"),
+            eq(users.loginMethod, "local"),
+            eq(users.samlLoginEnabled, false),
+            eq(users.emailVerified, true),
+            isNotNull(users.passwordHash),
+            isNull(users.deletedAt),
+            ne(users.id, input.userId),
+          ))
+          .limit(50);
+        const hasLocalBreakGlassAdministrator = (await Promise.all(localAdminCandidates.map((candidate) => hasConfirmedMfa(candidate.id)))).some(Boolean);
+        if (!hasLocalBreakGlassAdministrator) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Keep a different active local-only administrator with confirmed MFA before converting an administrator to Microsoft Entra SSO." });
+        }
+      }
+
+      await db
+        .update(users)
+        .set({
+          passwordHash: null,
+          passwordChangedAt: null,
+          mustChangePassword: false,
+          loginMethod: "saml",
+          samlLoginEnabled: true,
+          samlSubjectIndex: null,
+          samlSubjectConfigId: null,
+          failedLoginCount: 0,
+          lockedUntil: null,
+        })
+        .where(and(eq(users.id, input.userId), isNull(users.deletedAt)));
+      await db
+        .update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(and(eq(passwordResetTokens.userId, input.userId), isNull(passwordResetTokens.usedAt)));
+      await Promise.all([
+        revokeAllUserSessions(input.userId, "local_converted_to_saml"),
+        revokeMobileSessionsForUser(input.userId, "local_converted_to_saml"),
+      ]);
+
+      void recordSecurityEvent({
+        eventType: "settings.changed",
+        severity: "warning",
+        message: "Administrator converted local account to SAML single sign-on",
+        userId: input.userId,
+        ipAddress: ctx.clientIp,
+        metadata: { actorUserId: ctx.session.user.id, authenticationMethod: "saml", samlConfigId: samlConfig.id, localPasswordRemoved: true },
+      });
+      void recordActivity({
+        actorUserId: ctx.session.user.id,
+        actorRole: "admin",
+        action: "account.local_converted_to_saml",
+        entityType: "user",
+        entityId: input.userId,
+        severity: "warning",
+        summary: "Administrator converted a local account to SAML single sign-on",
+        changes: { authenticationMethod: "saml", samlLoginEnabled: true, localPasswordRemoved: true, samlConfigId: samlConfig.id },
+        ipAddress: ctx.clientIp,
+      });
+
+      return { ok: true as const };
     }),
 
   /**

@@ -748,7 +748,11 @@ export const authRouter = router({
       }
 
       const user = await getUserById(record.userId);
-      if (!user) {
+      if (!user || user.status !== "active" || user.loginMethod !== "local") {
+        await db
+          .update(passwordResetTokens)
+          .set({ usedAt: new Date() })
+          .where(and(eq(passwordResetTokens.id, record.id), isNull(passwordResetTokens.usedAt)));
         throw new TRPCError({ code: "BAD_REQUEST", message: "This reset link is no longer valid." });
       }
 
@@ -757,13 +761,29 @@ export const authRouter = router({
         names: [user.firstName, user.lastName, user.preferredName],
       });
 
-      await setPasswordHash(user.id, await hashPassword(input.password));
-
-      // Gap analysis 3.3: the token is consumed immediately, and siblings are voided.
-      await db
+      // Consume first and make both the consume and password write conditional.
+      // This prevents a concurrent account conversion from leaving a dormant
+      // local credential on an SSO-only account.
+      const consumed = await db
         .update(passwordResetTokens)
         .set({ usedAt: new Date() })
-        .where(eq(passwordResetTokens.id, record.id));
+        .where(and(eq(passwordResetTokens.id, record.id), isNull(passwordResetTokens.usedAt)));
+      if (affectedRows(consumed) !== 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This reset link is no longer valid." });
+      }
+      const passwordUpdate = await db
+        .update(users)
+        .set({
+          passwordHash: await hashPassword(input.password),
+          passwordChangedAt: new Date(),
+          mustChangePassword: false,
+          failedLoginCount: 0,
+          lockedUntil: null,
+        })
+        .where(and(eq(users.id, user.id), eq(users.loginMethod, "local"), eq(users.status, "active"), isNull(users.deletedAt)));
+      if (affectedRows(passwordUpdate) !== 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This reset link is no longer valid." });
+      }
       await db
         .update(passwordResetTokens)
         .set({ usedAt: new Date() })

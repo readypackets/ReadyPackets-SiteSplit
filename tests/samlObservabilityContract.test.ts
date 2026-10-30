@@ -24,6 +24,15 @@ describe("SAML Entra registration and observability safeguards", () => {
     expect(saml).not.toContain("metadata: { relayState");
   });
 
+  it("keeps assertion failure diagnostics bounded to the configuration identifier", async () => {
+    const saml = await text("server/auth/saml.ts");
+    expect(saml).toContain('logger.warn("saml.acs.validation_failed", { samlConfigId: config.id })');
+    expect(saml).toContain('message: "SAML assertion validation failed"');
+    expect(saml).toContain('logger.warn("saml.acs.no_email", { samlConfigId: config.id })');
+    expect(saml).not.toContain("JSON.stringify(profile).slice(0, 200)");
+    expect(saml).not.toContain("SAML assertion validation failed: ${msg}");
+  });
+
   it("labels Entra values so IdP and service-provider identifiers cannot be confused", async () => {
     const setup = await text("client/src/pages/admin/EntraSetup.tsx");
     expect(setup).toContain('label: "Identifier (Entity ID)"');

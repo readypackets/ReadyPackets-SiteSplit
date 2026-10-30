@@ -90,6 +90,14 @@ export function LoginPage() {
       setFormError("Single sign-on is disabled for this account. Use the local email and password supplied by your administrator.");
       window.history.replaceState({}, document.title, "/login");
     }
+    if (error === "saml_conversion_required") {
+      setFormError("This account has not been approved for single sign-on. Use local sign-in or contact an administrator.");
+      window.history.replaceState({}, document.title, "/login");
+    }
+    if (error === "saml_identity_required" || error === "saml_identity_mismatch") {
+      setFormError("Single sign-on identity verification needs administrator review. Use local sign-in or contact an administrator.");
+      window.history.replaceState({}, document.title, "/login");
+    }
   }, []);
 
   // A server-side idle timeout can leave a stale session-bound CSRF cookie in an

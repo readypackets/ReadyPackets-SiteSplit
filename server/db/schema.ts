@@ -58,6 +58,9 @@ export const users = mysqlTable(
     loginMethod: varchar("login_method", { length: 16 }).notNull().default("local"),
     /** Per-account SAML gate; local conversion disables SSO without changing role or data. */
     samlLoginEnabled: boolean("saml_login_enabled").notNull().default(true),
+    /** Keyed opaque identity binding after the first approved SAML assertion; never stores a raw NameID/object ID. */
+    samlSubjectIndex: varchar("saml_subject_index", { length: 64 }),
+    samlSubjectConfigId: int("saml_subject_config_id"),
     status: varchar("status", { length: 16 }).notNull().default("active"),
     emailVerified: boolean("email_verified").notNull().default(false),
     mustChangePassword: boolean("must_change_password").notNull().default(false),
@@ -93,6 +96,7 @@ export const users = mysqlTable(
     referralCodeUnique: uniqueIndex("users_referral_code_unique").on(table.referralCode),
     customerNumberUnique: uniqueIndex("users_customer_number_unique").on(table.customerNumber),
     publicIdUnique: uniqueIndex("users_public_id_unique").on(table.publicId),
+    samlSubjectUnique: uniqueIndex("users_saml_subject_unique").on(table.samlSubjectConfigId, table.samlSubjectIndex),
   }),
 );
 

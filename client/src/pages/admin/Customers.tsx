@@ -74,6 +74,7 @@ interface CustomerRow {
   status: string;
   emailVerified: boolean;
   mfaEnabled: boolean;
+  loginMethod: string;
   lastLoginAt: string | Date | null;
   createdAt: string | Date;
 }
@@ -516,14 +517,16 @@ export function AdminCustomersPage() {
           <div className="flex items-center gap-2 justify-end">
             {session.isAdmin && (
               <>
-                <button
-                  type="button"
-                  title="Reset password"
-                  className="text-muted hover:text-ink"
-                  onClick={() => setResetTarget({ id: row.id, name: row.name })}
-                >
-                  <KeyRound className="size-4" aria-hidden="true" />
-                </button>
+                {row.loginMethod === "local" ? (
+                  <button
+                    type="button"
+                    title="Reset password"
+                    className="text-muted hover:text-ink"
+                    onClick={() => setResetTarget({ id: row.id, name: row.name })}
+                  >
+                    <KeyRound className="size-4" aria-hidden="true" />
+                  </button>
+                ) : null}
                 {!row.emailVerified ? (
                   <button type="button" title="Verify email" className="text-teal-600 hover:text-teal-800" onClick={() => handleVerifyEmail(row.id)}>
                     <MailCheck className="size-4" aria-hidden="true" />
@@ -917,6 +920,8 @@ export function AdminCustomerDetailPage() {
   const [localLoginOpen, setLocalLoginOpen] = useState(false);
   const [localLoginConfirmation, setLocalLoginConfirmation] = useState("");
   const [localLoginTemporaryPassword, setLocalLoginTemporaryPassword] = useState<string | null>(null);
+  const [entraLoginOpen, setEntraLoginOpen] = useState(false);
+  const [entraLoginConfirmation, setEntraLoginConfirmation] = useState("");
   const [changeCustomerIdOpen, setChangeCustomerIdOpen] = useState(false);
   const [newCustomerId, setNewCustomerId] = useState("");
   const [customerIdChangeReason, setCustomerIdChangeReason] = useState("");
@@ -975,6 +980,18 @@ export function AdminCustomerDetailPage() {
     },
   });
 
+  const convertLocalAccountToSaml = trpc.admin.convertLocalAccountToSaml.useMutation({
+    async onSuccess() {
+      setEntraLoginOpen(false);
+      setEntraLoginConfirmation("");
+      await detail.refetch();
+      toast.success("Microsoft Entra SSO enabled", "The local password was removed and all active sessions were revoked.");
+    },
+    onError(error) {
+      toast.error("Could not enable Microsoft Entra SSO", errorMessage(error));
+    },
+  });
+
   const changeCustomerId = trpc.admin.changeCustomerId.useMutation({
     async onSuccess() {
       setChangeCustomerIdOpen(false);
@@ -1020,6 +1037,12 @@ export function AdminCustomerDetailPage() {
     setLocalLoginOpen(false);
     setLocalLoginConfirmation("");
     setLocalLoginTemporaryPassword(null);
+  }
+
+  function closeEntraLoginModal() {
+    if (convertLocalAccountToSaml.isPending) return;
+    setEntraLoginOpen(false);
+    setEntraLoginConfirmation("");
   }
 
   if (detail.isLoading) {
@@ -1072,6 +1095,14 @@ export function AdminCustomerDetailPage() {
                   leadingIcon={<KeyRound className="size-4" aria-hidden="true" />}
                 >
                   Enable local sign-in
+                </Button>
+              ) : user.samlSignInAvailable ? (
+                <Button
+                  variant="outline"
+                  onClick={() => setEntraLoginOpen(true)}
+                  leadingIcon={<ShieldCheck className="size-4" aria-hidden="true" />}
+                >
+                  Enable Microsoft Entra SSO
                 </Button>
               ) : (
                 <Button
@@ -1226,7 +1257,7 @@ export function AdminCustomerDetailPage() {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-body">Sign-in method</dt>
-                <dd className="text-ink">{user.loginMethod === "local" && !user.samlLoginEnabled ? "local (SSO disabled)" : user.loginMethod}</dd>
+                <dd className="text-ink">{user.loginMethod === "saml" ? "Microsoft Entra SSO" : user.samlLoginEnabled ? "local password" : "local (SSO disabled)"}</dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-body">Last sign-in</dt>
@@ -1297,6 +1328,15 @@ export function AdminCustomerDetailPage() {
                     leadingIcon={<KeyRound className="size-4" aria-hidden="true" />}
                   >
                     Enable local sign-in
+                  </Button>
+                ) : user.samlSignInAvailable ? (
+                  <Button
+                    variant="outline"
+                    fullWidth
+                    onClick={() => setEntraLoginOpen(true)}
+                    leadingIcon={<ShieldCheck className="size-4" aria-hidden="true" />}
+                  >
+                    Enable Microsoft Entra SSO
                   </Button>
                 ) : (
                   <Button
@@ -1380,6 +1420,40 @@ export function AdminCustomerDetailPage() {
             />
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={entraLoginOpen}
+        onClose={closeEntraLoginModal}
+        title="Enable Microsoft Entra SSO"
+        description="Convert this verified local account to Entra SSO-only authentication."
+        footer={
+          <>
+            <Button variant="outline" onClick={closeEntraLoginModal}>Cancel</Button>
+            <Button
+              busy={convertLocalAccountToSaml.isPending}
+              disabled={entraLoginConfirmation !== "ENABLE ENTRA SSO"}
+              onClick={() => convertLocalAccountToSaml.mutate({ userId, confirmation: "ENABLE ENTRA SSO" })}
+            >
+              Enable Microsoft Entra SSO
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Alert tone="warning">
+            This permanently removes the local password and voids any password-reset links for this account. All browser and mobile sessions are revoked. The user must next sign in with the active Microsoft Entra account whose verified email exactly matches this ReadyPackets account.
+          </Alert>
+          <Alert tone="info">
+            The user&apos;s role, orders, profile, and MFA enrolment remain unchanged. SAML MFA policy remains enforced at sign-in. A different active administrator is required to perform this action, preserving a local administrator recovery path.
+          </Alert>
+          <Input
+            label="Type ENABLE ENTRA SSO to confirm"
+            value={entraLoginConfirmation}
+            onChange={(event) => setEntraLoginConfirmation(event.target.value)}
+            autoComplete="off"
+          />
+        </div>
       </Modal>
 
       <ConfirmDialog
