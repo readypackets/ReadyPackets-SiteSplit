@@ -13,9 +13,8 @@ set -Eeuo pipefail
 umask 077
 
 readonly REPOSITORY="readypackets/ReadyPackets-SiteSplit"
-# The portal source installed by this reviewed bootstrap. Do not replace with a
-# branch name or abbreviated SHA: production deployment must remain immutable.
-readonly RELEASE_COMMIT="ae5bb1ef039cdb0826ed4721ee9b252ca06f9d72"
+readonly SOURCE_BRANCH="main"
+readonly SHA_RE='^[a-f0-9]{40}$'
 readonly SOURCE_DIR="/srv/readypackets"
 readonly TOKEN_DIR="/root/readypackets-secrets"
 
@@ -28,6 +27,9 @@ TLS_PROVIDER=""
 LETSENCRYPT_EMAIL=""
 CLOUDFLARE_ORIGIN_VALIDITY="5475"
 TOKEN_FILE=""
+RELEASE_COMMIT=""
+CURRENT_MAIN_COMMIT=""
+EXPECTED_MIGRATION_COUNT=""
 
 log() { printf '\n[ReadyPackets fresh portal install] %s\n' "$*"; }
 warn() { printf '\n[ReadyPackets fresh portal install warning] %s\n' "$*" >&2; }
@@ -94,11 +96,37 @@ require_new_ubuntu_vps() {
   esac
 
   local path
-  for path in "$SOURCE_DIR" /opt/readypackets /etc/readypackets /var/lib/readypackets; do
+  for path in \
+    "$SOURCE_DIR" \
+    /opt/readypackets \
+    /etc/readypackets \
+    /var/lib/readypackets \
+    /var/lib/mysql/readypackets \
+    /etc/mysql/mysql.conf.d/zz-readypackets.cnf \
+    /etc/nginx/sites-available/readypackets \
+    /etc/nginx/sites-enabled/readypackets \
+    /etc/systemd/system/readypackets.service \
+    /etc/systemd/system/readypackets-backup.service \
+    /etc/systemd/system/readypackets-backup-control.service \
+    /etc/systemd/system/readypackets-certificate-control.service \
+    /etc/systemd/system/readypackets-platform-update-control.service; do
     [[ ! -e "$path" ]] || fail "Existing ReadyPackets state found at ${path}; this fresh installer will not overwrite it."
   done
+  ! getent passwd readypackets >/dev/null 2>&1 \
+    || fail "The readypackets system account already exists; reimage the VPS or use the documented recovery path."
   if systemctl cat readypackets.service >/dev/null 2>&1; then
     fail "Found an existing readypackets.service; use the approved in-place update or recovery workflow instead."
+  fi
+  if command -v mysql >/dev/null 2>&1 && mysqladmin --protocol=socket -uroot ping --silent >/dev/null 2>&1; then
+    local existing_database existing_user
+    existing_database="$(mysql --protocol=socket -uroot -NBe \"SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = 'readypackets'\")" \
+      || fail "Could not inspect the existing MySQL server for ReadyPackets state."
+    [[ -z "$existing_database" ]] \
+      || fail "The readypackets MySQL database already exists; reimage the VPS or use the documented recovery path."
+    existing_user="$(mysql --protocol=socket -uroot -NBe \"SELECT User FROM mysql.user WHERE User = 'readypackets' LIMIT 1\")" \
+      || fail "Could not inspect the existing MySQL server for the ReadyPackets account."
+    [[ -z "$existing_user" ]] \
+      || fail "The readypackets MySQL account already exists; reimage the VPS or use the documented recovery path."
   fi
 }
 
@@ -148,10 +176,37 @@ capture_tls_choice() {
   fi
 }
 
-check_public_source() {
+prepare_reviewed_release() {
+  export DEBIAN_FRONTEND=noninteractive
+  log "Installing only source-retrieval prerequisites before selecting a reviewed release."
+  apt-get update -qq
+  apt-get install -y --no-install-recommends ca-certificates curl git
+
   log "Checking temporary anonymous GitHub access before collecting any certificate secret."
   GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "https://github.com/${REPOSITORY}.git" HEAD >/dev/null \
     || fail "${REPOSITORY} is not anonymously readable. Keep the repository private and use the read-only deploy-key installer, or make the repository public only after a complete reachable-history secret review."
+
+  CURRENT_MAIN_COMMIT="$(GIT_TERMINAL_PROMPT=0 git ls-remote "https://github.com/${REPOSITORY}.git" "refs/heads/${SOURCE_BRANCH}" | awk 'NR == 1 { print tolower($1) }')"
+  [[ "$CURRENT_MAIN_COMMIT" =~ $SHA_RE ]] \
+    || fail "Could not resolve a current immutable ${SOURCE_BRANCH} release from ${REPOSITORY}."
+
+  printf '\nThe current public %s candidate is:\n  %s\n' "$SOURCE_BRANCH" "$CURRENT_MAIN_COMMIT"
+  printf 'Review that commit in GitHub, then type the complete 40-character SHA below.\n'
+  printf 'A branch name, abbreviated SHA, or earlier release is not accepted by this latest-release bootstrap.\n\n'
+  prompt_required "Reviewed 40-character Portal commit SHA to install"
+  RELEASE_COMMIT="${REPLY,,}"
+  [[ "$RELEASE_COMMIT" =~ $SHA_RE ]] || fail "The Portal release must be a reviewed 40-character Git SHA."
+  [[ "$RELEASE_COMMIT" == "$CURRENT_MAIN_COMMIT" ]] \
+    || fail "The reviewed release must match the current public ${SOURCE_BRANCH} candidate. Refresh/review the current commit rather than installing a stale or moving target."
+}
+
+verify_current_main_still_selected() {
+  local latest_main_commit
+  latest_main_commit="$(GIT_TERMINAL_PROMPT=0 git ls-remote "https://github.com/${REPOSITORY}.git" "refs/heads/${SOURCE_BRANCH}" | awk 'NR == 1 { print tolower($1) }')"
+  [[ "$latest_main_commit" =~ $SHA_RE ]] \
+    || fail "Could not revalidate the current public ${SOURCE_BRANCH} release before checkout."
+  [[ "$latest_main_commit" == "$RELEASE_COMMIT" ]] \
+    || fail "The public ${SOURCE_BRANCH} candidate changed after review. No source was checked out and no credential was requested; restart, review the new commit, and try again."
 }
 
 capture_cloudflare_token() {
@@ -172,13 +227,6 @@ capture_cloudflare_token() {
 }
 
 checkout_reviewed_source() {
-  export DEBIAN_FRONTEND=noninteractive
-  log "Installing only source-retrieval prerequisites."
-  apt-get update -qq
-  apt-get install -y --no-install-recommends ca-certificates curl git
-
-  check_public_source
-
   log "Retrieving immutable reviewed portal release ${RELEASE_COMMIT}."
   install -d -m 0755 -o root -g root "$(dirname "$SOURCE_DIR")"
   git init "$SOURCE_DIR" >/dev/null
@@ -191,6 +239,10 @@ checkout_reviewed_source() {
   [[ -f "$SOURCE_DIR/deploy/install.sh" ]] || fail "The approved source is incomplete: deploy/install.sh is missing."
   [[ -f "$SOURCE_DIR/deploy/verify-public-connectivity.sh" ]] || fail "The approved source is incomplete: post-install verifier is missing."
   [[ -z "$(git -C "$SOURCE_DIR" status --porcelain)" ]] || fail "The downloaded source is unexpectedly modified."
+  ! find "$SOURCE_DIR/drizzle/migrations" -maxdepth 1 -name '*.sql' ! -type f -print -quit | grep -q . \
+    || fail "The reviewed source migration ledger contains a non-regular SQL entry."
+  EXPECTED_MIGRATION_COUNT="$(find "$SOURCE_DIR/drizzle/migrations" -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d '[:space:]')"
+  [[ "$EXPECTED_MIGRATION_COUNT" =~ ^[1-9][0-9]*$ ]] || fail "The reviewed source does not contain a valid forward-only migration ledger."
 }
 
 install_portal() {
@@ -261,7 +313,6 @@ verify_installation() {
 
 main() {
   require_new_ubuntu_vps
-  [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "The embedded release pin is invalid."
 
   cat <<'BANNER'
 
@@ -277,6 +328,14 @@ Before continuing, verify that the canonical portal DNS record (and every
 optional alias) points to this VPS. For Cloudflare Origin CA, keep each portal
 record proxied and set the zone to Full (strict).
 BANNER
+
+  printf '\nBefore deployment, this installer will install only source-retrieval prerequisites,\n'
+  printf 'show the current public main candidate, and require its reviewed immutable SHA.\n'
+  local preflight_confirmation=""
+  read -r -p "Type PREPARE PUBLIC SOURCE to continue: " preflight_confirmation
+  [[ "$preflight_confirmation" == "PREPARE PUBLIC SOURCE" ]] \
+    || fail "Preflight confirmation did not match; no portal installation was started."
+  prepare_reviewed_release
 
   prompt_default "ReadyPackets portal display name" "$SITE_NAME"
   SITE_NAME="$REPLY"
@@ -324,6 +383,7 @@ PLAN
   read -r -p "Type INSTALL READY PACKETS to begin on this new VPS: " confirmation
   [[ "$confirmation" == "INSTALL READY PACKETS" ]] || fail "Confirmation did not match; no portal installation was started."
 
+  verify_current_main_still_selected
   checkout_reviewed_source
   capture_cloudflare_token
   install_portal
@@ -340,7 +400,7 @@ ReadyPackets fresh portal installation completed.
 
 Next required steps:
   1. Store the generated one-time password, sign in over HTTPS, enroll MFA, and save recovery codes.
-  2. Confirm the installer reported: Applied 54 migration(s); 48 critical tables verified.
+  2. Confirm the installer reported: Applied ${EXPECTED_MIGRATION_COUNT} migration(s); 48 critical tables verified.
   3. Configure email, payments, Microsoft Graph/SharePoint, SAML, SIEM/syslog, and consented analytics from the administrator portal.
   4. Configure encrypted off-host backups and complete an isolated restore drill before handling customer data.
   5. Return the source repository to private visibility immediately after installation and revoke the short-lived Cloudflare token if it is no longer needed.

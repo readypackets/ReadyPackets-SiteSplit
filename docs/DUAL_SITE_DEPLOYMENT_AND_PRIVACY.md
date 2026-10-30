@@ -40,33 +40,13 @@ For a portal-only VPS installation, omit `--public-domain`. The current installe
 
 The installer writes `MARKETING_SITE_URL=https://www.readypackets.com` for navigation from the portal logo, “Public site” links, and registration-contact actions when no same-VPS public hostname is configured. It must be an HTTPS origin with no path, query, fragment, or credentials. The server injects it into `data-rp-marketing-origin` on `portal.html`; the portal client validates it again before use and falls back to `https://www.readypackets.com` if it is absent or invalid. `MARKETING_SITE_URL` is deliberately **not** added to `PUBLIC_SITE_URL`, `ALLOWED_ORIGINS`, the portal host allowlist, TLS configuration, or cookie scope. An operator may change it only to another approved separately hosted marketing origin.
 
-## Native VPS installation
+## Historical dual-site native VPS installation
 
-The guided bootstrap defaults to this continuation repository. It is intended for a repository that is temporarily public for the installation, or for a checked-out private repository with a deploy-key procedure. Always pin a reviewed immutable commit for a production install.
+The current ReadyPackets production topology keeps the independently hosted marketing website outside the Portal VPS. Use the dedicated Portal-only bootstrap in [Temporary Public-Repository Installation](TEMPORARY_PUBLIC_REPOSITORY_INSTALL.md) when source is deliberately public, or the private read-only deploy-key master installer otherwise.
 
-```bash
-# On a new Ubuntu/Debian VPS, after DNS for both names points to the server:
-curl -fsSL https://raw.githubusercontent.com/readypackets/ReadyPackets-SiteSplit/main/deploy/one-click-install.sh -o /tmp/readypackets-install.sh
-sudo bash /tmp/readypackets-install.sh
-```
+The retired dual-host `one-click-install.sh` public bootstrap must not be downloaded from a moving branch and is not a supported production path. If a dual-host native topology is required in the future, prepare a separate reviewed procedure with an immutable bootstrap checksum, full target SHA, final branch revalidation, explicit dual-host TLS scope, and independent security review before deployment.
 
-The guided flow asks separately for the portal hostname and the public marketing hostname. For unattended deployment from a deliberately public repository, use protected environment values rather than placing secrets in the command line:
-
-```bash
-sudo env \
-  RP_REPOSITORY=readypackets/ReadyPackets-SiteSplit \
-  RP_REF=main \
-  RP_COMMIT=REVIEWED_40_CHARACTER_COMMIT_SHA \
-  RP_DOMAIN=portal.example.com \
-  RP_PUBLIC_DOMAIN=www.example.com \
-  RP_EMAIL=ops@example.com \
-  RP_MODE=native \
-  RP_TLS_PROVIDER=letsencrypt \
-  RP_SITE_NAME=ReadyPackets \
-  bash /tmp/readypackets-install.sh
-```
-
-For a private repository, clone it to a root-owned source directory using a repository-specific deploy key, validate the reviewed commit, and run the native installer from that checkout:
+For a private repository, a security-reviewed dual-host deployment may clone to a root-owned source directory with a repository-specific deploy key, validate the reviewed commit, and run the native installer from that checkout:
 
 ```bash
 sudo bash deploy/unified-install.sh \

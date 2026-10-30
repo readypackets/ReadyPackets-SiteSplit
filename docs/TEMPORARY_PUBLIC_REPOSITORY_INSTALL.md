@@ -34,7 +34,8 @@ The established production topology keeps the marketing website independently ho
 The normal and preferred process keeps the portal repository private and uses the read-only deploy-key bootstrap in the [production runbook](PORTAL_VPS_DEPLOYMENT_RUNBOOK_2026-10-13.md). If temporary public visibility has been explicitly approved after the history review above, use the dedicated portal-only bootstrap—not the older dual-host `one-click-install.sh`:
 
 ```bash
-BOOTSTRAP_COMMIT=55d1ddb79b0ce336a26463b21d59113552f0d5f3
+# Replace with the reviewed 40-character current main commit shown in GitHub.
+BOOTSTRAP_COMMIT=REVIEWED_40_CHARACTER_CURRENT_MAIN_SHA
 curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
   "https://raw.githubusercontent.com/readypackets/ReadyPackets-SiteSplit/${BOOTSTRAP_COMMIT}/deploy/temporary-public-portal-only-install.sh" \
   -o /root/readypackets-fresh-install.sh \
@@ -44,7 +45,7 @@ curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
   && sudo bash /root/readypackets-fresh-install.sh
 ```
 
-The script is interactive by design and is safe only on a brand-new Ubuntu **24.04 or 26.04 LTS** VPS. It pins and verifies the exact reviewed source commit, asks for the canonical portal hostname, up to five redirect-only aliases, the first administrator, and the TLS method. It deliberately **does not** ask for or configure `www.readypackets.com`; the portal receives `PORTAL_ONLY=true` and its outward marketing navigation continues to use the separate website.
+The script is interactive by design and is safe only on a brand-new Ubuntu **24.04 or 26.04 LTS** VPS. Before it collects portal settings or certificate material, it resolves the current public `main` candidate, displays its complete SHA, and requires the operator to review and type that exact 40-character SHA. It then fetches only that immutable Git object and derives the expected migration count from the checked-out source ledger. It deliberately **does not** ask for or configure `www.readypackets.com`; the portal receives `PORTAL_ONLY=true` and its outward marketing navigation continues to use the separate website.
 
 For automatic Cloudflare Origin CA, create the portal record (and every selected alias) as **Proxied**, set the zone to **Full (strict)**, and use the non-echoed prompt for a short-lived token scoped only to **Zone → SSL and Certificates → Edit**. The token is held in a temporary root-only file and removed when the script exits.
 
@@ -79,29 +80,11 @@ reviewed release to deploy. Do not replace either with `main` or another moving
 branch name. Keep the repository public only while the script retrieves the
 approved target, then return it to private visibility.
 
-## If a temporary-public dual-host deployment is explicitly approved
+## Historical dual-host deployment
 
-1. Record the exact reviewed 40-character commit SHA.
-2. In GitHub, temporarily make `readypackets/ReadyPackets-SiteSplit` public only after the full secret/history review.
-3. On the new VPS, install only the bootstrap prerequisites:
+The retired `one-click-install.sh` dual-host path is not a current temporary-public installation method. It retrieves a moving `main` bootstrap and does not provide the portal-only bootstrap's final current-main revalidation. Do not use it for the normal ReadyPackets topology.
 
-   ```bash
-   sudo apt-get update
-   sudo apt-get install -y curl ca-certificates git
-   ```
-
-4. Retrieve the guided installer from the public repository and run it:
-
-   ```bash
-   curl -fsSLO https://raw.githubusercontent.com/readypackets/ReadyPackets-SiteSplit/main/deploy/one-click-install.sh \
-     && chmod 0700 one-click-install.sh \
-     && sudo ./one-click-install.sh
-   ```
-
-5. At the prompts, supply both dedicated hostnames, select the appropriate TLS method, specify the approved full commit SHA rather than accepting a moving branch tip, and review the redacted plan before entering the confirmation phrase.
-6. Confirm the installer prints the migration count from its exact pinned source commit and **`48 critical tables verified.`**, then passes local/readiness checks. Do not compare it to a later `main` release: this temporary-public bootstrap intentionally pins its own reviewed historical application commit. Use the private read-only deploy-key master installer when the current reviewed release is required.
-7. Make the repository private immediately after the source has been cloned and the installer has recorded the installed commit. The running portal is not interrupted by that visibility change.
-8. Run the same MFA, backup, restore-drill, and public-health verification required for every production portal.
+Keep `www.readypackets.com` on its independently hosted marketing platform and install only the dedicated Portal hostname with the portal-only procedure above. If a dual-host topology is ever required again, prepare a separate reviewed release procedure with an immutable bootstrap checksum, a full target SHA, final branch revalidation, and its own security review before any deployment.
 
 ## TLS and credentials
 
