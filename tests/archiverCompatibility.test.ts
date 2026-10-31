@@ -1,19 +1,9 @@
-import { Writable } from "node:stream";
-import * as archiverModule from "archiver";
+import { Readable, Writable } from "node:stream";
+import { ZipFile } from "yazl";
 import { describe, expect, it } from "vitest";
 
-interface ZipArchiveInstance {
-  pipe(destination: NodeJS.WritableStream): NodeJS.WritableStream;
-  append(source: Buffer | string, data?: { name: string }): this;
-  finalize(): Promise<void>;
-}
-
-const ZipArchive = (archiverModule as unknown as {
-  ZipArchive: new (options?: { zlib?: { level?: number } }) => ZipArchiveInstance;
-}).ZipArchive;
-
-describe("Archiver 8 compatibility", () => {
-  it("creates an in-memory ZIP through the native ESM export", async () => {
+describe("streaming ZIP compatibility", () => {
+  it("creates an in-memory ZIP through the supported streaming writer", async () => {
     const chunks: Buffer[] = [];
     const target = new Writable({
       write(chunk, _encoding, callback) {
@@ -21,14 +11,15 @@ describe("Archiver 8 compatibility", () => {
         callback();
       },
     });
-    const archive = new ZipArchive({ zlib: { level: 6 } });
-    archive.pipe(target);
-    archive.append("ReadyPackets", { name: "readme.txt" });
+    const archive = new ZipFile();
+    archive.outputStream.pipe(target);
+    archive.addReadStream(Readable.from("ReadyPackets"), "readme.txt", { compress: true });
     const completed = new Promise<void>((resolve, reject) => {
       target.once("finish", resolve);
       target.once("error", reject);
+      archive.once("error", reject);
     });
-    await archive.finalize();
+    archive.end();
     await completed;
     expect(Buffer.concat(chunks).subarray(0, 4).toString("hex")).toBe("504b0304");
   });

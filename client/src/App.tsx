@@ -249,7 +249,7 @@ function PortalRoutes() {
   // Required policies lock customer portal navigation until accepted. The policy
   // page and security controls remain reachable so the customer can accept or sign out.
   useEffect(() => {
-    if (hasPendingRequiredPolicies && !location.startsWith("/portal/policies") && !location.startsWith("/portal/security")) {
+    if (hasPendingRequiredPolicies && !location.startsWith("/portal/policies") && !location.startsWith("/portal/security") && location !== "/portal/mfa-setup") {
       navigate("/portal/policies?required=1", { replace: true });
     }
   }, [hasPendingRequiredPolicies, location, navigate]);

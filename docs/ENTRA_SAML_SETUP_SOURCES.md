@@ -28,10 +28,14 @@ ReadyPackets is a SAML service provider, not an OIDC application registration. I
 
 - ACS/Reply URL: `{portal URL}/api/saml/acs`
 - Service provider metadata: `{portal URL}/api/saml/metadata`
-- Entra Login URL -> **Sign-in URL (entry point)**
-- Entra Identifier -> **Issuer (entity ID)**
+- ReadyPackets Sign-on URL in Entra Basic SAML Configuration: `{portal URL}/api/saml/login`
+- Entra Login URL -> **Microsoft Entra Login URL (IdP SSO endpoint)** in ReadyPackets. Do not paste the ReadyPackets Sign-on URL into this field.
+- Entra Identifier -> **Microsoft Entra Identifier (IdP issuer)** in ReadyPackets.
 - Entra raw Base64 signing certificate -> **Identity provider certificate**
 - Default MFA assurance settings: claim name `http://schemas.microsoft.com/claims/authnmethodsreferences`; required value `http://schemas.microsoft.com/claims/multipleauthn`.
 
 Do not use an Entra application client secret for this SAML configuration.
 
+## Redirect-binding troubleshooting
+
+`AADSTS750054` means Entra received an IdP login request without the expected SAML Redirect-binding request parameter. Start sign-in from the ReadyPackets **Sign in with Microsoft Entra ID** control or `{portal URL}/api/saml/login`; do not browse directly to an Entra endpoint as a substitute for the service-provider launch. Verify that Entra Basic SAML Configuration uses the ReadyPackets metadata URL as Identifier, the ACS URL as Reply URL, and the ReadyPackets login URL only as its Sign-on URL. Then paste Entra's own **Login URL** and **Microsoft Entra Identifier** into ReadyPackets. The application explicitly emits HTTP Redirect AuthnRequests and rejects accidental Portal endpoint values in the IdP Login URL field.

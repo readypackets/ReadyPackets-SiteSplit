@@ -240,6 +240,19 @@ export async function markMfaSatisfied(sessionId: string): Promise<void> {
     .where(eq(userSessions.id, sessionId));
 }
 
+/**
+ * Keep a just-enrolled account inside the restricted MFA surface until the
+ * one-time recovery-code screen is deliberately acknowledged. The codes are
+ * never persisted in browser storage, so a background session refresh must not
+ * make normal Portal navigation available before the user has had that chance.
+ */
+export async function requireMfaEnrolmentAcknowledgement(sessionId: string): Promise<void> {
+  await db
+    .update(userSessions)
+    .set({ mfaPending: false, restricted: true })
+    .where(eq(userSessions.id, sessionId));
+}
+
 export async function clearSessionRestriction(sessionId: string): Promise<void> {
   await db.update(userSessions).set({ restricted: false }).where(eq(userSessions.id, sessionId));
 }

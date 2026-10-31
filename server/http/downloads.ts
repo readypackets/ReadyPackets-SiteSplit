@@ -9,7 +9,7 @@
  */
 import type { Request, Response, Router } from "express";
 import express from "express";
-import * as archiverModule from "archiver";
+import { ZipFile } from "yazl";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { files } from "../db/schema.js";
@@ -19,22 +19,6 @@ import { contentDisposition, getObjectStream, objectExists } from "../services/s
 import { logger } from "../observability/logger.js";
 import { recordSecurityEvent } from "../observability/audit.js";
 import { singleRouteParam } from "./routeParam.js";
-
-/**
- * Archiver 8 is native ESM and exports `ZipArchive`; the installed community
- * declaration package currently models the pre-8 factory API. Keep the narrow
- * bridge here rather than falling back to the vulnerable legacy package.
- */
-interface ZipArchiveInstance {
-  on(event: "warning" | "error", listener: (error: Error) => void): this;
-  pipe(destination: NodeJS.WritableStream): NodeJS.WritableStream;
-  append(source: NodeJS.ReadableStream | Buffer | string, data?: { name: string }): this;
-  finalize(): Promise<void>;
-}
-
-const ZipArchive = (archiverModule as unknown as {
-  ZipArchive: new (options?: { zlib?: { level?: number } }) => ZipArchiveInstance;
-}).ZipArchive;
 
 export function createDownloadRouter(): Router {
   const router = express.Router();
@@ -201,18 +185,26 @@ export function createDownloadRouter(): Router {
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", contentDisposition(archiveName));
 
-    const archive = new ZipArchive({ zlib: { level: 6 } });
-    archive.on("warning", (error) => {
-      logger.warn("Archive warning during bulk download", { error });
-    });
+    const archive = new ZipFile();
     archive.on("error", (error) => {
       logger.error("Archive failed during bulk download", { error });
       if (!res.headersSent) res.status(500).end();
       else res.destroy();
     });
 
-    archive.pipe(res);
+    archive.outputStream.on("error", (error) => {
+      logger.error("Archive output stream failed during bulk download", { error });
+      if (!res.headersSent) res.status(500).end();
+      else res.destroy();
+    });
+    archive.outputStream.pipe(res);
 
+    let archiveEnded = false;
+    const endArchive = () => {
+      if (archiveEnded) return;
+      archiveEnded = true;
+      archive.end();
+    };
     const usedNames = new Set<string>();
     for (const file of deliverable) {
       if (!(await objectExists(file.storageKey))) continue;
@@ -225,7 +217,13 @@ export function createDownloadRouter(): Router {
         entryName = `${base}-${file.id}${ext}`;
       }
       usedNames.add(entryName);
-      archive.append(await getObjectStream(file.storageKey), { name: entryName });
+      const source = await getObjectStream(file.storageKey);
+      source.on("error", (error) => {
+        logger.error("Archive source stream failed during bulk download", { error, fileId: file.id });
+        endArchive();
+        res.destroy(error);
+      });
+      archive.addReadStream(source, entryName, { compress: true });
       void logFileAccess(
         file.id,
         session.user.id,
@@ -234,7 +232,7 @@ export function createDownloadRouter(): Router {
       );
     }
 
-    await archive.finalize();
+    endArchive();
   });
 
   return router;

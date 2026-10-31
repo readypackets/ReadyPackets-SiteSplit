@@ -32,6 +32,7 @@ export type SecurityEventType =
   | "password.changed"
   | "email.verified"
   | "mfa.enrolled"
+  | "mfa.enrolment_acknowledged"
   | "mfa.disabled"
   | "mfa.backup_code_used"
   | "mfa.enrolment_required"

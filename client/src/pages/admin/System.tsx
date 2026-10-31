@@ -993,7 +993,8 @@ function SamlPanel() {
           onChange={(event) => setDraft({ ...form, name: event.target.value })}
         />
         <Input
-          label="Sign-in URL (entry point)"
+          label="Identity provider Login URL (SAML entry point)"
+          help="For Microsoft Entra, copy Login URL from the Set up application pane. Do not enter the ReadyPackets Sign-on URL here."
           type="url"
           value={form.entryPoint}
           onChange={(event) => setDraft({ ...form, entryPoint: event.target.value })}

@@ -11,6 +11,7 @@ import { getSetting, getSettingBool, getSettingJson, setSetting } from "../servi
 import { parseBackupControl, runBackupControl } from "../services/backupControl.js";
 import { parsePlatformSetupProfile, PLATFORM_SETUP_PROFILE_FORMAT, PLATFORM_SETUP_PROFILE_VERSION } from "../services/platformSetupProfile.js";
 import { normalizeSharePointRootFolderPath, resetGraphTokenCache } from "../services/sharepoint.js";
+import { isReadyPacketsSamlServiceUrl } from "../auth/samlConfig.js";
 import { adminProcedure, router } from "../trpc/trpc.js";
 
 const emailSchema = z.object({
@@ -19,7 +20,7 @@ const emailSchema = z.object({
   graph: z.object({ tenantId: z.string().trim().max(128), clientId: z.string().trim().max(128), clientSecret: z.string().max(512).optional(), sender: z.string().trim().email().max(320) }),
 });
 
-const entraSchema = z.object({ enabled: z.boolean(), name: z.string().trim().min(2).max(120), entryPoint: z.string().trim().url().max(500), issuer: z.string().trim().min(2).max(255), certificate: z.string().trim().max(12000).optional(), autoProvision: z.boolean(), defaultRole: z.enum(["customer", "staff", "admin"]) });
+const entraSchema = z.object({ enabled: z.boolean(), name: z.string().trim().min(2).max(120), entryPoint: z.string().trim().url().max(500).refine((value) => !isReadyPacketsSamlServiceUrl(value), "Enter the Microsoft Entra Login URL, not a ReadyPackets SAML endpoint."), issuer: z.string().trim().min(2).max(255), certificate: z.string().trim().max(12000).optional(), autoProvision: z.boolean(), defaultRole: z.enum(["customer", "staff", "admin"]) });
 const webhookSchema = z.object({ url: z.string().trim().url().max(500).refine((value) => new URL(value).protocol === "https:", "Webhook URLs must use HTTPS."), secret: z.string().max(256).optional(), enabled: z.boolean() });
 
 function validIpPattern(value: string): boolean {

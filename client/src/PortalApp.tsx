@@ -112,7 +112,7 @@ function PortalRoutes() {
   const unreadOrderMessages = trpc.messages.unread.useQuery(undefined, { enabled: session.authenticated && !session.restricted && !hasPendingRequiredPolicies, refetchInterval: 60_000 });
 
   useEffect(() => {
-    if (hasPendingRequiredPolicies && !location.startsWith("/portal/policies") && !location.startsWith("/portal/security")) navigate("/portal/policies?required=1", { replace: true });
+    if (hasPendingRequiredPolicies && !location.startsWith("/portal/policies") && !location.startsWith("/portal/security") && location !== "/portal/mfa-setup") navigate("/portal/policies?required=1", { replace: true });
   }, [hasPendingRequiredPolicies, location, navigate]);
   useEffect(() => {
     if (session.restricted && location !== "/portal/mfa-setup") navigate("/portal/mfa-setup", { replace: true });

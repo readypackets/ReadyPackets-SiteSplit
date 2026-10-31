@@ -21,4 +21,9 @@ describe("SharePoint base-folder normalization", () => {
   it("rejects a root that would resolve above the document library root", () => {
     expect(() => normalizeSharePointRootFolderPath("customers")).toThrow("base folder above the ReadyPackets customers folder");
   });
+
+  it("rejects both single-dot and parent-dot path segments", () => {
+    expect(() => normalizeSharePointRootFolderPath("ReadyPackets/./Orders")).toThrow();
+    expect(() => normalizeSharePointRootFolderPath("ReadyPackets/../Orders")).toThrow();
+  });
 });

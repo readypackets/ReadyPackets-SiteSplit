@@ -15,6 +15,7 @@ import { notifyMaintenanceStart, notifyMaintenanceEnd } from "../services/mainte
 import { and, count, desc, eq, gt, gte, like, lte, or, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { env } from "../config/env.js";
+import { isReadyPacketsSamlServiceUrl } from "../auth/samlConfig.js";
 import { db } from "../db/client.js";
 import {
   activityLogs,
@@ -990,7 +991,23 @@ export const adminSecurityRouter = router({
   samlConfig: adminProcedure.query(async () => {
     const rows = await db.select().from(samlConfigs).limit(1);
     const config = rows[0];
-    if (!config) return null;
+    if (!config) {
+      return {
+        id: null,
+        name: "Microsoft Entra ID",
+        enabled: false,
+        entryPoint: "",
+        issuer: "",
+        certificatePresent: false,
+        signatureAlgorithm: "sha256",
+        attributeMapping: null,
+        defaultRole: "customer",
+        autoProvision: false,
+        acsUrl: `${env.appUrl}/api/saml/acs`,
+        metadataUrl: `${env.appUrl}/api/saml/metadata`,
+        signOnUrl: `${env.appUrl}/api/saml/login`,
+      };
+    }
     return {
       id: config.id,
       name: config.name,
@@ -1005,6 +1022,7 @@ export const adminSecurityRouter = router({
       autoProvision: config.autoProvision,
       acsUrl: `${env.appUrl}/api/saml/acs`,
       metadataUrl: `${env.appUrl}/api/saml/metadata`,
+      signOnUrl: `${env.appUrl}/api/saml/login`,
     };
   }),
 
@@ -1013,7 +1031,10 @@ export const adminSecurityRouter = router({
       z.object({
         name: z.string().trim().min(2).max(120),
         enabled: z.boolean(),
-        entryPoint: z.string().trim().url().max(500),
+        entryPoint: z.string().trim().url().max(500).refine(
+          (value) => !isReadyPacketsSamlServiceUrl(value),
+          "Enter the identity provider Login URL, not a ReadyPackets SAML endpoint.",
+        ),
         issuer: z.string().trim().min(2).max(255),
         idpCertificate: z.string().trim().min(100).max(20_000),
         signatureAlgorithm: z.enum(["sha256", "sha512"]).default("sha256"),

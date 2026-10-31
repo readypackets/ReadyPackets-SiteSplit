@@ -9,6 +9,7 @@ describe("SAML Entra registration and observability safeguards", () => {
     const saml = await text("server/auth/saml.ts");
     expect(saml).toContain('issuer: `${env.appUrl}/api/saml/metadata`');
     expect(saml).toContain('callbackUrl: `${env.appUrl}/api/saml/acs`');
+    expect(saml).toContain('authnRequestBinding: "HTTP-Redirect"');
     expect(saml).toContain("idpIssuer: config.issuer");
   });
 
@@ -20,6 +21,9 @@ describe("SAML Entra registration and observability safeguards", () => {
     expect(audit).toContain('"saml.login_started"');
     expect(saml).toContain('eventType: "saml.login_started"');
     expect(saml).toContain("identityProviderHost");
+    expect(saml).toContain('authnRequestBinding: "HTTP-Redirect"');
+    expect(saml).toContain("outboundSamlRequestPresent: true");
+    expect(saml).toContain('redirect.searchParams.get("SAMLRequest")');
     expect(saml).toContain("relayStateAccepted: Boolean(relayState)");
     expect(saml).not.toContain("metadata: { relayState");
   });
@@ -33,10 +37,28 @@ describe("SAML Entra registration and observability safeguards", () => {
     expect(saml).not.toContain("SAML assertion validation failed: ${msg}");
   });
 
-  it("labels Entra values so IdP and service-provider identifiers cannot be confused", async () => {
-    const setup = await text("client/src/pages/admin/EntraSetup.tsx");
+  it("does not retain malformed ACS assertion query strings in edge access logs", async () => {
+    const nginx = await text("deploy/nginx.conf");
+    expect(nginx).toContain("location = /api/saml/acs");
+    expect(nginx).toContain("access_log off;");
+  });
+
+  it("labels Entra values and rejects swapped Portal endpoint values", async () => {
+    const [setup, system, securityRouter, platformSetup, config] = await Promise.all([
+      text("client/src/pages/admin/EntraSetup.tsx"),
+      text("client/src/pages/admin/System.tsx"),
+      text("server/routers/adminSecurity.ts"),
+      text("server/routers/platformSetup.ts"),
+      text("server/auth/samlConfig.ts"),
+    ]);
     expect(setup).toContain('label: "Identifier (Entity ID)"');
-    expect(setup).toContain('label: "Sign-on URL"');
+    expect(setup).toContain('label: "Sign-on URL (ReadyPackets SP launch URL)"');
+    expect(setup).toContain("Microsoft Entra Login URL (IdP SSO endpoint)");
+    expect(securityRouter).toContain("signOnUrl: `${env.appUrl}/api/saml/login`");
     expect(setup).toContain("Microsoft Entra Identifier (IdP issuer)");
+    expect(system).toContain("Identity provider Login URL (SAML entry point)");
+    expect(securityRouter).toContain("isReadyPacketsSamlServiceUrl");
+    expect(platformSetup).toContain("isReadyPacketsSamlServiceUrl");
+    expect(config).toContain('"/api/saml/login"');
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, Download, Upload, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Download, FolderOpen, RefreshCw, ShieldCheck, Upload } from "lucide-react";
 import { trpc, errorMessage } from "@/lib/trpc";
 import { Button } from "@/components/ui/Button";
 import { Checkbox, FieldShell, Input, Select, Textarea } from "@/components/ui/Field";
@@ -26,6 +26,9 @@ export function AdminPlatformSetupPage() {
   const [loginWhitelistEnabled, setLoginWhitelistEnabled] = useState(false);
   const [loginWhitelistText, setLoginWhitelistText] = useState("");
   const [sharePoint, setSharePoint] = useState({ tenantId: "", clientId: "", clientSecret: "", siteId: "", driveId: "", siteUrl: "", rootFolderPath: "ReadyPackets/Orders", audioFallbackMode: "mp3" as "none" | "mp3" });
+  const [sharePointLibraries, setSharePointLibraries] = useState<Array<{ id: string; name: string; webUrl: string | null; isDefault: boolean }>>([]);
+  const [sharePointFolderPath, setSharePointFolderPath] = useState("");
+  const [sharePointVerified, setSharePointVerified] = useState(false);
   const [backupScheduleTime, setBackupScheduleTime] = useState("02:30");
   const profileInput = useRef<HTMLInputElement>(null);
   const initialNonSecretValuesLoaded = useRef(false);
@@ -34,13 +37,17 @@ export function AdminPlatformSetupPage() {
     if (!status.data || initialNonSecretValuesLoaded.current) return;
     initialNonSecretValuesLoaded.current = true;
     setSharePoint((value) => ({ ...value, ...status.data!.sharePoint }));
+    setSharePointFolderPath(status.data.sharePoint.rootFolderPath);
     if (status.data.backupScheduleTime) setBackupScheduleTime(status.data.backupScheduleTime);
   }, [status.data]);
 
   const refresh = async () => { await utils.platformSetup.status.invalidate(); };
   const saveEmail = trpc.platformSetup.saveEmail.useMutation({ onSuccess: async () => { await refresh(); toast.success("Email configuration saved"); setStep(2); }, onError: (error) => toast.error("Email configuration could not be saved", errorMessage(error)) });
   const saveEntra = trpc.platformSetup.saveEntra.useMutation({ onSuccess: async () => { await refresh(); toast.success("Microsoft Entra ID configuration saved"); setStep(3); }, onError: (error) => toast.error("Microsoft Entra ID configuration could not be saved", errorMessage(error)) });
-  const saveSharePoint = trpc.platformSetup.saveSharePoint.useMutation({ onSuccess: async () => { await refresh(); toast.success("SharePoint synchronization settings saved"); setSharePoint((value) => ({ ...value, clientSecret: "" })); setStep(4); }, onError: (error) => toast.error("SharePoint settings could not be saved", errorMessage(error)) });
+  const testSharePoint = trpc.integrations.testGraphConnection.useMutation({ onSuccess: (result) => { setSharePointVerified(true); toast.success("SharePoint read preflight passed", `${result.siteName} · ${result.driveName} · ${result.rootFolderPath}`); }, onError: (error) => { setSharePointVerified(false); toast.error("SharePoint connection test failed", errorMessage(error)); } });
+  const saveSharePoint = trpc.platformSetup.saveSharePoint.useMutation({ onSuccess: async (result) => { await refresh(); setSharePoint((value) => ({ ...value, clientSecret: "" })); setSharePointFolderPath(result.rootFolderPath); setSharePointVerified(false); toast.success("SharePoint settings saved", "Running the read-only connection preflight now."); testSharePoint.mutate(); }, onError: (error) => toast.error("SharePoint settings could not be saved", errorMessage(error)) });
+  const discoverSharePoint = trpc.integrations.discoverGraphConfig.useMutation({ onSuccess: (result) => { setSharePoint((value) => ({ ...value, siteId: result.siteId, driveId: result.driveId, siteUrl: result.siteUrl })); setSharePointLibraries(result.drives); setSharePointVerified(false); toast.success("SharePoint site and libraries discovered", `${result.siteName} · choose the document library to use.`); }, onError: (error) => toast.error("SharePoint discovery failed", errorMessage(error)) });
+  const browseSharePointFolders = trpc.integrations.browseGraphFolders.useQuery({ path: sharePointFolderPath }, { enabled: step === 3 && Boolean(status.data?.sharePointReady), retry: false });
   const saveStripe = trpc.platformSetup.saveStripe.useMutation({ onSuccess: async () => { await refresh(); toast.success("Stripe configuration saved"); setStep(5); }, onError: (error) => toast.error("Stripe configuration could not be saved", errorMessage(error)) });
   const saveWebhooks = trpc.platformSetup.savePhaseWebhooks.useMutation({ onSuccess: async () => { await refresh(); toast.success("Phase webhook configuration saved"); setStep(6); }, onError: (error) => toast.error("Phase webhooks could not be saved", errorMessage(error)) });
   const saveAccess = trpc.platformSetup.saveAccess.useMutation({ onSuccess: async () => { await refresh(); toast.success("Access controls saved"); setStep(7); }, onError: (error) => toast.error("Access controls could not be saved", errorMessage(error)) });
@@ -103,9 +110,86 @@ export function AdminPlatformSetupPage() {
 
     {step === 1 ? <Card><CardHeader title="Outbound email" description="Choose SMTP or Microsoft Graph. Select not configured only when you intentionally want to defer sending portal notifications." /><div className="mt-5 space-y-4"><FieldShell label="Delivery method"><Select value={transport} onChange={(event) => setTransport(event.target.value as typeof transport)} options={[{ value: "none", label: "Not configured yet" }, { value: "smtp", label: "SMTP" }, { value: "graph", label: "Microsoft Graph API" }]} /></FieldShell>{transport === "smtp" ? <div className="grid gap-4 sm:grid-cols-2"><Input label="SMTP host" value={smtp.host} onChange={(event) => setSmtp({ ...smtp, host: event.target.value })} placeholder="smtp.example.com" /><Input label="Port" type="number" value={smtp.port} onChange={(event) => setSmtp({ ...smtp, port: event.target.value })} /><Input label="Username" value={smtp.user} onChange={(event) => setSmtp({ ...smtp, user: event.target.value })} /><Input label="Password" type="password" value={smtp.password} onChange={(event) => setSmtp({ ...smtp, password: event.target.value })} placeholder="Leave blank to preserve an existing secret" /><Input label="From address" type="email" value={smtp.from} onChange={(event) => setSmtp({ ...smtp, from: event.target.value })} /><Input label="Reply-to address" type="email" value={smtp.replyTo} onChange={(event) => setSmtp({ ...smtp, replyTo: event.target.value })} /><Checkbox label="Use implicit TLS" checked={smtp.secure} onChange={(event) => setSmtp({ ...smtp, secure: event.target.checked })} /></div> : null}{transport === "graph" ? <div className="grid gap-4 sm:grid-cols-2"><Input label="Tenant ID" value={graph.tenantId} onChange={(event) => setGraph({ ...graph, tenantId: event.target.value })} /><Input label="Client ID" value={graph.clientId} onChange={(event) => setGraph({ ...graph, clientId: event.target.value })} /><Input label="Client secret" type="password" value={graph.clientSecret} onChange={(event) => setGraph({ ...graph, clientSecret: event.target.value })} placeholder="Leave blank to preserve an existing secret" /><Input label="Sender address" type="email" value={graph.sender} onChange={(event) => setGraph({ ...graph, sender: event.target.value })} /></div> : null}</div><WizardButtons onBack={previous} onSkip={next} skipLabel="Skip for now" onSave={() => saveEmail.mutate({ transport, smtp: { ...smtp, port: Number(smtp.port) || 587 }, graph })} busy={saveEmail.isPending} saveLabel="Save email setup" /></Card> : null}
 
-    {step === 2 ? <Card><CardHeader title="Microsoft Entra ID" description="Configure SAML single sign-on. Keep this disabled until you have tested the Reply URL and certificate in Entra." /><div className="mt-5 space-y-4"><Checkbox label="Enable Microsoft Entra ID sign-in after saving" checked={entra.enabled} onChange={(event) => setEntra({ ...entra, enabled: event.target.checked })} /><div className="grid gap-4 sm:grid-cols-2"><Input label="Configuration name" value={entra.name} onChange={(event) => setEntra({ ...entra, name: event.target.value })} /><Input label="Sign-on URL" type="url" value={entra.entryPoint} onChange={(event) => setEntra({ ...entra, entryPoint: event.target.value })} placeholder="https://login.microsoftonline.com/..." /><Input label="Entity ID / issuer" value={entra.issuer} onChange={(event) => setEntra({ ...entra, issuer: event.target.value })} /><Select label="Automatic new-user role" value={entra.defaultRole} onChange={(event) => setEntra({ ...entra, defaultRole: event.target.value as typeof entra.defaultRole })} options={[{ value: "customer", label: "Customer" }, { value: "staff", label: "Staff" }, { value: "admin", label: "Administrator" }]} /><Checkbox label="Automatically provision assigned SAML users" checked={entra.autoProvision} onChange={(event) => setEntra({ ...entra, autoProvision: event.target.checked })} /></div><Textarea label="Base64 certificate" rows={7} value={entra.certificate} onChange={(event) => setEntra({ ...entra, certificate: event.target.value })} placeholder="Paste the certificate; leave blank only to retain the existing value." /><Alert tone="info">Reply URL: <code>{window.location.origin}/api/saml/acs</code></Alert></div><WizardButtons onBack={previous} onSkip={next} skipLabel="Skip for now" onSave={() => saveEntra.mutate(entra)} busy={saveEntra.isPending} saveLabel="Save Entra setup" /></Card> : null}
+    {step === 2 ? <Card><CardHeader title="Microsoft Entra ID" description="Configure SAML single sign-on. Keep this disabled until a local administrator sign-in and an Entra assertion are both tested." /><div className="mt-5 space-y-4"><Alert tone="info" title="Keep Portal and Entra URLs distinct">In Entra Basic SAML Configuration, use <code>{window.location.origin}/api/saml/metadata</code> as the Identifier, <code>{window.location.origin}/api/saml/acs</code> as the Reply URL, and <code>{window.location.origin}/api/saml/login</code> as the ReadyPackets Sign-on URL. The field below instead requires Entra’s Login URL from its Set up application pane.</Alert><Checkbox label="Enable Microsoft Entra ID sign-in after saving" checked={entra.enabled} onChange={(event) => setEntra({ ...entra, enabled: event.target.checked })} /><div className="grid gap-4 sm:grid-cols-2"><Input label="Configuration name" value={entra.name} onChange={(event) => setEntra({ ...entra, name: event.target.value })} /><Input label="Microsoft Entra Login URL (IdP SSO endpoint)" help="Copy Login URL from Entra’s Set up application pane. Do not enter ReadyPackets’ Sign-on URL here." type="url" value={entra.entryPoint} onChange={(event) => setEntra({ ...entra, entryPoint: event.target.value })} placeholder="https://login.microsoftonline.com/.../saml2" /><Input label="Microsoft Entra Identifier (IdP issuer)" help="Copy Microsoft Entra Identifier from Entra’s Set up application pane." value={entra.issuer} onChange={(event) => setEntra({ ...entra, issuer: event.target.value })} /><Select label="Automatic new-user role" value={entra.defaultRole} onChange={(event) => setEntra({ ...entra, defaultRole: event.target.value as typeof entra.defaultRole })} options={[{ value: "customer", label: "Customer" }, { value: "staff", label: "Staff" }, { value: "admin", label: "Administrator" }]} /><Checkbox label="Automatically provision assigned SAML users" checked={entra.autoProvision} onChange={(event) => setEntra({ ...entra, autoProvision: event.target.checked })} /></div><Textarea label="Base64 certificate" rows={7} value={entra.certificate} onChange={(event) => setEntra({ ...entra, certificate: event.target.value })} placeholder="Paste the certificate; leave blank only to retain the existing value." /></div><WizardButtons onBack={previous} onSkip={next} skipLabel="Skip for now" onSave={() => saveEntra.mutate(entra)} busy={saveEntra.isPending} saveLabel="Save Entra setup" /></Card> : null}
 
-    {step === 3 ? <Card><CardHeader title="SharePoint site synchronization" description="Save the Microsoft Graph application identity, selected site, document library, and existing base folder used for customer and order synchronization." /><div className="mt-5 space-y-4"><Alert tone="info">Use the Site and library IDs discovered in Administrator → Integrations. The base folder must already exist in the selected library and must be above the ReadyPackets customers folder. Saving does not create or change SharePoint content.</Alert><div className="grid gap-4 sm:grid-cols-2"><Input label="Microsoft Entra tenant ID" value={sharePoint.tenantId} onChange={(event) => setSharePoint({ ...sharePoint, tenantId: event.target.value })} /><Input label="Application (client) ID" value={sharePoint.clientId} onChange={(event) => setSharePoint({ ...sharePoint, clientId: event.target.value })} /><Input label="Application client secret" type="password" value={sharePoint.clientSecret} onChange={(event) => setSharePoint({ ...sharePoint, clientSecret: event.target.value })} placeholder="Leave blank only to preserve an existing secret" /><Input label="SharePoint site ID" value={sharePoint.siteId} onChange={(event) => setSharePoint({ ...sharePoint, siteId: event.target.value })} /><Input label="Document library / drive ID" value={sharePoint.driveId} onChange={(event) => setSharePoint({ ...sharePoint, driveId: event.target.value })} /><Input label="SharePoint site URL" type="url" value={sharePoint.siteUrl} onChange={(event) => setSharePoint({ ...sharePoint, siteUrl: event.target.value })} placeholder="https://tenant.sharepoint.com/sites/ReadyPackets" /><Input label="Existing base folder" value={sharePoint.rootFolderPath} onChange={(event) => setSharePoint({ ...sharePoint, rootFolderPath: event.target.value })} placeholder="RP_Intake_Raw/ReadyPackets" /><Select label="WebM audio fallback" value={sharePoint.audioFallbackMode} onChange={(event) => setSharePoint({ ...sharePoint, audioFallbackMode: event.target.value as "none" | "mp3" })} options={[{ value: "mp3", label: "Also upload an MP3 compatibility copy" }, { value: "none", label: "Keep original WebM only" }]} /></div></div><WizardButtons onBack={previous} onSkip={next} skipLabel="Skip for now" onSave={() => saveSharePoint.mutate(sharePoint)} busy={saveSharePoint.isPending} saveLabel="Save SharePoint sync" /></Card> : null}
+
+    {step === 3 ? (
+      <Card>
+        <CardHeader
+          title="SharePoint site synchronization"
+          description="Discover the selected SharePoint site, choose a document library, save the intended base folder, then run a read-only connection preflight."
+        />
+        <div className="mt-5 space-y-5">
+          <Alert tone="info" title="Least-privilege connection">
+            Use a Microsoft Graph application with tenant consent and an explicit write grant for this SharePoint site. Discovery and the connection test are read-only; synchronization later writes only below the base folder you select.
+          </Alert>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input label="Microsoft Entra tenant ID" value={sharePoint.tenantId} onChange={(event) => { setSharePoint({ ...sharePoint, tenantId: event.target.value }); setSharePointVerified(false); }} />
+            <Input label="Application (client) ID" value={sharePoint.clientId} onChange={(event) => { setSharePoint({ ...sharePoint, clientId: event.target.value }); setSharePointVerified(false); }} />
+            <Input label="Application client secret" type="password" value={sharePoint.clientSecret} onChange={(event) => { setSharePoint({ ...sharePoint, clientSecret: event.target.value }); setSharePointVerified(false); }} placeholder="Leave blank only to preserve an existing secret" />
+            <Input label="SharePoint site URL" type="url" value={sharePoint.siteUrl} onChange={(event) => { setSharePoint({ ...sharePoint, siteUrl: event.target.value }); setSharePointLibraries([]); setSharePointVerified(false); }} placeholder="https://tenant.sharepoint.com/sites/ReadyPackets" />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              busy={discoverSharePoint.isPending}
+              disabled={!sharePoint.tenantId || !sharePoint.clientId || !sharePoint.siteUrl || (!sharePoint.clientSecret && !status.data?.sharePointReady)}
+              onClick={() => discoverSharePoint.mutate({ tenantId: sharePoint.tenantId || undefined, clientId: sharePoint.clientId || undefined, clientSecret: sharePoint.clientSecret || undefined, siteUrl: sharePoint.siteUrl })}
+              leadingIcon={<RefreshCw className="size-4" aria-hidden="true" />}
+            >
+              Discover site & libraries
+            </Button>
+            <span className="text-xs text-muted">Discovery does not save settings or change SharePoint content.</span>
+          </div>
+          {sharePointLibraries.length > 0 ? (
+            <FieldShell label="Document library" help="Choose the library that will contain the ReadyPackets customer and order hierarchy.">
+              <Select value={sharePoint.driveId} onChange={(event) => { setSharePoint({ ...sharePoint, driveId: event.target.value }); setSharePointVerified(false); }}>
+                {sharePointLibraries.map((library) => <option key={library.id} value={library.id}>{library.name}{library.isDefault ? " (default)" : ""}</option>)}
+              </Select>
+            </FieldShell>
+          ) : null}
+          <details className="rounded-lg border border-line bg-surface-soft p-4">
+            <summary className="cursor-pointer font-semibold text-ink">Advanced recovery: enter known Site and library IDs</summary>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Input label="SharePoint site ID" value={sharePoint.siteId} onChange={(event) => { setSharePoint({ ...sharePoint, siteId: event.target.value }); setSharePointVerified(false); }} />
+              <Input label="Document library / drive ID" value={sharePoint.driveId} onChange={(event) => { setSharePoint({ ...sharePoint, driveId: event.target.value }); setSharePointVerified(false); }} />
+            </div>
+          </details>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input label="Existing base folder" help="Choose a folder above ReadyPackets customers. The portal never changes an existing folder while browsing or testing." value={sharePoint.rootFolderPath} onChange={(event) => { setSharePoint({ ...sharePoint, rootFolderPath: event.target.value }); setSharePointVerified(false); }} placeholder="RP_Intake_Raw/ReadyPackets" />
+            <Select label="WebM audio fallback" value={sharePoint.audioFallbackMode} onChange={(event) => setSharePoint({ ...sharePoint, audioFallbackMode: event.target.value as "none" | "mp3" })} options={[{ value: "mp3", label: "Also upload an MP3 compatibility copy" }, { value: "none", label: "Keep original WebM only" }]} />
+          </div>
+          {status.data?.sharePointReady ? (
+            <div className="rounded-lg border border-line p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-ink">Select existing sync folder</h3>
+                  <p className="mt-1 text-sm text-body">Browsing is read-only. Save the form after selecting a folder to activate it.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setSharePointFolderPath("")} leadingIcon={<FolderOpen className="size-4" aria-hidden="true" />}>Browse library root</Button>
+                  <Button size="sm" variant="outline" busy={testSharePoint.isPending} onClick={() => testSharePoint.mutate()} leadingIcon={<RefreshCw className="size-4" aria-hidden="true" />}>Run read preflight</Button>
+                </div>
+              </div>
+              {browseSharePointFolders.error ? <Alert tone="warning" className="mt-4">{errorMessage(browseSharePointFolders.error)}</Alert> : null}
+              {browseSharePointFolders.data ? (
+                <div className="mt-4 space-y-3">
+                  <p className="text-sm text-body">Current folder: <code>{browseSharePointFolders.data.currentPath || "/"}</code></p>
+                  <div className="flex flex-wrap gap-2">
+                    {browseSharePointFolders.data.parentPath !== null ? <Button size="sm" variant="ghost" onClick={() => setSharePointFolderPath(browseSharePointFolders.data!.parentPath ?? "")}>Up one folder</Button> : null}
+                    {browseSharePointFolders.data.currentPath ? <Button size="sm" variant="secondary" onClick={() => { setSharePoint({ ...sharePoint, rootFolderPath: browseSharePointFolders.data!.currentPath }); setSharePointVerified(false); }}>Use current folder as base</Button> : null}
+                  </div>
+                  {browseSharePointFolders.data.folders.length ? <div className="grid gap-2 sm:grid-cols-2">{browseSharePointFolders.data.folders.map((folder) => <Button key={folder.id} variant="outline" className="justify-start" onClick={() => setSharePointFolderPath(folder.path)} leadingIcon={<FolderOpen className="size-4" aria-hidden="true" />}>{folder.name}</Button>)}</div> : <p className="text-sm text-muted">No child folders are available here.</p>}
+                </div>
+              ) : null}
+            </div>
+          ) : <Alert tone="info">Save the discovered site, library, and an existing base-folder path once to unlock the read-only folder browser and connection preflight.</Alert>}
+          {sharePointVerified ? <Alert tone="success">The configured site, library, and base folder passed the read-only Graph preflight.</Alert> : null}
+        </div>
+        <WizardButtons onBack={previous} onSkip={next} skipLabel="Continue to Stripe" onSave={() => saveSharePoint.mutate(sharePoint)} busy={saveSharePoint.isPending} saveLabel="Save & test SharePoint sync" />
+      </Card>
+    ) : null}
+
 
     {step === 4 ? <Card><CardHeader title="Stripe payments" description="Enter the Stripe API keys and webhook signing secret. The webhook secret is required before ReadyPackets treats a returned checkout as paid." /><div className="mt-5 grid gap-4 sm:grid-cols-2"><Input label="Secret key" type="password" value={stripe.secretKey} onChange={(event) => setStripe({ ...stripe, secretKey: event.target.value })} placeholder="sk_live_… or sk_test_…" /><Input label="Publishable key" value={stripe.publishableKey} onChange={(event) => setStripe({ ...stripe, publishableKey: event.target.value })} placeholder="pk_live_… or pk_test_…" /><Input className="sm:col-span-2" label="Webhook signing secret" type="password" value={stripe.webhookSecret} onChange={(event) => setStripe({ ...stripe, webhookSecret: event.target.value })} placeholder="whsec_…" /></div><Alert tone="info" className="mt-4">Register this webhook in Stripe: <code>{window.location.origin}/api/stripe/webhook</code></Alert><WizardButtons onBack={previous} onSkip={next} skipLabel="Skip for now" onSave={() => saveStripe.mutate(stripe)} busy={saveStripe.isPending} saveLabel="Save Stripe setup" /></Card> : null}
 

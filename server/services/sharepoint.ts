@@ -73,11 +73,11 @@ interface GraphRuntimeConfig {
  */
 export function normalizeSharePointRootFolderPath(value: string): string {
   const normalized = value.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  if (!normalized || normalized.length > 240 || normalized.includes("..")) {
+  if (!normalized || normalized.length > 240) {
     throw new Error("Select a valid SharePoint base folder without dot segments.");
   }
   const segments = normalized.split("/");
-  if (segments.some((segment) => !segment || !/^[A-Za-z0-9 _().-]{1,96}$/.test(segment))) {
+  if (segments.some((segment) => !segment || segment === "." || segment === ".." || !/^[A-Za-z0-9 _().-]{1,96}$/.test(segment))) {
     throw new Error("The SharePoint root folder contains unsupported characters.");
   }
   const managedCustomersIndex = segments.findIndex((segment) => segment.toLowerCase() === "customers");
@@ -178,10 +178,12 @@ export async function browseSharePointFolders(path = ""): Promise<{ currentPath:
 export async function testSharePointConnection(): Promise<{ siteName: string; driveName: string; rootFolderPath: string; folderCount: number }> {
   const config = await getGraphRuntimeConfig();
   if (!config.enabled || !config.siteId || !config.driveId) throw new Error("Complete and save tenant, client, secret, site, and document-library settings before testing the connection.");
-  const [site, drive] = await Promise.all([
+  const [site, driveList] = await Promise.all([
     graphRequest("GET", `/sites/${encodeURIComponent(config.siteId)}?$select=id,displayName,name`) as Promise<{ displayName?: string; name?: string }>,
-    graphRequest("GET", `/drives/${encodeURIComponent(config.driveId)}?$select=id,name`) as Promise<{ name?: string }>,
+    graphRequest("GET", `/sites/${encodeURIComponent(config.siteId)}/drives?$select=id,name,webUrl`) as Promise<{ value?: Array<{ id?: string; name?: string }> }>,
   ]);
+  const drive = (driveList.value ?? []).find((candidate) => candidate.id === config.driveId);
+  if (!drive) throw new Error("The selected document library does not belong to the configured SharePoint site. Rediscover the site and choose a library from its results.");
   try {
     const root = await browseSharePointFolders(config.rootFolderPath);
     return { siteName: site.displayName ?? site.name ?? "SharePoint site", driveName: drive.name ?? "Document library", rootFolderPath: root.currentPath, folderCount: root.folders.length };
@@ -396,8 +398,10 @@ async function ensureFolder(folderPath: string): Promise<string> {
         `/drives/${driveId}/items/${parentId}:/${encodeURIComponent(segment)}`
       )) as { id: string };
       parentId = existing.id;
-    } catch {
-      // Folder does not exist — create it.
+    } catch (error) {
+      // Create only after a definitive missing-folder response. Authentication,
+      // authorization, throttling, and transient failures must remain failures.
+      if (!(error instanceof SharePointGraphRequestError) || error.status !== 404) throw error;
       const created = (await graphRequest(
         "POST",
         `/drives/${driveId}/items/${parentId}/children`,
@@ -659,8 +663,9 @@ function workflowStageKeyForPhase(phase: string): string {
 
 export function normalizeSharePointRelativePath(value: string): string {
   const normalized = value.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  if (!normalized || normalized.length > 240 || normalized.includes("..")) throw new Error("The SharePoint folder path must be relative and cannot contain dot segments.");
+  if (!normalized || normalized.length > 240) throw new Error("The SharePoint folder path must be relative and cannot contain dot segments.");
   const segments = normalized.split("/");
+  if (segments.some((segment) => segment === "." || segment === "..")) throw new Error("The SharePoint folder path must be relative and cannot contain dot segments.");
   if (segments.some((segment) => !segment || !/^[A-Za-z0-9 _().-]{1,96}$/.test(segment))) throw new Error("The SharePoint folder path contains unsupported characters.");
   return segments.join("/");
 }
@@ -1088,15 +1093,12 @@ async function jobAttachPlaceholders(orderId: number, phase: string): Promise<vo
   const customerPublicId = customer?.publicId ?? customer?.customerNumber ?? "RP-CUS-UNKNOWN";
 
   const placeholders = DEFAULT_PLACEHOLDERS[phase] ?? [];
-  const { folderPath, orderRoot } = await resolveOrderStageFolder(orderId, phase, graphConfig);
+  const { folderPath } = await resolveOrderStageFolder(orderId, phase, graphConfig);
 
-  let folderId: string;
-  try {
-    folderId = await ensureFolder(folderPath);
-  } catch {
-    // Folder may not exist yet if create_folders job hasn't run.
-    folderId = await ensureFolder(orderRoot);
-  }
+  // ensureFolder creates the required nested hierarchy itself. Do not mask an
+  // authorization, throttling, or transport failure by retrying a different
+  // parent folder.
+  const folderId = await ensureFolder(folderPath);
 
   for (const sourceFileName of placeholders) {
     const fileName = buildOrderFileName({ customerPublicId, orderNumber, sourceName: sourceFileName });

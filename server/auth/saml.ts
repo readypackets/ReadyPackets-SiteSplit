@@ -94,6 +94,7 @@ function buildSamlInstance(config: SamlConfigRow): SAML {
     idpCert: config.idpCertificate,
     idpIssuer: config.issuer,
     signatureAlgorithm: config.signatureAlgorithm as "sha1" | "sha256" | "sha512",
+    authnRequestBinding: "HTTP-Redirect",
     wantAssertionsSigned: true,
     wantAuthnResponseSigned: false,
     disableRequestedAuthnContext: true,
@@ -143,6 +144,10 @@ export async function handleLoginRedirect(req: Request, res: Response): Promise<
     const relayState = requestedReturn.startsWith("/portal") || (env.mobile.enabled && requestedReturn.startsWith("/api/mobile/v1/authorize?")) ? requestedReturn : "";
     const authorizeUrl = await saml.getAuthorizeUrlAsync(relayState, req.headers.host ?? "", {});
     const redirectUrl = typeof authorizeUrl === "string" ? authorizeUrl : (authorizeUrl as any).context as string;
+    const redirect = new URL(redirectUrl);
+    if (!redirect.searchParams.get("SAMLRequest")) {
+      throw new Error("IdP authorization URL did not include a SAML request.");
+    }
     await recordSecurityEvent({
       eventType: "saml.login_started",
       outcome: "success",
@@ -154,6 +159,8 @@ export async function handleLoginRedirect(req: Request, res: Response): Promise<
         identityProvider: config.name,
         identityProviderHost: identityProviderHost(config.entryPoint),
         serviceProviderEntityId: `${env.appUrl}/api/saml/metadata`,
+        authnRequestBinding: "HTTP-Redirect",
+        outboundSamlRequestPresent: true,
         relayStateAccepted: Boolean(relayState),
       },
     });

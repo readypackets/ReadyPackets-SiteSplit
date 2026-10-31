@@ -7,7 +7,7 @@
  * back, so a stolen session cannot be used to clone the second factor.
  */
 import { useState } from "react";
-import { useSearchParams } from "wouter";
+import { useLocation, useSearchParams } from "wouter";
 import {
   Copy,
   KeyRound,
@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { trpc, errorMessage } from "@/lib/trpc";
 import { useSession } from "@/lib/session";
-import { formatDateTime, formatRelative } from "@/lib/utils";
+import { copyToClipboard, formatDateTime, formatRelative } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input, PasswordInput } from "@/components/ui/Field";
 import { Alert, Badge, Card, CardHeader, Skeleton } from "@/components/ui/Surface";
@@ -424,7 +424,13 @@ export function SecurityPage() {
 }
 
 /** Enrolment flow, shared by the settings page and the mandatory admin gate. */
-export function MfaEnrolment({ onComplete }: { onComplete?: () => void }) {
+export function MfaEnrolment({
+  onComplete,
+  onRecoveryCodesVisible,
+}: {
+  onComplete?: () => void;
+  onRecoveryCodesVisible?: () => void;
+}) {
   const toast = useToast();
   const session = useSession();
   const [stage, setStage] = useState<"idle" | "scan" | "codes">("idle");
@@ -451,10 +457,21 @@ export function MfaEnrolment({ onComplete }: { onComplete?: () => void }) {
       // away before the user has a chance to save these one-time recovery codes.
       setBackupCodes(result.backupCodes);
       setStage("codes");
+      onRecoveryCodesVisible?.();
     },
     onError(error) {
       setFormError(errorMessage(error));
       setCode("");
+    },
+  });
+
+  const completeEnrolment = trpc.auth.completeMfaEnrolment.useMutation({
+    async onSuccess() {
+      await session.refresh();
+      onComplete?.();
+    },
+    onError(error) {
+      toast.error("Could not complete MFA enrolment", errorMessage(error));
     },
   });
 
@@ -546,7 +563,8 @@ export function MfaEnrolment({ onComplete }: { onComplete?: () => void }) {
     <div className="mt-5">
       <Alert tone="success" title="Two-factor authentication is enabled">
         Store these backup codes somewhere safe. Each works once, and they are your way back in if
-        you lose your authenticator device. They will not be shown again.
+        you lose your authenticator device. They will not be shown again. Do not close or reload this
+        screen until you have saved them.
       </Alert>
       <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {backupCodes.map((backupCode) => (
@@ -562,16 +580,19 @@ export function MfaEnrolment({ onComplete }: { onComplete?: () => void }) {
         <Button
           variant="outline"
           onClick={() => {
-            void navigator.clipboard.writeText(backupCodes.join("\n"));
-            toast.success("Copied to clipboard");
+            void copyToClipboard(backupCodes.join("\n")).then((copied) => {
+              if (copied) toast.success("Copied to clipboard");
+              else toast.error("Clipboard unavailable", "Select and copy the codes manually before continuing.");
+            });
           }}
           leadingIcon={<Copy className="size-4" aria-hidden="true" />}
         >
           Copy codes
         </Button>
         <Button
+          busy={completeEnrolment.isPending}
           onClick={() => {
-            void session.refresh().then(() => onComplete?.());
+            completeEnrolment.mutate();
           }}
         >
           I have saved my codes — continue
@@ -584,7 +605,9 @@ export function MfaEnrolment({ onComplete }: { onComplete?: () => void }) {
 /** Standalone page used to force administrators through enrolment. */
 export function MfaSetupPage() {
   const session = useSession();
-  const mfa = trpc.auth.mfaStatus.useQuery();
+  const [, navigate] = useLocation();
+  const [recoveryCodesVisible, setRecoveryCodesVisible] = useState(false);
+  const mfa = trpc.auth.mfaStatus.useQuery(undefined, { enabled: !recoveryCodesVisible });
 
   return (
     <>
@@ -598,7 +621,7 @@ export function MfaSetupPage() {
       />
 
       <Card className="max-w-2xl">
-        {mfa.data?.enabled ? (
+        {mfa.data?.enabled && !recoveryCodesVisible ? (
           <Alert tone="success" title="Already enabled">
             Two-factor authentication is active on this account.
           </Alert>
@@ -608,7 +631,14 @@ export function MfaSetupPage() {
               You will need an authenticator app on your phone or in your password manager. Any app
               that supports time-based one-time passwords will work; nothing proprietary is required.
             </p>
-            <MfaEnrolment onComplete={() => void mfa.refetch()} />
+            <MfaEnrolment
+              onRecoveryCodesVisible={() => setRecoveryCodesVisible(true)}
+              onComplete={() => {
+                setRecoveryCodesVisible(false);
+                void mfa.refetch();
+                navigate(session.isAdmin || session.isStaff ? "/admin" : "/portal", { replace: true });
+              }}
+            />
           </>
         )}
       </Card>

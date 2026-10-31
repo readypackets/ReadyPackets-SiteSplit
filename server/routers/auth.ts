@@ -49,6 +49,7 @@ import {
   clearSessionCookies,
   createSession,
   markMfaSatisfied,
+  requireMfaEnrolmentAcknowledgement,
   resolveSession,
   revokePendingMfaSessions,
   revokeAllUserSessions,
@@ -947,7 +948,11 @@ export const authRouter = router({
         accountLabelFor(user.id, user.email),
       );
       await setMfaEnabled(user.id, true);
-      await markMfaSatisfied(session.sessionId);
+      // Recovery codes are returned only once. Keep this session restricted
+      // until the caller explicitly confirms that the code screen is complete;
+      // otherwise a focus-triggered session refresh could navigate away and
+      // discard the in-memory plaintext before it can be saved.
+      await requireMfaEnrolmentAcknowledgement(session.sessionId);
 
       void recordSecurityEvent({
         eventType: "mfa.enrolled",
@@ -958,6 +963,33 @@ export const authRouter = router({
 
       return { ok: true as const, backupCodes };
     }),
+
+  completeMfaEnrolment: sessionProcedure.mutation(async ({ ctx }) => {
+    const session = ctx.session;
+    if (!session?.restricted) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "MFA enrolment acknowledgement is not pending for this session.",
+      });
+    }
+    if (!session.user.mfaEnabled || !(await hasConfirmedMfa(session.user.id))) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Complete MFA verification before continuing.",
+      });
+    }
+
+    // This is a privilege transition. Rotate the authenticated session so the
+    // pending-MFA cookie and its CSRF secret cannot be reused after completion.
+    await rotateSession(ctx.res, session, { mfaPending: false, restricted: false });
+    void recordSecurityEvent({
+      eventType: "mfa.enrolment_acknowledged",
+      message: "MFA enrolment recovery-code screen acknowledged",
+      userId: session.user.id,
+      ipAddress: ctx.clientIp,
+    });
+    return { ok: true as const };
+  }),
 
   regenerateBackupCodes: protectedProcedure
     .input(z.object({ code: z.string().trim().length(6) }))

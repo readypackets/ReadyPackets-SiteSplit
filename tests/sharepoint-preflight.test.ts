@@ -44,7 +44,7 @@ describe("SharePoint connection base-folder preflight", () => {
         return jsonResponse({ access_token: "access-token", expires_in: 3600 });
       }
       if (url.includes("/sites/site-id?")) return jsonResponse({ id: "site-id", displayName: "ReadyPackets" });
-      if (url.includes("/drives/drive-id?")) return jsonResponse({ id: "drive-id", name: "Documents" });
+      if (url.includes("/sites/site-id/drives?")) return jsonResponse({ value: [{ id: "drive-id", name: "Documents" }] });
       if (url.includes("/drives/drive-id/root:/ReadyPacket/Orders?$select=id,folder")) {
         return jsonResponse({ error: { code: "itemNotFound", message: "test-client-secret must not leak" } }, 404);
       }
